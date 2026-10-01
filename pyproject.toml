@@ -1,0 +1,20 @@
+[project]
+name = "ko-parser"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = ["ko-parser-contracts"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+ko-parser-contracts = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/contracts/tests"]
