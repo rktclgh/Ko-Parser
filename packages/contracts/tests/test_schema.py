@@ -1,0 +1,29 @@
+import json
+
+from ko_parser_contracts import schema
+import ko_parser_contracts as kpc
+
+
+def test_render_has_all_roots_with_version_const():
+    rendered = schema.render_schemas()
+    assert set(rendered) == {f"{name}.schema.json" for name in schema.ROOT_MODELS}
+    doc = json.loads(rendered["document_tree.schema.json"])
+    assert doc["properties"]["schema_version"]["const"] == "0.1"
+
+
+def test_export_and_check_roundtrip(tmp_path):
+    schema.export_schemas(tmp_path)
+    assert schema.check_schemas(tmp_path) == []
+    (tmp_path / "vlm_result.schema.json").write_text("{}", encoding="utf-8")
+    assert schema.check_schemas(tmp_path) == ["vlm_result.schema.json"]
+
+
+def test_committed_schemas_are_current():
+    assert schema.check_schemas(schema.SCHEMA_DIR) == []
+
+
+def test_public_api_exports():
+    for name in ("DocumentTree", "Block", "Table", "Cell", "BBox", "Locator", "ChangeBatch", "ProcessingHistory",
+                 "VlmRequest", "VlmResult", "VlmDriver", "VlmError", "Engine", "build_blocks",
+                 "compute_content_hash", "compute_block_id", "SCHEMA_VERSION", "NORMALIZATION_VERSION"):
+        assert hasattr(kpc, name), name

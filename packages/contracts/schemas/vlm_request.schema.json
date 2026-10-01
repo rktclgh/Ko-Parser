@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "properties": {
+        "x0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X0",
+          "type": "number"
+        },
+        "x1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X1",
+          "type": "number"
+        },
+        "y0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y0",
+          "type": "number"
+        },
+        "y1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y1",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "ImagePayload": {
+      "additionalProperties": false,
+      "description": "커널 렌더러가 만든 PNG. 같은 이미지는 같은 바이트·같은 해시.",
+      "properties": {
+        "dpi": {
+          "exclusiveMinimum": 0,
+          "title": "Dpi",
+          "type": "integer"
+        },
+        "page_bbox": {
+          "$ref": "#/$defs/BBox"
+        },
+        "png": {
+          "contentEncoding": "base64",
+          "title": "Png",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "png",
+        "page_bbox",
+        "dpi",
+        "sha256"
+      ],
+      "title": "ImagePayload",
+      "type": "object"
+    },
+    "PageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "minLength": 1,
+          "title": "Document Id",
+          "type": "string"
+        },
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "page"
+      ],
+      "title": "PageRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "anchor_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Anchor Text"
+    },
+    "image": {
+      "$ref": "#/$defs/ImagePayload"
+    },
+    "language_hints": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Language Hints",
+      "type": "array"
+    },
+    "page_ref": {
+      "$ref": "#/$defs/PageRef"
+    },
+    "region_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Region Id"
+    },
+    "request_id": {
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "task": {
+      "enum": [
+        "REGION_TABLE",
+        "REGION_FIGURE",
+        "REGION_TEXT",
+        "PAGE_FULL"
+      ],
+      "title": "Task",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "task",
+    "image",
+    "page_ref"
+  ],
+  "title": "VlmRequest",
+  "type": "object"
+}
