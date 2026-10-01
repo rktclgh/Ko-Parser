@@ -16,6 +16,14 @@ def test_export_and_check_roundtrip(tmp_path):
     assert schema.check_schemas(tmp_path) == []
     (tmp_path / "vlm_result.schema.json").write_text("{}", encoding="utf-8")
     assert schema.check_schemas(tmp_path) == ["vlm_result.schema.json"]
+    (tmp_path / "old_root.schema.json").write_text("{}", encoding="utf-8")
+    assert schema.check_schemas(tmp_path) == ["vlm_result.schema.json", "old_root.schema.json"]
+
+
+def test_main_check_exit_codes(tmp_path):
+    assert schema.main(["--check", "--out", str(tmp_path)]) == 1
+    schema.export_schemas(tmp_path)
+    assert schema.main(["--check", "--out", str(tmp_path)]) == 0
 
 
 def test_committed_schemas_are_current():

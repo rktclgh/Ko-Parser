@@ -13,7 +13,7 @@ from pathlib import Path
 from ko_parser_contracts import (
     Attempt, BBox, Cell, ChangeBatch, CorrectionSummary, DocumentChange, DocumentTree, GateCheck, GateResult,
     ImagePayload, LineageEdge, PageInfo, PageRef, ProcessingHistory, RegionRecord, SourceInfo, Table, Usage,
-    VlmBlock, VlmRequest, VlmResult, build_blocks,
+    VlmBlock, VlmRequest, VlmResult, build_blocks, compute_block_id, compute_content_hash,
 )
 from ko_parser_contracts.testing import Recording, RecordingMeta, request_fingerprint
 
@@ -181,20 +181,35 @@ def lifecycle() -> tuple[DocumentTree, DocumentTree, DocumentTree, ChangeBatch]:
 
 
 def change_examples() -> dict[str, ChangeBatch]:
+    def bid(text: str) -> str:
+        return compute_block_id("fx-split", compute_content_hash("paragraph", text, None, None), 0)
+
+    # 이전: A(분할 대상), B+C(병합 대상) / 이후: A→X,Y 분할, B+C→Z 병합
+    old_a, old_b, old_c = (bid(t) for t in ("1. 사업 개요 및 추진 일정", "예산은 4,250,000원이다.", "집행은 분기별로 한다."))
+    new_x, new_y, new_z = (bid(t) for t in ("1. 사업 개요", "추진 일정", "예산은 4,250,000원이다. 집행은 분기별로 한다."))
     split_merge = ChangeBatch(cursor_from=10, next_cursor=11, changes=[DocumentChange(
         document_id="fx-split", version=5, previous_version=4,
-        added=["b_new_x", "b_new_y", "b_new_z"], removed=["b_old_a", "b_old_b", "b_old_c"],
+        added=[new_x, new_y, new_z], removed=[old_a, old_b, old_c],
         lineage=[
-            LineageEdge(old_id="b_old_a", new_id="b_new_x", kind="split"),
-            LineageEdge(old_id="b_old_a", new_id="b_new_y", kind="split"),
-            LineageEdge(old_id="b_old_b", new_id="b_new_z", kind="merged"),
-            LineageEdge(old_id="b_old_c", new_id="b_new_z", kind="merged"),
+            LineageEdge(old_id=old_a, new_id=new_x, kind="split"),
+            LineageEdge(old_id=old_a, new_id=new_y, kind="split"),
+            LineageEdge(old_id=old_b, new_id=new_z, kind="merged"),
+            LineageEdge(old_id=old_c, new_id=new_z, kind="merged"),
         ])])
     resync = ChangeBatch(cursor_from=5, next_cursor=120, resync_required=True)
     return {"split_merge": split_merge, "resync": resync}
 
 
+def _region_history(document_id: str, vlm: Attempt, gate: GateResult, chosen: str,
+                    fallback_reason: str | None) -> ProcessingHistory:
+    region = RegionRecord(region_id="r-table-1", locator=page(0.20, 0.35), kind="table",
+                          attempts=[Attempt(layer="det"), vlm], chosen=chosen, gate=gate,
+                          fallback_reason=fallback_reason)
+    return ProcessingHistory(document_id=document_id, version=3, regions=[region])
+
+
 def history() -> ProcessingHistory:
+    """게이트 실패로 det로 되돌린 별도 문서(lifecycle fx-life와 무관)."""
     vlm = Attempt(layer="vlm_small", driver_id="omlx", model_id="dots.mocr-8bit", usage=Usage(latency_ms=2300),
                   correction=CorrectionSummary(segments_total=20, fixed=2, unchanged=16, unmatched=1, skipped=1,
                                                chars_replaced=3, chars_dropped=1, unmatched_with_digits=1))
@@ -202,10 +217,19 @@ def history() -> ProcessingHistory:
         GateCheck(name="char_f1_after_correction", passed=True, value=0.97, threshold=">=0.90"),
         GateCheck(name="numbers_preserved", passed=False, threshold="missing=0,extra=0"),
     ])
-    region = RegionRecord(region_id="r-table-1", locator=page(0.20, 0.35), kind="table",
-                          attempts=[Attempt(layer="det"), vlm], chosen="det", gate=gate,
-                          fallback_reason="unmatched segment with digits")
-    return ProcessingHistory(document_id="fx-life", version=3, regions=[region])
+    return _region_history("fx-fallback", vlm, gate, "det", "unmatched segment with digits")
+
+
+def lifecycle_history() -> ProcessingHistory:
+    """lifecycle v3(fx-life)에서 VLM 표가 채택된 처리 이력."""
+    vlm = Attempt(layer="vlm_small", driver_id="omlx", model_id="dots.mocr-8bit", usage=Usage(latency_ms=2300),
+                  correction=CorrectionSummary(segments_total=20, fixed=3, unchanged=16, unmatched=0, skipped=1,
+                                               chars_replaced=4, chars_dropped=0, unmatched_with_digits=0))
+    gate = GateResult(passed=True, checks=[
+        GateCheck(name="char_f1_after_correction", passed=True, value=0.99, threshold=">=0.90"),
+        GateCheck(name="numbers_preserved", passed=True, threshold="missing=0,extra=0"),
+    ])
+    return _region_history("fx-life", vlm, gate, "vlm", None)
 
 
 def vlm_examples() -> tuple[VlmRequest, VlmResult, Recording]:
@@ -234,6 +258,7 @@ def build_all() -> dict[str, str]:
                 "lifecycle/v3_vlm.json": _dump(v3), "lifecycle/changes.json": _dump(batch)})
     out.update({f"changes/{name}.json": _dump(b) for name, b in change_examples().items()})
     out["history/gate_fail_fallback.json"] = _dump(history())
+    out["history/lifecycle_vlm_success.json"] = _dump(lifecycle_history())
     request, result, recording = vlm_examples()
     out.update({"vlm/request_table.json": _dump(request), "vlm/result_table.json": _dump(result),
                 "recordings/table_simple.json": _dump(recording)})

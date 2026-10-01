@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1",
-  "document_id": "fx-fallback",
+  "document_id": "fx-life",
   "version": 3,
   "regions": [
     {
@@ -38,36 +38,36 @@
           },
           "correction": {
             "segments_total": 20,
-            "fixed": 2,
+            "fixed": 3,
             "unchanged": 16,
-            "unmatched": 1,
+            "unmatched": 0,
             "skipped": 1,
-            "chars_replaced": 3,
-            "chars_dropped": 1,
-            "unmatched_with_digits": 1
+            "chars_replaced": 4,
+            "chars_dropped": 0,
+            "unmatched_with_digits": 0
           },
           "error": null
         }
       ],
-      "chosen": "det",
+      "chosen": "vlm",
       "gate": {
-        "passed": false,
+        "passed": true,
         "checks": [
           {
             "name": "char_f1_after_correction",
             "passed": true,
-            "value": 0.97,
+            "value": 0.99,
             "threshold": ">=0.90"
           },
           {
             "name": "numbers_preserved",
-            "passed": false,
+            "passed": true,
             "value": null,
             "threshold": "missing=0,extra=0"
           }
         ]
       },
-      "fallback_reason": "unmatched segment with digits"
+      "fallback_reason": null
     }
   ]
 }

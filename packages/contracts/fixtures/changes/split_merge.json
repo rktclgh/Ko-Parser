@@ -8,35 +8,35 @@
       "version": 5,
       "previous_version": 4,
       "added": [
-        "b_new_x",
-        "b_new_y",
-        "b_new_z"
+        "b_870739155a21b20ff762d26c",
+        "b_c52f13d2bbc76fa476da2d55",
+        "b_25b4ed50f15309bf99528bd9"
       ],
       "updated": [],
       "removed": [
-        "b_old_a",
-        "b_old_b",
-        "b_old_c"
+        "b_a17fe1d23d9101b47e6a2608",
+        "b_41483b8e18211f5cd2bcee7d",
+        "b_9c8137e2078930008473b232"
       ],
       "lineage": [
         {
-          "old_id": "b_old_a",
-          "new_id": "b_new_x",
+          "old_id": "b_a17fe1d23d9101b47e6a2608",
+          "new_id": "b_870739155a21b20ff762d26c",
           "kind": "split"
         },
         {
-          "old_id": "b_old_a",
-          "new_id": "b_new_y",
+          "old_id": "b_a17fe1d23d9101b47e6a2608",
+          "new_id": "b_c52f13d2bbc76fa476da2d55",
           "kind": "split"
         },
         {
-          "old_id": "b_old_b",
-          "new_id": "b_new_z",
+          "old_id": "b_41483b8e18211f5cd2bcee7d",
+          "new_id": "b_25b4ed50f15309bf99528bd9",
           "kind": "merged"
         },
         {
-          "old_id": "b_old_c",
-          "new_id": "b_new_z",
+          "old_id": "b_9c8137e2078930008473b232",
+          "new_id": "b_25b4ed50f15309bf99528bd9",
           "kind": "merged"
         }
       ]

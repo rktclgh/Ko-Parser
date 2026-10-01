@@ -46,13 +46,15 @@ def export_schemas(out_dir: Path) -> list[Path]:
 
 
 def check_schemas(out_dir: Path) -> list[str]:
-    """저장된 파일과 다르거나 없는 스키마 파일 이름 목록."""
+    """저장된 파일과 다르거나 없는 스키마 파일 이름, 뒤이어 루트 모델에 없는 고아 *.schema.json 이름(정렬)."""
+    rendered = render_schemas()
     stale = []
-    for filename, text in render_schemas().items():
+    for filename, text in rendered.items():
         path = out_dir / filename
         if not path.exists() or path.read_text(encoding="utf-8") != text:
             stale.append(filename)
-    return stale
+    orphans = sorted(p.name for p in out_dir.glob("*.schema.json") if p.name not in rendered) if out_dir.is_dir() else []
+    return stale + orphans
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,10 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=SCHEMA_DIR)
     args = parser.parse_args(argv)
     if args.check:
-        stale = check_schemas(args.out)
-        for name in stale:
-            print(f"stale schema: {name}", file=sys.stderr)
-        return 1 if stale else 0
+        problems = check_schemas(args.out)
+        known = render_schemas()
+        for name in problems:
+            print(f"{'stale' if name in known else 'orphan'} schema: {name}", file=sys.stderr)
+        return 1 if problems else 0
     for path in export_schemas(args.out):
         print(path)
     return 0
