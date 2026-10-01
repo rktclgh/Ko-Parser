@@ -87,14 +87,18 @@ def test_lifecycle_change_batch_matches_trees():
     assert batch.cursor_from is None and batch.next_cursor >= len(batch.changes)
     ids1, ids2, ids3 = ({b.block_id for b in t.blocks} for t in (v1, v2, v3))
     c1, c2, c3 = batch.changes
-    assert set(c1.added) == ids1
-    assert set(c2.updated) == ids2 and ids2 == ids1
+    assert set(c1.added) == ids1 and not (c1.updated or c1.removed or c1.lineage)
+    assert set(c2.updated) == ids2 and ids2 == ids1 and not (c2.added or c2.removed or c2.lineage)
     assert set(c3.removed) == ids2 - ids3
     assert set(c3.added) == ids3 - ids2
     assert set(c3.updated) == ids2 & ids3
-    for change in batch.changes:
-        for edge in change.lineage:
-            assert edge.old_id in change.removed and edge.new_id in change.added
+    # 같은 영역(region_id)의 블록이 교체된 것만 lineage로 남는다
+    old_by_region = {b.region_id: b.block_id for b in v2.blocks if b.region_id}
+    new_by_region = {b.region_id: b.block_id for b in v3.blocks if b.region_id}
+    expected = {(old_by_region[r], new_by_region[r], "replaced") for r in old_by_region.keys() & new_by_region.keys()
+                if old_by_region[r] != new_by_region[r]}
+    assert expected and {(e.old_id, e.new_id, e.kind) for e in c3.lineage} == expected
+    assert len(c3.lineage) == len(expected)
 
 
 def test_history_matches_lifecycle():
