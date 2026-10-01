@@ -1,0 +1,72 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-pptx",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "실적.pptx",
+    "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "content_hash": "sha256:372603ae52b081d3c6e6edd68311f9644174475f6b22be4be2cb6ab96e395da2",
+    "page_count": 1
+  },
+  "pages": [],
+  "blocks": [
+    {
+      "block_id": "b_cc8843f15d55d47a05fad060",
+      "content_hash": "c_9c8072cc492e473cac02dea12c5d0a89",
+      "order": 0,
+      "kind": "heading",
+      "text": "분기 실적",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "slide",
+        "slide": 1,
+        "shape_index": 0
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_1afb14aa8526caa4170b8519",
+      "content_hash": "c_930d1754dc59db9a62a0e96fe09f12e0",
+      "order": 1,
+      "kind": "list_item",
+      "text": "매출 1,720,000원",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "slide",
+        "slide": 1,
+        "shape_index": 1
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_3ee75a873df09fcac2fa02f5",
+      "content_hash": "c_2d4a2fc7e4dad8548e0fbaf52176583e",
+      "order": 2,
+      "kind": "list_item",
+      "text": "증감률 23.2%",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "slide",
+        "slide": 1,
+        "shape_index": 2
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    }
+  ]
+}

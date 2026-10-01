@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.1",
+  "cursor_from": 10,
+  "next_cursor": 11,
+  "changes": [
+    {
+      "document_id": "fx-split",
+      "version": 5,
+      "previous_version": 4,
+      "added": [
+        "b_new_x",
+        "b_new_y",
+        "b_new_z"
+      ],
+      "updated": [],
+      "removed": [
+        "b_old_a",
+        "b_old_b",
+        "b_old_c"
+      ],
+      "lineage": [
+        {
+          "old_id": "b_old_a",
+          "new_id": "b_new_x",
+          "kind": "split"
+        },
+        {
+          "old_id": "b_old_a",
+          "new_id": "b_new_y",
+          "kind": "split"
+        },
+        {
+          "old_id": "b_old_b",
+          "new_id": "b_new_z",
+          "kind": "merged"
+        },
+        {
+          "old_id": "b_old_c",
+          "new_id": "b_new_z",
+          "kind": "merged"
+        }
+      ]
+    }
+  ],
+  "resync_required": false
+}

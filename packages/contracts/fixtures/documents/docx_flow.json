@@ -1,0 +1,168 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-docx",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "보고서.docx",
+    "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "content_hash": "sha256:c5c64dca6b1bc415bb89c80091ed292dfe28509625a4c880820b9eed1c01a057",
+    "page_count": null
+  },
+  "pages": [],
+  "blocks": [
+    {
+      "block_id": "b_b06e64730846a928008136d2",
+      "content_hash": "c_21b35d37aaf84691942cbfbda6a32792",
+      "order": 0,
+      "kind": "heading",
+      "text": "1. 개요",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "flow",
+        "section_path": [],
+        "paragraph_index": 0
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_77c1984984d2876fb42f09ae",
+      "content_hash": "c_8a1454baac6b9a8b194124f4c414a663",
+      "order": 1,
+      "kind": "paragraph",
+      "text": "본 문서는 2026년 사업 추진 현황을 정리한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "1. 개요"
+      ],
+      "locator": {
+        "kind": "flow",
+        "section_path": [
+          "1. 개요"
+        ],
+        "paragraph_index": 1
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_97de1c6af40fc5c19a4ecf33",
+      "content_hash": "c_ffe1f77293a3404d3e245cf77815c57b",
+      "order": 2,
+      "kind": "paragraph",
+      "text": "자세한 내용은 별첨을 참고한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "1. 개요"
+      ],
+      "locator": {
+        "kind": "flow",
+        "section_path": [
+          "1. 개요"
+        ],
+        "paragraph_index": 2
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_a2eb4edff0bf2fe872c1801a",
+      "content_hash": "c_e9d6984e2509ee535f53e8c61af7c69d",
+      "order": 3,
+      "kind": "heading",
+      "text": "2. 세부 계획",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "flow",
+        "section_path": [],
+        "paragraph_index": 3
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_7de967f9af42a70ba4f0c881",
+      "content_hash": "c_8e472bc12406954745e8d57adbc06c16",
+      "order": 4,
+      "kind": "list_item",
+      "text": "1분기: 참여 기관 모집",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2. 세부 계획"
+      ],
+      "locator": {
+        "kind": "flow",
+        "section_path": [
+          "2. 세부 계획"
+        ],
+        "paragraph_index": 4
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_7b647abd8cc1425c3c94902e",
+      "content_hash": "c_74fba80d81531da9076ee438262088a6",
+      "order": 5,
+      "kind": "list_item",
+      "text": "2분기: 선정 결과 통보",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2. 세부 계획"
+      ],
+      "locator": {
+        "kind": "flow",
+        "section_path": [
+          "2. 세부 계획"
+        ],
+        "paragraph_index": 5
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_cc4c5c311ed01f0191615bd3",
+      "content_hash": "c_ffe1f77293a3404d3e245cf77815c57b",
+      "order": 6,
+      "kind": "paragraph",
+      "text": "자세한 내용은 별첨을 참고한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2. 세부 계획"
+      ],
+      "locator": {
+        "kind": "flow",
+        "section_path": [
+          "2. 세부 계획"
+        ],
+        "paragraph_index": 6
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    }
+  ]
+}

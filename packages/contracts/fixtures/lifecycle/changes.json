@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "cursor_from": null,
+  "next_cursor": 3,
+  "changes": [
+    {
+      "document_id": "fx-life",
+      "version": 1,
+      "previous_version": null,
+      "added": [
+        "b_a020a3d70d4d9d0a7572f0d1",
+        "b_7ea21ebd9800977629176f38",
+        "b_43e0eddee7062e63916c699f"
+      ],
+      "updated": [],
+      "removed": [],
+      "lineage": []
+    },
+    {
+      "document_id": "fx-life",
+      "version": 2,
+      "previous_version": 1,
+      "added": [],
+      "updated": [
+        "b_a020a3d70d4d9d0a7572f0d1",
+        "b_7ea21ebd9800977629176f38",
+        "b_43e0eddee7062e63916c699f"
+      ],
+      "removed": [],
+      "lineage": []
+    },
+    {
+      "document_id": "fx-life",
+      "version": 3,
+      "previous_version": 2,
+      "added": [
+        "b_1e76367cd53aa43cb88c770e"
+      ],
+      "updated": [
+        "b_a020a3d70d4d9d0a7572f0d1",
+        "b_7ea21ebd9800977629176f38"
+      ],
+      "removed": [
+        "b_43e0eddee7062e63916c699f"
+      ],
+      "lineage": [
+        {
+          "old_id": "b_43e0eddee7062e63916c699f",
+          "new_id": "b_1e76367cd53aa43cb88c770e",
+          "kind": "replaced"
+        }
+      ]
+    }
+  ],
+  "resync_required": false
+}
