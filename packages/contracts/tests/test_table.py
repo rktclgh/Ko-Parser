@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -102,3 +104,62 @@ def test_markdown_escapes_pipe_and_newline():
 def test_cell_requires_text_source():
     with pytest.raises(ValidationError):
         Cell(row=0, col=0)
+
+
+def test_grid_over_cell_cap_rejected():
+    with pytest.raises(ValidationError, match="table grid"):
+        Table(n_rows=1000, n_cols=101, cells=[c(0, 0, rs=1000, cs=101)])
+
+
+def test_uncovered_reports_first_positions():
+    with pytest.raises(ValidationError, match=re.escape("uncovered grid positions: [(0, 1), (1, 0), (1, 1)]")):
+        Table(n_rows=2, n_cols=2, cells=[c(0, 0, "A")])
+
+
+def test_empty_cells_at_cap_rejected_fast():
+    with pytest.raises(ValidationError, match="uncovered"):
+        Table(n_rows=1, n_cols=100_000, cells=[])
+
+
+def test_to_html_keeps_rowspan_in_one_row_group():
+    t = Table(
+        n_rows=2,
+        n_cols=2,
+        cells=[c(0, 0, "A", rs=2, header="column"), c(0, 1, "B", header="column"), c(1, 1, "C")],
+    )
+    assert t.to_html() == '<table><tbody><tr><th rowspan="2">A</th><th>B</th></tr><tr><td>C</td></tr></tbody></table>'
+
+
+def test_to_html_header_shrinks_to_uncrossed_boundary():
+    t = Table(
+        n_rows=3,
+        n_cols=2,
+        cells=[
+            c(0, 0, "H1", header="column"),
+            c(0, 1, "H2", header="column"),
+            c(1, 0, "X", rs=2, header="column"),
+            c(1, 1, "Y", header="column"),
+            c(2, 1, "Z"),
+        ],
+    )
+    assert t.to_html() == (
+        "<table><thead><tr><th>H1</th><th>H2</th></tr></thead>"
+        '<tbody><tr><th rowspan="2">X</th><th>Y</th></tr><tr><td>Z</td></tr></tbody></table>'
+    )
+
+
+def test_markdown_escapes_backslash_before_pipe():
+    t = Table(n_rows=1, n_cols=1, cells=[c(0, 0, "a\\|b")])
+    assert t.to_markdown() == "| a\\\\\\|b |\n| --- |"
+    t = Table(n_rows=1, n_cols=1, cells=[c(0, 0, "x\r\ny")])
+    assert t.to_markdown() == "| x<br>y |\n| --- |"
+
+
+def test_plain_text_many_rows():
+    t = Table(n_rows=20_000, n_cols=1, cells=[c(r, 0, "x") for r in range(20_000)])
+    assert t.plain_text() == "\n".join(["x"] * 20_000)
+
+
+def test_html_normalizes_cr_line_breaks():
+    t = Table(n_rows=1, n_cols=1, cells=[c(0, 0, "a\r\nb\rc")])
+    assert "<td>a<br>b<br>c</td>" in t.to_html()
