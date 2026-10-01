@@ -1,0 +1,31 @@
+# 실험 폴더: 개인 문서와 모델 출력이 들어 있어 저장소에 올리지 않는다
+lab/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# 도구 상태
+.omc/
+.DS_Store
+.idea/
+.vscode/
+
+# 설계 스펙·구현 계획: 공개 전까지 저장소에 올리지 않는다
+docs/specs/
+docs/plans/
+
+# 에이전트 지침 파일: 저장소에 올리지 않는다 (모든 위치)
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+**/CLAUDE.md
+**/AGENTS.md
+.claude/
