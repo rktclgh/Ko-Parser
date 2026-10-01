@@ -137,6 +137,7 @@
           "items": {
             "$ref": "#/$defs/Cell"
           },
+          "maxItems": 100000,
           "title": "Cells",
           "type": "array"
         },
