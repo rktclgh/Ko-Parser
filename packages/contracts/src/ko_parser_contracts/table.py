@@ -11,6 +11,7 @@ from .base import ContractModel
 HeaderRole = Literal["none", "column", "row"]  # column: 위쪽 열 머리, row: 왼쪽 행 머리
 CellTextSource = Literal["native", "text_layer", "ocr", "vlm"]
 MAX_TABLE_CELLS = 100_000  # 그리드 칸 수 n_rows×n_cols 상한; 넘는 표는 엔진이 블록을 나눈다
+MAX_TABLE_EXPANDED_CHARS = 10_000_000  # 병합 셀 글자를 덮인 칸마다 펼친 총 글자 수 상한; to_grid·to_markdown 출력 크기를 묶는다
 
 
 def _lf(text: str) -> str:
@@ -38,12 +39,16 @@ class Table(ContractModel):
             raise ValueError(f"table grid {self.n_rows}x{self.n_cols} exceeds {MAX_TABLE_CELLS} cells")
         owner: set[tuple[int, int]] = set()
         anchors: set[tuple[int, int]] = set()
+        expanded = 0
         for cell in self.cells:
             if (cell.row, cell.col) in anchors:
                 raise ValueError(f"duplicate cell anchor at ({cell.row}, {cell.col})")
             anchors.add((cell.row, cell.col))
             if cell.row + cell.rowspan > self.n_rows or cell.col + cell.colspan > self.n_cols:
                 raise ValueError(f"cell at ({cell.row}, {cell.col}) exceeds table bounds")
+            expanded += len(cell.text) * cell.rowspan * cell.colspan
+            if expanded > MAX_TABLE_EXPANDED_CHARS:
+                raise ValueError(f"table expanded text exceeds {MAX_TABLE_EXPANDED_CHARS} chars")
             for r in range(cell.row, cell.row + cell.rowspan):
                 for k in range(cell.col, cell.col + cell.colspan):
                     if (r, k) in owner:
