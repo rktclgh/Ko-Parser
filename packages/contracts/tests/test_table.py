@@ -163,3 +163,20 @@ def test_plain_text_many_rows():
 def test_html_normalizes_cr_line_breaks():
     t = Table(n_rows=1, n_cols=1, cells=[c(0, 0, "a\r\nb\rc")])
     assert "<td>a<br>b<br>c</td>" in t.to_html()
+
+
+def test_expanded_text_cap_rejected():
+    with pytest.raises(ValidationError, match="expanded text"):
+        Table(n_rows=100, n_cols=100, cells=[c(0, 0, "가" * 1001, rs=100, cs=100)])
+
+
+def test_expanded_text_at_cap_accepted():
+    Table(n_rows=10, n_cols=10, cells=[c(0, 0, "가" * 100_000, rs=10, cs=10)])
+
+
+def test_uncovered_reports_only_first_five():
+    with pytest.raises(ValidationError) as excinfo:
+        Table(n_rows=1, n_cols=10, cells=[c(0, 0)])
+    msg = str(excinfo.value)
+    assert "uncovered grid positions: [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5)]" in msg
+    assert "(0, 6)" not in msg
