@@ -19,7 +19,6 @@ MAX_IMAGE_PIXELS = 40_000_000  # 가로×세로 상한(디코드 폭탄 방지)
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _IHDR_HEAD = b"\x00\x00\x00\x0dIHDR"  # 첫 청크는 길이 13의 IHDR
-_IEND_CHUNK = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 _MIN_PNG_BYTES = 8 + 25 + 12  # 시그니처 + IHDR 청크(4+4+13+4) + IEND 청크
 
 Task = Literal["REGION_TABLE", "REGION_FIGURE", "REGION_TEXT", "PAGE_FULL"]
@@ -38,7 +37,7 @@ def _decode_png(value: object) -> bytes:
 
 
 def _check_png_bytes(png: bytes) -> None:
-    """크기·구조 검사. 해시 계산보다 먼저 한다."""
+    """크기·구조 검사(청크를 끝까지 따라간다). 해시 계산보다 먼저 한다. 청크 CRC와 압축 해제는 보지 않는다."""
     if len(png) > MAX_IMAGE_BYTES:
         raise ValueError("png exceeds MAX_IMAGE_BYTES")
     if not png.startswith(_PNG_SIGNATURE):
@@ -48,8 +47,23 @@ def _check_png_bytes(png: bytes) -> None:
     width, height = struct.unpack(">II", png[16:24])
     if not (0 < width and 0 < height and width * height <= MAX_IMAGE_PIXELS):
         raise ValueError("png dimensions out of range")
-    if not png.endswith(_IEND_CHUNK):
-        raise ValueError("png is truncated (no IEND)")
+    pos, has_idat = 8, False
+    while True:
+        if pos + 12 > len(png):
+            raise ValueError("png is truncated (no IEND)")
+        (length,) = struct.unpack(">I", png[pos:pos + 4])
+        kind = png[pos + 4:pos + 8]
+        end = pos + 12 + length
+        if end > len(png):
+            raise ValueError("png chunk exceeds data")
+        has_idat |= kind == b"IDAT"
+        if kind == b"IEND":
+            if length != 0 or end != len(png):
+                raise ValueError("png must end with an empty IEND chunk")
+            break
+        pos = end
+    if not has_idat:
+        raise ValueError("png has no IDAT chunk")
 
 
 PngBytes = Annotated[
