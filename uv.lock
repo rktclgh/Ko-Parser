@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 members = [
     "ko-parser",
     "ko-parser-contracts",
+    "ko-parser-engine",
 ]
 
 [[package]]
@@ -41,6 +42,7 @@ version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "ko-parser-contracts" },
+    { name = "ko-parser-engine" },
 ]
 
 [package.dev-dependencies]
@@ -49,7 +51,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ko-parser-contracts", editable = "packages/contracts" }]
+requires-dist = [
+    { name = "ko-parser-contracts", editable = "packages/contracts" },
+    { name = "ko-parser-engine", editable = "packages/engine" },
+]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.3" }]
@@ -64,6 +69,17 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "pydantic", specifier = ">=2.9,<3" }]
+
+[[package]]
+name = "ko-parser-engine"
+version = "0.1.0"
+source = { editable = "packages/engine" }
+dependencies = [
+    { name = "ko-parser-contracts" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "ko-parser-contracts", editable = "packages/contracts" }]
 
 [[package]]
 name = "packaging"
