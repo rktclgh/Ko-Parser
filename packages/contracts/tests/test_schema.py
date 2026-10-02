@@ -33,5 +33,8 @@ def test_committed_schemas_are_current():
 def test_public_api_exports():
     for name in ("DocumentTree", "Block", "Table", "Cell", "BBox", "Locator", "ChangeBatch", "ProcessingHistory",
                  "VlmRequest", "VlmResult", "VlmDriver", "VlmError", "Engine", "build_blocks",
-                 "compute_content_hash", "compute_block_id", "SCHEMA_VERSION", "NORMALIZATION_VERSION"):
-        assert hasattr(kpc, name), name
+                 "compute_content_hash", "compute_block_id", "SCHEMA_VERSION", "NORMALIZATION_VERSION",
+                 "MAX_TABLE_CELLS", "MAX_TABLE_EXPANDED_CHARS", "MAX_IMAGE_BYTES", "MAX_IMAGE_PIXELS",
+                 "ALLOWED_BLOCK_STATES", "ATTEMPT_LAYER"):
+        assert name in kpc.__all__ and hasattr(kpc, name), name
+    assert all(hasattr(kpc, name) for name in kpc.__all__)
