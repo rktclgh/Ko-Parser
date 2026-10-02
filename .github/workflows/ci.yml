@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR은 브랜치별 그룹이라 새 커밋이 이전 실행을 취소한다. develop·main 푸시는 실행마다 그룹이 달라 커밋마다 결과가 남는다
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # 기본 인코딩(Windows cp949)에 기대는 open()·read_text()를 경고로 드러내고 아래 -W로 실패시킨다
+      PYTHONWARNDEFAULTENCODING: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Sync
+        run: uv sync --locked
+      - name: Tests
+        run: uv run pytest -q -W error::EncodingWarning
+      - name: Contract schemas up to date
+        run: uv run python -W error::EncodingWarning -m ko_parser_contracts.schema --check
+      - name: Contract fixtures up to date
+        run: uv run python -W error::EncodingWarning packages/contracts/tests/build_fixtures.py --check
