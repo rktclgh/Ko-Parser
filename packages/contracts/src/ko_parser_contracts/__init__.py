@@ -7,7 +7,7 @@ from .document import (
     check_kind_fields,
 )
 from .engine import DocFilter, DocRef, Engine, JobRef, JobStatus
-from .geometry import BBox, PageInfo
+from .geometry import BBox, PageInfo, TextLayerState, TextLayerStats
 from .ids import NORMALIZATION_VERSION, compute_block_id, compute_content_hash, normalize_text
 from .locator import FlowLocator, LinesLocator, Locator, PageLocator, SlideLocator
 from .provenance import (
@@ -22,7 +22,8 @@ from .vlm import (
 
 __all__ = [
     "SCHEMA_VERSION", "NORMALIZATION_VERSION", "ContractModel", "VersionedModel",
-    "BBox", "PageInfo", "Locator", "PageLocator", "FlowLocator", "SlideLocator", "LinesLocator",
+    "BBox", "PageInfo", "TextLayerState", "TextLayerStats",
+    "Locator", "PageLocator", "FlowLocator", "SlideLocator", "LinesLocator",
     "Cell", "CellTextSource", "HeaderRole", "Table", "MAX_TABLE_CELLS", "MAX_TABLE_EXPANDED_CHARS",
     "normalize_text", "compute_content_hash", "compute_block_id",
     "Block", "BlockKind", "BlockState", "TextSource", "LayerState", "SourceInfo", "DocumentTree",

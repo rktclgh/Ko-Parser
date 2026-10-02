@@ -46,7 +46,7 @@ def test_wal_mode_and_format_meta(db):
     conn = sqlite3.connect(db)
     try:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert conn.execute("SELECT value FROM meta WHERE key = 'format'").fetchone()[0] == "1"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'format'").fetchone()[0] == "2"
     finally:
         conn.close()
 
@@ -59,6 +59,17 @@ def test_unknown_format_rejected(db):
         conn.execute("UPDATE meta SET value = '999' WHERE key = 'format'")
     conn.close()
     with pytest.raises(KoParserError, match="unsupported store format"):
+        SqliteStore(db)
+
+
+def test_contracts_0_1_store_asks_to_ingest_again(db):
+    with SqliteStore(db):
+        pass
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.execute("UPDATE meta SET value = '1' WHERE key = 'format'")  # 계약 0.1 시절 상태 파일
+    conn.close()
+    with pytest.raises(KoParserError, match="ingest again"):
         SqliteStore(db)
 
 

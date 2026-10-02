@@ -104,7 +104,7 @@ def test_tree_checks_pages():
 def test_empty_document_and_schema_version():
     assert tree(()).blocks == ()
     with pytest.raises(ValidationError):
-        DocumentTree(schema_version="0.2", document_id="doc-1", version=1, layer_state="det", source=SRC)
+        DocumentTree(schema_version="0.1", document_id="doc-1", version=1, layer_state="det", source=SRC)
 
 
 def test_source_hash_format():

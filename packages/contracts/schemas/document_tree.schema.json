@@ -311,7 +311,20 @@
     },
     "PageInfo": {
       "additionalProperties": false,
-      "description": "width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.",
+      "description": "width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.\n\ntext_layer는 글자층 판정(scanned·unreliable 쪽에는 블록이 없다), text_stats는 그 근거.",
+      "if": {
+        "properties": {
+          "text_layer": {
+            "enum": [
+              "scanned",
+              "unreliable"
+            ]
+          }
+        },
+        "required": [
+          "text_layer"
+        ]
+      },
       "properties": {
         "height_pt": {
           "exclusiveMinimum": 0,
@@ -339,6 +352,27 @@
           "title": "Rotation",
           "type": "integer"
         },
+        "text_layer": {
+          "default": "digital",
+          "enum": [
+            "digital",
+            "scanned",
+            "unreliable"
+          ],
+          "title": "Text Layer",
+          "type": "string"
+        },
+        "text_stats": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextLayerStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "width_pt": {
           "exclusiveMinimum": 0,
           "title": "Width Pt",
@@ -351,6 +385,18 @@
         "height_pt",
         "render_dpi"
       ],
+      "then": {
+        "properties": {
+          "text_stats": {
+            "not": {
+              "type": "null"
+            }
+          }
+        },
+        "required": [
+          "text_stats"
+        ]
+      },
       "title": "PageInfo",
       "type": "object"
     },
@@ -475,6 +521,50 @@
       ],
       "title": "Table",
       "type": "object"
+    },
+    "TextLayerStats": {
+      "additionalProperties": false,
+      "description": "쪽 판정 근거. 비율의 분모는 공백이 아닌 글자 전체(숨은 글자 포함), 글자가 없으면 0.",
+      "properties": {
+        "chars": {
+          "minimum": 0,
+          "title": "Chars",
+          "type": "integer"
+        },
+        "invisible_ratio": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Invisible Ratio",
+          "type": "number"
+        },
+        "max_image_coverage": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Max Image Coverage",
+          "type": "number"
+        },
+        "pua_ratio": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Pua Ratio",
+          "type": "number"
+        },
+        "unmapped_ratio": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Unmapped Ratio",
+          "type": "number"
+        }
+      },
+      "required": [
+        "chars",
+        "invisible_ratio",
+        "unmapped_ratio",
+        "pua_ratio",
+        "max_image_coverage"
+      ],
+      "title": "TextLayerStats",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -511,8 +601,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "0.1",
-      "default": "0.1",
+      "const": "0.2",
+      "default": "0.2",
       "title": "Schema Version",
       "type": "string"
     },

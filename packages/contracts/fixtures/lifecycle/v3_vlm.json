@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "document_id": "fx-life",
   "version": 3,
   "layer_state": "vlm_done",
@@ -15,7 +15,9 @@
       "width_pt": 595.0,
       "height_pt": 842.0,
       "rotation": 0,
-      "render_dpi": 144
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": null
     }
   ],
   "blocks": [

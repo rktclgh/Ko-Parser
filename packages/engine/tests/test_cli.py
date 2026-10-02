@@ -1,5 +1,6 @@
 import io
 import json
+import sqlite3
 import sys
 
 import pytest
@@ -153,6 +154,17 @@ def test_db_not_sqlite_exit_1(capsys, tmp_path):
     bad = write(tmp_path / "state.db", "이것은 SQLite 파일이 아니다. " * 20)
     code, out, err = run(capsys, "documents", "--db", bad)
     assert (code, out) == (1, "") and err.startswith("ko-parser: ")
+    assert err.count("\n") == 1 and "Traceback" not in err
+
+
+def test_db_from_contracts_0_1_exit_1(capsys, db):
+    assert run(capsys, "documents", "--db", db)[0] == 0
+    conn = sqlite3.connect(db)
+    with conn:
+        conn.execute("UPDATE meta SET value = '1' WHERE key = 'format'")  # 계약 0.1 시절 상태 파일
+    conn.close()
+    code, out, err = run(capsys, "documents", "--db", db)
+    assert (code, out) == (1, "") and err.startswith("ko-parser: ") and "ingest again" in err
     assert err.count("\n") == 1 and "Traceback" not in err
 
 

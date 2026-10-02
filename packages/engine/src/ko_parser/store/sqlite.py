@@ -12,7 +12,7 @@ from ko_parser_contracts import ChangeBatch, DocRef, DocumentChange, DocumentTre
 from ..errors import DocumentNotFound, KoParserError, VersionNotFound
 from .base import check_commit, check_query, make_batch
 
-FORMAT_VERSION = "1"
+FORMAT_VERSION = "2"  # 2 = 계약 0.2 스키마로 저장. 다른 형식은 다시 수집해야 한다
 _TABLES = (
     "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS documents (document_id TEXT PRIMARY KEY, current_version INTEGER NOT NULL,"
@@ -41,7 +41,8 @@ class SqliteStore:
                 conn.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('format', ?)", (FORMAT_VERSION,))
                 (found,) = conn.execute("SELECT value FROM meta WHERE key = 'format'").fetchone()
             if found != FORMAT_VERSION:
-                raise KoParserError(f"unsupported store format {found!r} in {db}")
+                raise KoParserError(f"unsupported store format {found!r} in {db} (expected {FORMAT_VERSION!r});"
+                                    " delete the state file and ingest again")
         except BaseException:
             self._conn.close()
             raise
