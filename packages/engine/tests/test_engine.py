@@ -152,6 +152,21 @@ def test_unsupported_format(engine, tmp_path):
     assert engine.documents() == ()
 
 
+def test_unchanged_source_shortcut_runs_before_format_detection(tmp_path):
+    store = MemoryStore()
+    LocalEngine(store, parsers=[FakeParser()]).ingest(str(write(tmp_path / "x.fake", "가\n")), document_id="d")
+    bare = LocalEngine(store, parsers=[])  # 어떤 형식도 모른다
+    same = bare.ingest(str(tmp_path / "x.fake"), document_id="d")
+    renamed = bare.ingest(str(write(tmp_path / "y.unknown", "가\n")), document_id="d")
+    assert same == renamed and same.version == 1
+    before = store.changes_after(None, 10)
+    with pytest.raises(UnsupportedFormat):
+        bare.ingest(str(write(tmp_path / "z.unknown", "나\n")), document_id="d")
+    with pytest.raises(UnsupportedFormat):
+        bare.ingest(str(tmp_path / "x.fake"), document_id="d", force=True)
+    assert store.changes_after(None, 10) == before and store.latest("d").version == 1
+
+
 def test_extension_match_is_case_insensitive(engine, tmp_path):
     assert engine.ingest(str(write(tmp_path / "X.FAKE", "가\n"))).version == 1
 

@@ -87,3 +87,24 @@ def test_two_instances_conflict_on_same_version(db):
         with pytest.raises(StoreConflict):
             b.commit(mine, diff_trees(prev, mine), ProcessingHistory(document_id="d1", version=2))
         assert b.latest("d1") == theirs
+
+
+def test_tx_surfaces_original_error_after_sqlite_auto_rollback(db):
+    with SqliteStore(db) as store:
+        with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+            with store._tx("BEGIN IMMEDIATE") as conn:
+                conn.execute("ROLLBACK")  # SQLite가 스스로 롤백한 상황을 흉내 낸다
+                raise sqlite3.OperationalError("disk I/O error")
+        assert commit(store, "d1", "가") == 1  # 저장소는 계속 쓸 수 있다
+
+
+def test_tx_failed_commit_leaves_no_open_transaction(db):
+    with SqliteStore(db) as store:
+        store._conn.execute("PRAGMA foreign_keys=ON")
+        store._conn.execute("CREATE TABLE p (id INTEGER PRIMARY KEY)")
+        store._conn.execute("CREATE TABLE c (pid INTEGER REFERENCES p(id) DEFERRABLE INITIALLY DEFERRED)")
+        with pytest.raises(sqlite3.IntegrityError):
+            with store._tx("BEGIN IMMEDIATE") as conn:
+                conn.execute("INSERT INTO c VALUES (1)")  # COMMIT 시점에 외래 키 위반으로 실패한다
+        assert not store._conn.in_transaction
+        assert commit(store, "d1", "가") == 1

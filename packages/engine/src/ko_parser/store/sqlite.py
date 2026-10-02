@@ -2,7 +2,7 @@
 
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -62,9 +62,18 @@ class SqliteStore:
         try:
             yield self._conn
         except BaseException:
-            self._conn.execute("ROLLBACK")
+            self._rollback_if_active()  # SQLite가 이미 롤백했으면 원래 오류가 가려지지 않게 건너뛴다
             raise
-        self._conn.execute("COMMIT")
+        try:
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._rollback_if_active()  # COMMIT 실패 뒤에도 트랜잭션을 남기지 않는다
+            raise
+
+    def _rollback_if_active(self) -> None:
+        if self._conn.in_transaction:
+            with suppress(sqlite3.Error):  # 정리 중 오류가 원래 오류를 덮지 않게 한다
+                self._conn.execute("ROLLBACK")
 
     def latest(self, document_id: str) -> DocumentTree | None:
         row = self._conn.execute(

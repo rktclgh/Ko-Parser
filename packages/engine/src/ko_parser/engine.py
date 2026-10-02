@@ -34,18 +34,16 @@ class LocalEngine:
         doc_id = "doc_" + digest[:24] if document_id is None else document_id
         if not doc_id:
             raise ValueError("document_id must not be empty")
-        parser = detect_parser(name, self._parsers)
         try:
-            return self._ingest_once(parser, data, name, doc_id, "sha256:" + digest, force)
+            return self._ingest_once(data, name, doc_id, "sha256:" + digest, force)
         except StoreConflict:  # 다른 쓰기와 겹쳤다: 최신 버전을 다시 읽고 한 번만 재시도
-            return self._ingest_once(parser, data, name, doc_id, "sha256:" + digest, force)
+            return self._ingest_once(data, name, doc_id, "sha256:" + digest, force)
 
-    def _ingest_once(self, parser: Parser, data: bytes, name: str, doc_id: str, content_hash: str,
-                     force: bool) -> DocRef:
+    def _ingest_once(self, data: bytes, name: str, doc_id: str, content_hash: str, force: bool) -> DocRef:
         latest = self._store.latest(doc_id)
         if latest is not None and latest.source.content_hash == content_hash and not force:
             return _ref(latest)
-        parsed = parser.parse(data, name)
+        parsed = detect_parser(name, self._parsers).parse(data, name)  # 형식 판별은 원본이 달라진 뒤에만
         source = SourceInfo(name=name, mime=parsed.mime, content_hash=content_hash,
                             page_count=len(parsed.pages) or None)
         tree = build_tree(parsed, doc_id, 1 if latest is None else latest.version + 1, source)
