@@ -15,9 +15,9 @@ ko-parser-engine = { workspace = true }
 members = ["packages/*"]
 
 [dependency-groups]
-dev = ["pytest>=8.3", "jsonschema>=4.23,<5"]
+dev = ["pytest>=8.3", "jsonschema>=4.23,<5", "reportlab>=5,<6"]
 
 [tool.pytest.ini_options]
 testpaths = ["packages/contracts/tests", "packages/engine/tests"]
 addopts = "--import-mode=importlib"
-filterwarnings = ["error::EncodingWarning"]
+filterwarnings = ["error::EncodingWarning", "ignore::EncodingWarning:pypdfium2_raw"]
