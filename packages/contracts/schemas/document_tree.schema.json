@@ -1,0 +1,536 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "properties": {
+        "x0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X0",
+          "type": "number"
+        },
+        "x1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X1",
+          "type": "number"
+        },
+        "y0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y0",
+          "type": "number"
+        },
+        "y1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y1",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "Block": {
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "heading",
+            "paragraph",
+            "list_item",
+            "table",
+            "figure",
+            "caption",
+            "page_header",
+            "page_footer"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "maximum": 6,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "locator": {
+          "discriminator": {
+            "mapping": {
+              "flow": "#/$defs/FlowLocator",
+              "lines": "#/$defs/LinesLocator",
+              "page": "#/$defs/PageLocator",
+              "slide": "#/$defs/SlideLocator"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PageLocator"
+            },
+            {
+              "$ref": "#/$defs/FlowLocator"
+            },
+            {
+              "$ref": "#/$defs/SlideLocator"
+            },
+            {
+              "$ref": "#/$defs/LinesLocator"
+            }
+          ],
+          "title": "Locator"
+        },
+        "order": {
+          "minimum": 0,
+          "title": "Order",
+          "type": "integer"
+        },
+        "region_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Region Id"
+        },
+        "section_path": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Section Path",
+          "type": "array"
+        },
+        "state": {
+          "enum": [
+            "det",
+            "unverified",
+            "vlm"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Table"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "text_source": {
+          "enum": [
+            "native",
+            "text_layer",
+            "ocr",
+            "vlm",
+            "mixed"
+          ],
+          "title": "Text Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "block_id",
+        "content_hash",
+        "order",
+        "kind",
+        "text",
+        "locator",
+        "confidence",
+        "state",
+        "text_source"
+      ],
+      "title": "Block",
+      "type": "object"
+    },
+    "Cell": {
+      "additionalProperties": false,
+      "properties": {
+        "col": {
+          "minimum": 0,
+          "title": "Col",
+          "type": "integer"
+        },
+        "colspan": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Colspan",
+          "type": "integer"
+        },
+        "header": {
+          "default": "none",
+          "enum": [
+            "none",
+            "column",
+            "row"
+          ],
+          "title": "Header",
+          "type": "string"
+        },
+        "row": {
+          "minimum": 0,
+          "title": "Row",
+          "type": "integer"
+        },
+        "rowspan": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Rowspan",
+          "type": "integer"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "text_source": {
+          "enum": [
+            "native",
+            "text_layer",
+            "ocr",
+            "vlm"
+          ],
+          "title": "Text Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "col",
+        "text_source"
+      ],
+      "title": "Cell",
+      "type": "object"
+    },
+    "FlowLocator": {
+      "additionalProperties": false,
+      "description": "DOCX·HWPX: 섹션 경로 + 문단 순번(0부터).",
+      "properties": {
+        "kind": {
+          "const": "flow",
+          "default": "flow",
+          "title": "Kind",
+          "type": "string"
+        },
+        "paragraph_index": {
+          "minimum": 0,
+          "title": "Paragraph Index",
+          "type": "integer"
+        },
+        "section_path": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Section Path",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paragraph_index"
+      ],
+      "title": "FlowLocator",
+      "type": "object"
+    },
+    "LinesLocator": {
+      "additionalProperties": false,
+      "description": "MD·TXT: 섹션 경로 + 줄 범위(1부터, 양 끝 포함).",
+      "properties": {
+        "kind": {
+          "const": "lines",
+          "default": "lines",
+          "title": "Kind",
+          "type": "string"
+        },
+        "line_end": {
+          "minimum": 1,
+          "title": "Line End",
+          "type": "integer"
+        },
+        "line_start": {
+          "minimum": 1,
+          "title": "Line Start",
+          "type": "integer"
+        },
+        "section_path": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Section Path",
+          "type": "array"
+        }
+      },
+      "required": [
+        "line_start",
+        "line_end"
+      ],
+      "title": "LinesLocator",
+      "type": "object"
+    },
+    "PageInfo": {
+      "additionalProperties": false,
+      "description": "width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.",
+      "properties": {
+        "height_pt": {
+          "exclusiveMinimum": 0,
+          "title": "Height Pt",
+          "type": "number"
+        },
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "render_dpi": {
+          "exclusiveMinimum": 0,
+          "title": "Render Dpi",
+          "type": "integer"
+        },
+        "rotation": {
+          "default": 0,
+          "enum": [
+            0,
+            90,
+            180,
+            270
+          ],
+          "title": "Rotation",
+          "type": "integer"
+        },
+        "width_pt": {
+          "exclusiveMinimum": 0,
+          "title": "Width Pt",
+          "type": "number"
+        }
+      },
+      "required": [
+        "page",
+        "width_pt",
+        "height_pt",
+        "render_dpi"
+      ],
+      "title": "PageInfo",
+      "type": "object"
+    },
+    "PageLocator": {
+      "additionalProperties": false,
+      "description": "PDF·이미지: 쪽 번호(1부터) + bbox.",
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/BBox"
+        },
+        "kind": {
+          "const": "page",
+          "default": "page",
+          "title": "Kind",
+          "type": "string"
+        },
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "page",
+        "bbox"
+      ],
+      "title": "PageLocator",
+      "type": "object"
+    },
+    "SlideLocator": {
+      "additionalProperties": false,
+      "description": "PPTX: 슬라이드 번호(1부터) + 도형 순번(0부터).",
+      "properties": {
+        "kind": {
+          "const": "slide",
+          "default": "slide",
+          "title": "Kind",
+          "type": "string"
+        },
+        "shape_index": {
+          "minimum": 0,
+          "title": "Shape Index",
+          "type": "integer"
+        },
+        "slide": {
+          "minimum": 1,
+          "title": "Slide",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slide",
+        "shape_index"
+      ],
+      "title": "SlideLocator",
+      "type": "object"
+    },
+    "SourceInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "mime": {
+          "title": "Mime",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "page_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page Count"
+        }
+      },
+      "required": [
+        "name",
+        "mime",
+        "content_hash"
+      ],
+      "title": "SourceInfo",
+      "type": "object"
+    },
+    "Table": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "maxItems": 100000,
+          "title": "Cells",
+          "type": "array"
+        },
+        "n_cols": {
+          "minimum": 1,
+          "title": "N Cols",
+          "type": "integer"
+        },
+        "n_rows": {
+          "minimum": 1,
+          "title": "N Rows",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "n_rows",
+        "n_cols",
+        "cells"
+      ],
+      "title": "Table",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blocks": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Block"
+      },
+      "title": "Blocks",
+      "type": "array"
+    },
+    "document_id": {
+      "minLength": 1,
+      "title": "Document Id",
+      "type": "string"
+    },
+    "layer_state": {
+      "enum": [
+        "det",
+        "vlm_running",
+        "vlm_done",
+        "vlm_failed"
+      ],
+      "title": "Layer State",
+      "type": "string"
+    },
+    "pages": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PageInfo"
+      },
+      "title": "Pages",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceInfo"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "document_id",
+    "version",
+    "layer_state",
+    "source"
+  ],
+  "title": "DocumentTree",
+  "type": "object"
+}

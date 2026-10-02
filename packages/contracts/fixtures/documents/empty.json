@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-empty",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "빈문서.docx",
+    "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "content_hash": "sha256:3336378fad049f5580961bfc9e627e871bb0137325d56f5d0c434a3cdc07e217",
+    "page_count": null
+  },
+  "pages": [],
+  "blocks": []
+}

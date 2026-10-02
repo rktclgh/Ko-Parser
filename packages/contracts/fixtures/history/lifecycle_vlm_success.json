@@ -1,0 +1,73 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-life",
+  "version": 3,
+  "regions": [
+    {
+      "region_id": "r-table-1",
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.2,
+          "x1": 0.9,
+          "y1": 0.35
+        }
+      },
+      "kind": "table",
+      "attempts": [
+        {
+          "layer": "det",
+          "driver_id": null,
+          "model_id": null,
+          "model_revision": null,
+          "usage": null,
+          "correction": null,
+          "error": null
+        },
+        {
+          "layer": "vlm_small",
+          "driver_id": "omlx",
+          "model_id": "dots.mocr-8bit",
+          "model_revision": null,
+          "usage": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "latency_ms": 2300
+          },
+          "correction": {
+            "segments_total": 20,
+            "fixed": 3,
+            "unchanged": 16,
+            "unmatched": 0,
+            "skipped": 1,
+            "chars_replaced": 4,
+            "chars_dropped": 0,
+            "unmatched_with_digits": 0
+          },
+          "error": null
+        }
+      ],
+      "chosen": "vlm",
+      "gate": {
+        "passed": true,
+        "checks": [
+          {
+            "name": "char_f1_after_correction",
+            "passed": true,
+            "value": 0.99,
+            "threshold": ">=0.90"
+          },
+          {
+            "name": "numbers_preserved",
+            "passed": true,
+            "value": null,
+            "threshold": "missing=0,extra=0"
+          }
+        ]
+      },
+      "fallback_reason": null
+    }
+  ]
+}

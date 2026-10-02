@@ -1,0 +1,389 @@
+{
+  "$defs": {
+    "BBox": {
+      "additionalProperties": false,
+      "properties": {
+        "x0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X0",
+          "type": "number"
+        },
+        "x1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X1",
+          "type": "number"
+        },
+        "y0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y0",
+          "type": "number"
+        },
+        "y1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y1",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "Cell": {
+      "additionalProperties": false,
+      "properties": {
+        "col": {
+          "minimum": 0,
+          "title": "Col",
+          "type": "integer"
+        },
+        "colspan": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Colspan",
+          "type": "integer"
+        },
+        "header": {
+          "default": "none",
+          "enum": [
+            "none",
+            "column",
+            "row"
+          ],
+          "title": "Header",
+          "type": "string"
+        },
+        "row": {
+          "minimum": 0,
+          "title": "Row",
+          "type": "integer"
+        },
+        "rowspan": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Rowspan",
+          "type": "integer"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "text_source": {
+          "enum": [
+            "native",
+            "text_layer",
+            "ocr",
+            "vlm"
+          ],
+          "title": "Text Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "col",
+        "text_source"
+      ],
+      "title": "Cell",
+      "type": "object"
+    },
+    "RecordingMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "profile_id": {
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "recorded_at": {
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "runtime": {
+          "title": "Runtime",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "profile_id",
+        "prompt",
+        "runtime",
+        "recorded_at"
+      ],
+      "title": "RecordingMeta",
+      "type": "object"
+    },
+    "Table": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/Cell"
+          },
+          "maxItems": 100000,
+          "title": "Cells",
+          "type": "array"
+        },
+        "n_cols": {
+          "minimum": 1,
+          "title": "N Cols",
+          "type": "integer"
+        },
+        "n_rows": {
+          "minimum": 1,
+          "title": "N Rows",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "n_rows",
+        "n_cols",
+        "cells"
+      ],
+      "title": "Table",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "description": "API가 돌려준 사용량. 모르면 None. 비용은 계산하지 않는다.",
+      "properties": {
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    },
+    "VlmBlock": {
+      "additionalProperties": false,
+      "description": "제안 블록. bbox는 요청 이미지 기준 0~1이고 페이지 좌표 변환은 커널이 한다.",
+      "properties": {
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BBox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kind": {
+          "enum": [
+            "heading",
+            "paragraph",
+            "list_item",
+            "table",
+            "figure",
+            "caption",
+            "page_header",
+            "page_footer"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "maximum": 6,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Table"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "VlmBlock",
+      "type": "object"
+    },
+    "VlmResult": {
+      "additionalProperties": false,
+      "description": "표는 엄격한 Table만. 정규화하지 못하면 결과 대신 VlmError(BAD_OUTPUT).",
+      "properties": {
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/VlmBlock"
+          },
+          "title": "Blocks",
+          "type": "array"
+        },
+        "driver_id": {
+          "title": "Driver Id",
+          "type": "string"
+        },
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "model_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Revision"
+        },
+        "output_format": {
+          "enum": [
+            "html",
+            "otsl",
+            "markdown",
+            "json",
+            "text"
+          ],
+          "title": "Output Format",
+          "type": "string"
+        },
+        "raw_text": {
+          "title": "Raw Text",
+          "type": "string"
+        },
+        "request_id": {
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/Usage",
+          "default": {
+            "input_tokens": null,
+            "latency_ms": null,
+            "output_tokens": null
+          }
+        },
+        "warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "request_id",
+        "blocks",
+        "raw_text",
+        "output_format",
+        "driver_id",
+        "model_id"
+      ],
+      "title": "VlmResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "fingerprint": {
+      "pattern": "^[0-9a-f]{32}$",
+      "title": "Fingerprint",
+      "type": "string"
+    },
+    "meta": {
+      "$ref": "#/$defs/RecordingMeta"
+    },
+    "result": {
+      "$ref": "#/$defs/VlmResult"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "fingerprint",
+    "result",
+    "meta"
+  ],
+  "title": "Recording",
+  "type": "object"
+}

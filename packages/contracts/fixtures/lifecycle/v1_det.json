@@ -1,0 +1,136 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-life",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "분기보고.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:cef9367016f583ebdd403e669dc9825ecf6fa1caef15c2d32f7a98f4acbaa447",
+    "page_count": 1
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "b_a020a3d70d4d9d0a7572f0d1",
+      "content_hash": "c_9c8072cc492e473cac02dea12c5d0a89",
+      "order": 0,
+      "kind": "heading",
+      "text": "분기 실적",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.05,
+          "x1": 0.9,
+          "y1": 0.09
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_7ea21ebd9800977629176f38",
+      "content_hash": "c_72cbad33b6ad0df24bf5a6583350a2c2",
+      "order": 1,
+      "kind": "paragraph",
+      "text": "3분기 영업이익은 365,900원이다.",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.1,
+          "x1": 0.9,
+          "y1": 0.14
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_43e0eddee7062e63916c699f",
+      "content_hash": "c_042784ce9596daaf123309be7e538dc6",
+      "order": 2,
+      "kind": "table",
+      "text": "분기\t증감률(%)\n3분기\t6.2",
+      "table": {
+        "n_rows": 2,
+        "n_cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "분기",
+            "header": "column",
+            "text_source": "ocr"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "증감률(%)",
+            "header": "column",
+            "text_source": "ocr"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "3분기",
+            "header": "none",
+            "text_source": "ocr"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "6.2",
+            "header": "none",
+            "text_source": "ocr"
+          }
+        ]
+      },
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.2,
+          "x1": 0.9,
+          "y1": 0.35
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "ocr",
+      "region_id": "r-table-1"
+    }
+  ]
+}

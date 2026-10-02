@@ -1,0 +1,154 @@
+{
+  "$defs": {
+    "DocumentChange": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Added",
+          "type": "array"
+        },
+        "document_id": {
+          "minLength": 1,
+          "title": "Document Id",
+          "type": "string"
+        },
+        "lineage": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LineageEdge"
+          },
+          "title": "Lineage",
+          "type": "array"
+        },
+        "previous_version": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Version"
+        },
+        "removed": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed",
+          "type": "array"
+        },
+        "updated": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Updated",
+          "type": "array"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "version"
+      ],
+      "title": "DocumentChange",
+      "type": "object"
+    },
+    "LineageEdge": {
+      "additionalProperties": false,
+      "description": "옛 블록 → 새 블록. 분할은 같은 old_id의 여러 간선, 병합은 같은 new_id의 여러 간선.\n\n살아남은 블록은 updated에 둔다(예: 병합에서 기존 id가 남는 경우).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "replaced",
+            "split",
+            "merged",
+            "removed"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "new_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "New Id"
+        },
+        "old_id": {
+          "title": "Old Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "old_id",
+        "kind"
+      ],
+      "title": "LineageEdge",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "커서는 엔진의 단조 증가 시퀀스 번호. resync_required면 소비자는 전체를 다시 색인한다.",
+  "properties": {
+    "changes": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/DocumentChange"
+      },
+      "title": "Changes",
+      "type": "array"
+    },
+    "cursor_from": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cursor From"
+    },
+    "next_cursor": {
+      "minimum": 0,
+      "title": "Next Cursor",
+      "type": "integer"
+    },
+    "resync_required": {
+      "default": false,
+      "title": "Resync Required",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "next_cursor"
+  ],
+  "title": "ChangeBatch",
+  "type": "object"
+}

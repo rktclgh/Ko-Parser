@@ -1,0 +1,46 @@
+{
+  "schema_version": "0.1",
+  "cursor_from": 10,
+  "next_cursor": 11,
+  "changes": [
+    {
+      "document_id": "fx-split",
+      "version": 5,
+      "previous_version": 4,
+      "added": [
+        "b_870739155a21b20ff762d26c",
+        "b_c52f13d2bbc76fa476da2d55",
+        "b_25b4ed50f15309bf99528bd9"
+      ],
+      "updated": [],
+      "removed": [
+        "b_a17fe1d23d9101b47e6a2608",
+        "b_41483b8e18211f5cd2bcee7d",
+        "b_9c8137e2078930008473b232"
+      ],
+      "lineage": [
+        {
+          "old_id": "b_a17fe1d23d9101b47e6a2608",
+          "new_id": "b_870739155a21b20ff762d26c",
+          "kind": "split"
+        },
+        {
+          "old_id": "b_a17fe1d23d9101b47e6a2608",
+          "new_id": "b_c52f13d2bbc76fa476da2d55",
+          "kind": "split"
+        },
+        {
+          "old_id": "b_41483b8e18211f5cd2bcee7d",
+          "new_id": "b_25b4ed50f15309bf99528bd9",
+          "kind": "merged"
+        },
+        {
+          "old_id": "b_9c8137e2078930008473b232",
+          "new_id": "b_25b4ed50f15309bf99528bd9",
+          "kind": "merged"
+        }
+      ]
+    }
+  ],
+  "resync_required": false
+}

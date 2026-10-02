@@ -1,0 +1,242 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-pdf",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "예산.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:ca5904c64609122794f42610d485a80fd9989d928ae2b5135a225a4ca714cd74",
+    "page_count": 1
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "b_bbbd166ff87c8731e1d32dc8",
+      "content_hash": "c_907766aaa724701e90d1d18e5d714e10",
+      "order": 0,
+      "kind": "page_header",
+      "text": "2026년 사업 계획",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.02,
+          "x1": 0.9,
+          "y1": 0.05
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_912dae35a94c1cb7cd806bef",
+      "content_hash": "c_e5f118611fe7208f92c8741d5ec9cb3f",
+      "order": 1,
+      "kind": "heading",
+      "text": "예산 현황",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.08,
+          "x1": 0.9,
+          "y1": 0.12
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_414d9abb1892a29c32c05191",
+      "content_hash": "c_fdde5167ad6debd21c1fb95973eb36b0",
+      "order": 2,
+      "kind": "table",
+      "text": "분류\t2025년\n상반기\t하반기\n인건비\t4,250,000\t4,310,000\n운영비\t1,800,000\t1,800,000",
+      "table": {
+        "n_rows": 4,
+        "n_cols": 3,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": "분류",
+            "header": "column",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 2,
+            "text": "2025년",
+            "header": "column",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "상반기",
+            "header": "column",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 2,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "하반기",
+            "header": "column",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 2,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "인건비",
+            "header": "row",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "4,250,000",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 2,
+            "col": 2,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "4,310,000",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 3,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "운영비",
+            "header": "row",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 3,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "1,800,000",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 3,
+            "col": 2,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "1,800,000",
+            "header": "none",
+            "text_source": "text_layer"
+          }
+        ]
+      },
+      "level": null,
+      "section_path": [
+        "예산 현황"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.15,
+          "x1": 0.9,
+          "y1": 0.4
+        }
+      },
+      "confidence": 0.92,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": "r-table-1"
+    },
+    {
+      "block_id": "b_326df6a93edf42fdc1535fbd",
+      "content_hash": "c_63f725786f5e55f906dc8e3382086e5e",
+      "order": 3,
+      "kind": "caption",
+      "text": "표 1. 예산 현황(단위: 원)",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "예산 현황"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.41,
+          "x1": 0.9,
+          "y1": 0.44
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_bc77f1fdfa1bb791ab615e56",
+      "content_hash": "c_06e9d0df007d3794fe9f45c329b78add",
+      "order": 4,
+      "kind": "page_footer",
+      "text": "- 1 -",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.45,
+          "y0": 0.95,
+          "x1": 0.55,
+          "y1": 0.98
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    }
+  ]
+}

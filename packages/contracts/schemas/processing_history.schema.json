@@ -1,0 +1,596 @@
+{
+  "$defs": {
+    "Attempt": {
+      "additionalProperties": false,
+      "properties": {
+        "correction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CorrectionSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "driver_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Driver Id"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "layer": {
+          "enum": [
+            "det",
+            "vlm_small",
+            "vlm_large"
+          ],
+          "title": "Layer",
+          "type": "string"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Id"
+        },
+        "model_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Revision"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "layer"
+      ],
+      "title": "Attempt",
+      "type": "object"
+    },
+    "BBox": {
+      "additionalProperties": false,
+      "properties": {
+        "x0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X0",
+          "type": "number"
+        },
+        "x1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "X1",
+          "type": "number"
+        },
+        "y0": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y0",
+          "type": "number"
+        },
+        "y1": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Y1",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ],
+      "title": "BBox",
+      "type": "object"
+    },
+    "CorrectionSummary": {
+      "additionalProperties": false,
+      "description": "글자 보정 1회의 요약. 단위는 조각(segments)과 글자(chars).",
+      "properties": {
+        "chars_dropped": {
+          "minimum": 0,
+          "title": "Chars Dropped",
+          "type": "integer"
+        },
+        "chars_replaced": {
+          "minimum": 0,
+          "title": "Chars Replaced",
+          "type": "integer"
+        },
+        "fixed": {
+          "minimum": 0,
+          "title": "Fixed",
+          "type": "integer"
+        },
+        "segments_total": {
+          "minimum": 0,
+          "title": "Segments Total",
+          "type": "integer"
+        },
+        "skipped": {
+          "minimum": 0,
+          "title": "Skipped",
+          "type": "integer"
+        },
+        "unchanged": {
+          "minimum": 0,
+          "title": "Unchanged",
+          "type": "integer"
+        },
+        "unmatched": {
+          "minimum": 0,
+          "title": "Unmatched",
+          "type": "integer"
+        },
+        "unmatched_with_digits": {
+          "minimum": 0,
+          "title": "Unmatched With Digits",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "segments_total",
+        "fixed",
+        "unchanged",
+        "unmatched",
+        "skipped",
+        "chars_replaced",
+        "chars_dropped",
+        "unmatched_with_digits"
+      ],
+      "title": "CorrectionSummary",
+      "type": "object"
+    },
+    "ErrorInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "UNAVAILABLE",
+            "TIMEOUT",
+            "RATE_LIMITED",
+            "INPUT_TOO_LARGE",
+            "BAD_OUTPUT",
+            "AUTH"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "raw_excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Excerpt"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "retryable",
+        "message"
+      ],
+      "title": "ErrorInfo",
+      "type": "object"
+    },
+    "FlowLocator": {
+      "additionalProperties": false,
+      "description": "DOCX·HWPX: 섹션 경로 + 문단 순번(0부터).",
+      "properties": {
+        "kind": {
+          "const": "flow",
+          "default": "flow",
+          "title": "Kind",
+          "type": "string"
+        },
+        "paragraph_index": {
+          "minimum": 0,
+          "title": "Paragraph Index",
+          "type": "integer"
+        },
+        "section_path": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Section Path",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paragraph_index"
+      ],
+      "title": "FlowLocator",
+      "type": "object"
+    },
+    "GateCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "name",
+        "passed"
+      ],
+      "title": "GateCheck",
+      "type": "object"
+    },
+    "GateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/GateCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "passed",
+        "checks"
+      ],
+      "title": "GateResult",
+      "type": "object"
+    },
+    "LinesLocator": {
+      "additionalProperties": false,
+      "description": "MD·TXT: 섹션 경로 + 줄 범위(1부터, 양 끝 포함).",
+      "properties": {
+        "kind": {
+          "const": "lines",
+          "default": "lines",
+          "title": "Kind",
+          "type": "string"
+        },
+        "line_end": {
+          "minimum": 1,
+          "title": "Line End",
+          "type": "integer"
+        },
+        "line_start": {
+          "minimum": 1,
+          "title": "Line Start",
+          "type": "integer"
+        },
+        "section_path": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Section Path",
+          "type": "array"
+        }
+      },
+      "required": [
+        "line_start",
+        "line_end"
+      ],
+      "title": "LinesLocator",
+      "type": "object"
+    },
+    "PageLocator": {
+      "additionalProperties": false,
+      "description": "PDF·이미지: 쪽 번호(1부터) + bbox.",
+      "properties": {
+        "bbox": {
+          "$ref": "#/$defs/BBox"
+        },
+        "kind": {
+          "const": "page",
+          "default": "page",
+          "title": "Kind",
+          "type": "string"
+        },
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "page",
+        "bbox"
+      ],
+      "title": "PageLocator",
+      "type": "object"
+    },
+    "RegionRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "items": {
+            "$ref": "#/$defs/Attempt"
+          },
+          "minItems": 1,
+          "title": "Attempts",
+          "type": "array"
+        },
+        "chosen": {
+          "enum": [
+            "det",
+            "vlm",
+            "large"
+          ],
+          "title": "Chosen",
+          "type": "string"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fallback Reason"
+        },
+        "gate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GateResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kind": {
+          "enum": [
+            "heading",
+            "paragraph",
+            "list_item",
+            "table",
+            "figure",
+            "caption",
+            "page_header",
+            "page_footer"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "locator": {
+          "discriminator": {
+            "mapping": {
+              "flow": "#/$defs/FlowLocator",
+              "lines": "#/$defs/LinesLocator",
+              "page": "#/$defs/PageLocator",
+              "slide": "#/$defs/SlideLocator"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PageLocator"
+            },
+            {
+              "$ref": "#/$defs/FlowLocator"
+            },
+            {
+              "$ref": "#/$defs/SlideLocator"
+            },
+            {
+              "$ref": "#/$defs/LinesLocator"
+            }
+          ],
+          "title": "Locator"
+        },
+        "region_id": {
+          "minLength": 1,
+          "title": "Region Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "region_id",
+        "locator",
+        "kind",
+        "attempts",
+        "chosen"
+      ],
+      "title": "RegionRecord",
+      "type": "object"
+    },
+    "SlideLocator": {
+      "additionalProperties": false,
+      "description": "PPTX: 슬라이드 번호(1부터) + 도형 순번(0부터).",
+      "properties": {
+        "kind": {
+          "const": "slide",
+          "default": "slide",
+          "title": "Kind",
+          "type": "string"
+        },
+        "shape_index": {
+          "minimum": 0,
+          "title": "Shape Index",
+          "type": "integer"
+        },
+        "slide": {
+          "minimum": 1,
+          "title": "Slide",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "slide",
+        "shape_index"
+      ],
+      "title": "SlideLocator",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "description": "API가 돌려준 사용량. 모르면 None. 비용은 계산하지 않는다.",
+      "properties": {
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "document_id": {
+      "minLength": 1,
+      "title": "Document Id",
+      "type": "string"
+    },
+    "regions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RegionRecord"
+      },
+      "title": "Regions",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "document_id",
+    "version"
+  ],
+  "title": "ProcessingHistory",
+  "type": "object"
+}
