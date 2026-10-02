@@ -1,3 +1,4 @@
+import inspect
 import math
 
 import pytest
@@ -24,3 +25,10 @@ def test_job_status_progress_bounds():
 def test_engine_protocol_shape():
     names = {"ingest", "documents", "get_tree", "run_vlm", "job", "changes", "history"}
     assert names <= set(dir(Engine))
+
+
+def test_engine_ingest_accepts_document_id_and_force():
+    params = inspect.signature(Engine.ingest).parameters
+    assert list(params) == ["self", "path", "document_id", "force"]
+    assert params["document_id"].default is None and params["force"].default is False
+    assert params["document_id"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD

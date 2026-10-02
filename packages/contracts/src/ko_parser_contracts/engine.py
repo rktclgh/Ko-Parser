@@ -36,7 +36,9 @@ class JobStatus(ContractModel):
 
 
 class Engine(Protocol):
-    def ingest(self, path: str) -> DocRef: ...
+    def ingest(self, path: str, document_id: str | None = None, force: bool = False) -> DocRef:
+        """document_id가 없으면 원본 sha256으로 정한다. 원본 해시가 같으면 force가 아닌 한 새 버전을 만들지 않는다."""
+        ...
 
     def documents(self) -> tuple[DocRef, ...]: ...
 
