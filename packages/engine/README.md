@@ -25,3 +25,4 @@ ko-parser history DOC_ID [--version N]
 ## 개발
 
 - 골든 예제 재생성·확인: `uv run python packages/engine/tests/build_fixtures.py [--check]`
+- PDF 골든 예제 재생성·확인: `uv run python packages/engine/tests/build_pdf_fixtures.py [--check]`(reportlab, 개발 의존성)

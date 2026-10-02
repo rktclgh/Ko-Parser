@@ -1,0 +1,483 @@
+{
+  "schema_version": "0.2",
+  "document_id": "fx-pdf-report",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "report.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:0193afe0bca5fa3c02ac9e1792712065d8cef6982abccf56075d423c1dc7f253",
+    "page_count": 2
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": {
+        "chars": 160,
+        "invisible_ratio": 0.0,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    },
+    {
+      "page": 2,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": {
+        "chars": 74,
+        "invisible_ratio": 0.0,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "b_e4b1f5727e68eca16891d7dc",
+      "content_hash": "c_a29d889f2f8de38d2c2f264a79d3c376",
+      "order": 0,
+      "kind": "heading",
+      "text": "2026년 사업 계획 (초안)",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.068,
+          "x1": 0.39,
+          "y1": 0.119
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_776c9a05165f80cbf63273dd",
+      "content_hash": "c_1f5328edfc3602fbe648605c8d93f63a",
+      "order": 1,
+      "kind": "heading",
+      "text": "1. 추진 배경",
+      "table": null,
+      "level": 2,
+      "section_path": [
+        "2026년 사업 계획 (초안)"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.154,
+          "x1": 0.282,
+          "y1": 0.171
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_5f0e9d599fc540a9218fb863",
+      "content_hash": "c_034d78120d73157b3236493e2fb2a2ca",
+      "order": 2,
+      "kind": "paragraph",
+      "text": "본 계획은 2026년 지역 디지털 전환 사업의 추진 방향과\n세부 일정을 정리한 것으로, 참여 기관 모집부터 성과 점검까지\n단계별 과제를 담는다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "1. 추진 배경"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.194,
+          "x1": 0.666,
+          "y1": 0.244
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_c7e4671457d54ecae68a2a3f",
+      "content_hash": "c_7359ba91ba3b0a170ce75d2e94a04af9",
+      "order": 3,
+      "kind": "heading",
+      "text": "가. 세부 목표",
+      "table": null,
+      "level": 3,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "1. 추진 배경"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.276,
+          "x1": 0.263,
+          "y1": 0.29
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_a688040d93c2da2d24851aa3",
+      "content_hash": "c_452129e8f91eb28233e6d0fea55a3fdd",
+      "order": 4,
+      "kind": "list_item",
+      "text": "□ 첫째, 참여 기관을 모집한다.\n모집 공고는 1분기에 낸다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "1. 추진 배경",
+        "가. 세부 목표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.313,
+          "x1": 0.398,
+          "y1": 0.344
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_7b3191db592353d453d82a8a",
+      "content_hash": "c_81b80423a6141cd6f3397d38e8807fa5",
+      "order": 5,
+      "kind": "list_item",
+      "text": "○ 둘째, 선정 결과를 통보한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "1. 추진 배경",
+        "가. 세부 목표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.361,
+          "x1": 0.398,
+          "y1": 0.372
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_1e9e5c899f85f9bcb3b38544",
+      "content_hash": "c_756858e29e5fba8c5cb6fd81d8d16f86",
+      "order": 6,
+      "kind": "list_item",
+      "text": "- 셋째, 협약을 체결한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "1. 추진 배경",
+        "가. 세부 목표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.389,
+          "x1": 0.343,
+          "y1": 0.401
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_91f8ad195dadcfdaa6a10c09",
+      "content_hash": "c_1834d62279d2ef92fe9ac84d5ce1b4b0",
+      "order": 7,
+      "kind": "paragraph",
+      "text": "본 계획의 세부 내용은 사업 여건에 따라\n변경될 수 있다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "1. 추진 배경",
+        "가. 세부 목표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.432,
+          "x1": 0.472,
+          "y1": 0.463
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_aa4aaec38f9bfdb3368aa406",
+      "content_hash": "c_dc38e1714ac391d4d0000acaf9ff63ee",
+      "order": 8,
+      "kind": "heading",
+      "text": "2. 예산",
+      "table": null,
+      "level": 2,
+      "section_path": [
+        "2026년 사업 계획 (초안)"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.071,
+          "x1": 0.215,
+          "y1": 0.088
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_d7b0e22f87dfc9e85928be77",
+      "content_hash": "c_3268da549b89d089dab604dcafacbd02",
+      "order": 9,
+      "kind": "heading",
+      "text": "핵심 지표",
+      "table": null,
+      "level": 4,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "2. 예산"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.11,
+          "x1": 0.212,
+          "y1": 0.123
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_62983f8d2cd02b5ec951564f",
+      "content_hash": "c_934741030972415ce826ccddb0f56786",
+      "order": 10,
+      "kind": "paragraph",
+      "text": "총사업비는 4,250,000원이다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "2. 예산",
+        "핵심 지표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.141,
+          "x1": 0.371,
+          "y1": 0.153
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_8007d8f1300144c217167122",
+      "content_hash": "c_6fa271294bd6cae24b98521c8698fc4a",
+      "order": 11,
+      "kind": "paragraph",
+      "text": "큰 글자로 쓴 강조 문단은\n세 줄 이상 이어지면\n제목이 아니라 문단이다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "2. 예산",
+        "핵심 지표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.178,
+          "x1": 0.444,
+          "y1": 0.243
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_3dd97f04b18b731591d38216",
+      "content_hash": "c_8838ca95afafec1fb31f295b95a95a25",
+      "order": 12,
+      "kind": "paragraph",
+      "text": "구분",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "2. 예산",
+        "핵심 지표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.278,
+          "x1": 0.158,
+          "y1": 0.289
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_2c4e44e2f530f8abc84a61ba",
+      "content_hash": "c_2bf5b288ca9c7fecb975eebfb4c336ce",
+      "order": 13,
+      "kind": "paragraph",
+      "text": "금액(원)",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "2. 예산",
+        "핵심 지표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.504,
+          "y0": 0.278,
+          "x1": 0.578,
+          "y1": 0.289
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_29cc2a336907fa2516ea5161",
+      "content_hash": "c_a2b4a7dedb49e3c6d22203bb5aab3b9d",
+      "order": 14,
+      "kind": "paragraph",
+      "text": "인건비",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "2. 예산",
+        "핵심 지표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.297,
+          "x1": 0.176,
+          "y1": 0.308
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_7f0a00c54d9a6a2a8829bee1",
+      "content_hash": "c_eeb17fc57a955f00c32a185fcc08253b",
+      "order": 15,
+      "kind": "paragraph",
+      "text": "4,250,000",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획 (초안)",
+        "2. 예산",
+        "핵심 지표"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.504,
+          "y0": 0.297,
+          "x1": 0.587,
+          "y1": 0.308
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    }
+  ]
+}

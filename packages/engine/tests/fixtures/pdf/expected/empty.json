@@ -1,0 +1,30 @@
+{
+  "schema_version": "0.2",
+  "document_id": "fx-pdf-empty",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "empty.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:8635f219c886d3778e8d6e1b6a473f58eccd58231f5fdf2304a0403335fa6c6d",
+    "page_count": 1
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": {
+        "chars": 0,
+        "invisible_ratio": 0.0,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    }
+  ],
+  "blocks": []
+}

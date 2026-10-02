@@ -1,0 +1,30 @@
+{
+  "schema_version": "0.2",
+  "document_id": "fx-pdf-scanned_invisible",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "scanned_invisible.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:f8f49a0d2e52a09cf0361d53c480ab205e02107d5bef20e38467e4e25fa95deb",
+    "page_count": 1
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "scanned",
+      "text_stats": {
+        "chars": 3,
+        "invisible_ratio": 0.9268,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    }
+  ],
+  "blocks": []
+}

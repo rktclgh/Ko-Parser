@@ -46,3 +46,5 @@ jobs:
         run: uv run python -W error::EncodingWarning packages/contracts/tests/build_fixtures.py --check
       - name: Engine fixtures up to date
         run: uv run python -W error::EncodingWarning packages/engine/tests/build_fixtures.py --check
+      - name: Engine PDF fixtures up to date
+        run: uv run python -W error::EncodingWarning packages/engine/tests/build_pdf_fixtures.py --check
