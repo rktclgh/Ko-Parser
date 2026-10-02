@@ -3,7 +3,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.geometry import BBox, PageInfo
+from ko_parser_contracts.geometry import BBox, PageInfo, TextLayerStats
 
 
 def test_bbox_accepts_normalized_box():
@@ -40,3 +40,37 @@ def test_page_info_rejects_inf():
         PageInfo(page=1, width_pt=math.inf, height_pt=842.0, render_dpi=144)
     with pytest.raises(ValidationError):
         PageInfo(page=0, width_pt=595.0, height_pt=842.0, render_dpi=144)
+
+
+def stats(**kw) -> TextLayerStats:
+    base = {"chars": 4, "invisible_ratio": 0.0, "unmapped_ratio": 0.0, "pua_ratio": 0.0, "max_image_coverage": 0.6}
+    return TextLayerStats(**{**base, **kw})
+
+
+def test_page_info_text_layer_defaults_to_digital_without_stats():
+    p = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
+    assert (p.text_layer, p.text_stats) == ("digital", None)
+    digital = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_stats=stats(chars=0))
+    assert digital.text_stats.chars == 0
+
+
+@pytest.mark.parametrize("state", ["scanned", "unreliable"])
+def test_non_digital_page_requires_stats(state):
+    with pytest.raises(ValidationError, match="require text_stats"):
+        PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_layer=state)
+    page = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_layer=state, text_stats=stats())
+    assert PageInfo.model_validate_json(page.model_dump_json()) == page
+
+
+@pytest.mark.parametrize("field,value", [("chars", -1), ("invisible_ratio", 1.01), ("unmapped_ratio", -0.1),
+                                         ("pua_ratio", math.nan), ("max_image_coverage", math.inf)])
+def test_text_stats_rejects_out_of_range(field, value):
+    with pytest.raises(ValidationError):
+        stats(**{field: value})
+
+
+def test_text_layer_rejects_unknown_state():
+    with pytest.raises(ValidationError):
+        PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_layer="ocr", text_stats=stats())
+    with pytest.raises(ValidationError):
+        stats(extra=1)

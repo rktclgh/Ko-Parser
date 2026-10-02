@@ -17,6 +17,7 @@ ko-parser history DOC_ID [--version N]
 ```
 
 - 상태 파일: `--db PATH` > 환경변수 `KO_PARSER_DB` > 사용자 데이터 폴더의 `ko-parser/state.db`
+- 계약 0.2로 올라가며 이전 상태 파일은 지우고 다시 수집해야 한다
 - 출력은 UTF-8, JSON은 계약 모델 그대로
 - 종료 코드: 0 성공, 1 그 밖의 오류, 2 사용법, 3 지원하지 않는 형식, 4 파싱 실패, 5 문서·버전 없음
 

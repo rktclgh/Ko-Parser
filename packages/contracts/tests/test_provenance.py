@@ -54,7 +54,7 @@ def test_region_record_and_history():
                           gate=GateResult(passed=False, checks=[GateCheck(name="numbers_preserved", passed=False)]),
                           fallback_reason="unmatched segment with digits")
     h = ProcessingHistory(document_id="doc-1", version=3, regions=[region])
-    assert h.schema_version == "0.1"
+    assert h.schema_version == "0.2"
     with pytest.raises(ValidationError, match="region_id"):
         ProcessingHistory(document_id="doc-1", version=3, regions=[region, region])
     with pytest.raises(ValidationError):
