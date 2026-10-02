@@ -62,7 +62,8 @@ def _fragment(page: PageText, chars: Sequence[Char]) -> Fragment | None:
     간격의 중앙값(음수일 때만, 목차 점선 같은 기호는 빼고). 공백만 있으면 None."""
     w, h = page.width_pt, page.height_pt
     gaps = sorted((b.x0 - a.x1) * w for a, b in zip(chars, chars[1:]) if a.text.isalnum() and b.text.isalnum())
-    tracking = min(gaps[(len(gaps) - 1) // 2], 0.0) if gaps else 0.0  # 작은 쪽 중앙값. 자간을 좁힌 문서(한글 -25% 등)
+    # 중앙값. 작은 쪽 중앙값은 실제 문서에서 남는 공백을 늘려 쓰지 않음. 자간을 좁힌 문서(한글 -25% 등)
+    tracking = min(gaps[len(gaps) // 2], 0.0) if gaps else 0.0
     parts = [chars[0].text]
     for a, b in zip(chars, chars[1:]):
         if (not a.text.isspace() and not b.text.isspace()
