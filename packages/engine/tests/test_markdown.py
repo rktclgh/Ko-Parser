@@ -155,3 +155,37 @@ def test_default_engine_parses_markdown(tmp_path):
     engine = LocalEngine(MemoryStore())
     tree = engine.get_tree(engine.ingest(str(path)).document_id)
     assert tree.source.mime == "text/markdown" and [b.kind for b in tree.blocks] == ["heading", "paragraph"]
+
+
+def _nested_list(depth: int) -> str:
+    return "".join("  " * i + f"- a{i}\n" for i in range(depth)) + "\n뒤 문단\n"
+
+
+@pytest.mark.parametrize("src", [_nested_list(12), "> " * 20 + "깊은\n", "> " * 5000 + "가\n"])
+def test_block_nesting_limit_is_parse_error(src):
+    with pytest.raises(ParseError) as info:
+        MarkdownParser().parse(src.encode("utf-8"), "깊은.md")
+    assert info.value.reason == "block nesting too deep" and info.value.location == "깊은.md"
+
+
+def test_deep_but_within_limit_parses_fully():
+    assert [b[1] for b in parse(_nested_list(5))] == ["a0", "a1", "a2", "a3", "a4", "뒤 문단"]
+    assert parse("> " * 8 + "가\n") == [("paragraph", "가", (), 1, 1)]
+    assert [b[1] for b in parse(_nested_list(8))][-2:] == ["a7", "뒤 문단"]
+
+
+def test_many_tables_scan_is_linear():
+    import time
+
+    src = "| a | b |\n|---|---|\n| 1 | 2 |\n\n문단\n\n" * 3000
+    start = time.perf_counter()
+    blocks = parse(src)
+    assert len(blocks) == 6000 and time.perf_counter() - start < 5
+
+
+def test_removed_image_leaves_no_edge_whitespace():
+    assert parse("![](x.png) 뒤\n\n앞 ![](x.png)\n\n가 ![](x.png) 나\n") == [
+        ("paragraph", "뒤", (), 1, 1),
+        ("paragraph", "앞", (), 3, 3),
+        ("paragraph", "가  나", (), 5, 5),
+    ]

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_block import StateBlock
 from markdown_it.token import Token
 from pydantic import ValidationError
 
@@ -20,6 +21,11 @@ from .text import decode_text
 MIME = "text/markdown"
 _BREAKS = frozenset({"softbreak", "hardbreak"})
 _TEXT = frozenset({"text", "code_inline", "html_inline"})
+_MAX_NESTING = 20  # markdown-it commonmark 기본 maxNesting. 넘으면 라이브러리가 내용을 조용히 버린다.
+
+
+class _TooDeep(Exception):
+    """블록 중첩이 한계를 넘어 내용이 버려질 상황."""
 
 
 def inline_text(tokens: Sequence[Token]) -> str:
@@ -72,24 +78,27 @@ class _Collector:
         })
 
     def collect(self, tokens: Sequence[Token]) -> None:
-        for i, token in enumerate(tokens):
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            i += 1
             match token.type:
                 case "heading_open":
-                    self.heading(token, tokens[i + 1])
+                    self.heading(token, tokens[i])
                 case "paragraph_open":
-                    self.paragraph(token, tokens[i + 1], tokens[i - 1] if i else None)
+                    self.paragraph(token, tokens[i], tokens[i - 2] if i > 1 else None)
                 case "fence" | "code_block" | "html_block":
                     self.add("paragraph", token.content.rstrip("\n"), self.lines(token))
                 case "table_open":
-                    self.table(token, tokens[i + 1:])
+                    i = self.table(token, tokens, i)
                 case _:  # 구분선, 닫는 토큰, 목록·인용 여닫이, 표 안쪽 토큰
                     pass
 
     def heading(self, token: Token, inline: Token) -> None:
         level = int(token.tag[1:])
-        text = inline_text(inline.children or ())
+        text = inline_text(inline.children or ()).strip()
         lines = self.lines(token)
-        if not text.strip():
+        if not text:
             return
         while self.headings and self.headings[-1][0] >= level:
             self.headings.pop()
@@ -100,26 +109,28 @@ class _Collector:
         lines = self.lines(token)
         children = inline.children or []
         if before is not None and before.type == "list_item_open":  # 목록 항목의 직접 글자
-            text = inline_text(children)
-            if text.strip() and before.markup in (".", ")"):  # 순서 목록은 원문 번호 유지
+            text = inline_text(children).strip()  # 이미지를 지운 가장자리 공백 제거
+            if text and before.markup in (".", ")"):  # 순서 목록은 원문 번호 유지
                 text = f"{before.info}{before.markup} {text}"
             self.add("list_item", text, lines)
         elif _is_figure(children):
             self.add("figure", "\n".join(inline_text(t.children or ()) for t in children if t.type == "image"),
                      lines)
         else:
-            self.add("paragraph", inline_text(children), lines)
+            self.add("paragraph", inline_text(children).strip(), lines)
 
-    def table(self, token: Token, rest: Sequence[Token]) -> None:
+    def table(self, token: Token, tokens: Sequence[Token], start: int) -> int:
+        """표를 블록으로 만들고 table_close 다음 위치를 돌려준다(복사 없이 인덱스로 훑는다)."""
         lines = self.lines(token)
         rows: list[list[str]] = []
-        for t in rest:
-            if t.type == "table_close":
-                break
+        i = start
+        while tokens[i].type != "table_close":
+            t = tokens[i]
+            i += 1
             if t.type == "tr_open":
                 rows.append([])
             elif t.type == "inline":
-                rows[-1].append(inline_text(t.children or ()))
+                rows[-1].append(inline_text(t.children or ()).strip())
         n_cols = len(rows[0])
         try:
             table = Table(n_rows=len(rows), n_cols=n_cols, cells=[
@@ -130,6 +141,21 @@ class _Collector:
             raise ParseError(f"invalid table: {exc.errors()[0]['msg']}",
                              f"{self.name}:{lines[0]}-{lines[1]}") from exc
         self.add("table", table.plain_text(), lines, table=table)
+        return i + 1
+
+
+def _guarded_tokenize(md: MarkdownIt) -> None:
+    """한계 깊이에서 내용이 남아 있으면 버려지기 전에 알린다. 라이브러리 판정과 같은 조건이다."""
+    tokenize = md.block.tokenize
+
+    def guarded(state: StateBlock, start: int, end: int) -> None:
+        if state.level >= _MAX_NESTING:
+            line = state.skipEmptyLines(start)
+            if line < end and state.sCount[line] >= state.blkIndent:
+                raise _TooDeep
+        tokenize(state, start, end)
+
+    md.block.tokenize = guarded  # type: ignore[method-assign]
 
 
 class MarkdownParser:
@@ -137,9 +163,14 @@ class MarkdownParser:
     extensions: tuple[str, ...] = (".md", ".markdown")
 
     def __init__(self) -> None:
-        self._md = MarkdownIt("commonmark").enable("table")
+        self._md = MarkdownIt("commonmark", {"maxNesting": _MAX_NESTING}).enable("table")
+        _guarded_tokenize(self._md)
 
     def parse(self, data: bytes, name: str) -> ParsedSource:
         collector = _Collector(name)
-        collector.collect(self._md.parse(decode_text(data, name)))
+        try:
+            tokens = self._md.parse(decode_text(data, name))
+        except _TooDeep:
+            raise ParseError("block nesting too deep", name) from None
+        collector.collect(tokens)
         return ParsedSource(mime=MIME, blocks=tuple(collector.blocks))
