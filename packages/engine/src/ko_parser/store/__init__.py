@@ -2,5 +2,6 @@
 
 from .base import Store, StoreConflict
 from .memory import MemoryStore
+from .sqlite import SqliteStore
 
-__all__ = ["Store", "StoreConflict", "MemoryStore"]
+__all__ = ["Store", "StoreConflict", "MemoryStore", "SqliteStore"]

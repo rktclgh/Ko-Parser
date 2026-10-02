@@ -5,15 +5,20 @@ import pytest
 from ko_parser.core import build_tree, diff_trees
 from ko_parser.errors import DocumentNotFound, StoreConflict, VersionNotFound
 from ko_parser.formats.base import ParsedSource
-from ko_parser.store import MemoryStore
+from ko_parser.store import MemoryStore, SqliteStore
 from ko_parser_contracts import DocRef, DocumentTree, ProcessingHistory, SourceInfo
 
 SOURCE = SourceInfo(name="메모.md", mime="text/markdown", content_hash="sha256:" + "0" * 64)
 
 
-@pytest.fixture(params=["memory"])
-def store(request):
-    yield MemoryStore()
+@pytest.fixture(params=["memory", "sqlite"])
+def store(request, tmp_path):
+    if request.param == "memory":
+        yield MemoryStore()
+        return
+    s = SqliteStore(tmp_path / "한글 폴더" / "state.db")
+    yield s
+    s.close()
 
 
 def make_tree(doc: str, version: int, *texts: str) -> DocumentTree:
@@ -140,3 +145,23 @@ def test_missing_document_and_version(store):
             store.get_tree("d1", version)
         with pytest.raises(VersionNotFound):
             store.history("d1", version)
+
+
+def test_commit_rejects_mismatched_previous_version(store):
+    commit(store, "d1", "가")
+    v2 = make_tree("d1", 2, "나")
+    with pytest.raises(ValueError):  # 변경의 previous_version이 None인데 최신은 1
+        store.commit(v2, diff_trees(None, v2), ProcessingHistory(document_id="d1", version=2))
+    assert store.latest("d1").version == 1
+    assert len(store.changes_after(None, 100).changes) == 1
+    with pytest.raises(VersionNotFound):
+        store.history("d1", 2)
+
+
+def test_commit_returns_the_cursor_of_its_change(store):
+    first = commit(store, "d1", "가")
+    batch = store.changes_after(None, 1)
+    assert [(c.document_id, c.version) for c in batch.changes] == [("d1", 1)] and first == batch.next_cursor
+    second = commit(store, "d1", "가", "나")
+    batch = store.changes_after(first, 1)
+    assert [(c.document_id, c.version) for c in batch.changes] == [("d1", 2)] and second == batch.next_cursor
