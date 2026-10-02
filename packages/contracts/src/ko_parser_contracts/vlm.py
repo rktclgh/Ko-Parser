@@ -3,6 +3,7 @@
 import base64
 import binascii
 import hashlib
+import struct
 from typing import Annotated, Literal, Protocol, Self, runtime_checkable
 
 from pydantic import Field, PlainSerializer, PlainValidator, WithJsonSchema, model_validator
@@ -12,6 +13,13 @@ from .document import BlockKind, check_kind_fields
 from .geometry import BBox
 from .provenance import ErrorInfo, Usage
 from .table import Table
+
+MAX_IMAGE_BYTES = 32 * 1024 * 1024  # PNG 바이트 상한
+MAX_IMAGE_PIXELS = 40_000_000  # 가로×세로 상한(디코드 폭탄 방지)
+
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_IHDR_HEAD = b"\x00\x00\x00\x0dIHDR"  # 첫 청크는 길이 13의 IHDR
+_IEND_CHUNK = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 
 Task = Literal["REGION_TABLE", "REGION_FIGURE", "REGION_TEXT", "PAGE_FULL"]
 
@@ -45,10 +53,29 @@ class ImagePayload(ContractModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
-    def _check_hash(self) -> Self:
+    def _check_png(self) -> Self:
+        png = self.png
+        if len(png) > MAX_IMAGE_BYTES:
+            raise ValueError("png exceeds MAX_IMAGE_BYTES")
+        if not png.startswith(_PNG_SIGNATURE):
+            raise ValueError("png signature missing")
+        if png[8:16] != _IHDR_HEAD or len(png) < 24:
+            raise ValueError("png must start with an IHDR chunk")
+        if not (0 < self.width and 0 < self.height and self.width * self.height <= MAX_IMAGE_PIXELS):
+            raise ValueError("png dimensions out of range")
+        if not png.endswith(_IEND_CHUNK):
+            raise ValueError("png is truncated (no IEND)")
         if hashlib.sha256(self.png).hexdigest() != self.sha256:
             raise ValueError("sha256 does not match png bytes")
         return self
+
+    @property
+    def width(self) -> int:
+        return struct.unpack(">II", self.png[16:24])[0]
+
+    @property
+    def height(self) -> int:
+        return struct.unpack(">II", self.png[16:24])[1]
 
     @classmethod
     def from_png(cls, png: bytes, page_bbox: BBox, dpi: int) -> "ImagePayload":
@@ -64,7 +91,7 @@ class VlmRequest(VersionedModel):
     request_id: str = Field(min_length=1)
     task: Task
     image: ImagePayload
-    region_id: str | None = None
+    region_id: str | None = Field(default=None, min_length=1)
     page_ref: PageRef
     anchor_text: str | None = None
     language_hints: tuple[str, ...] = ()
