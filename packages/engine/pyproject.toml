@@ -1,0 +1,15 @@
+[project]
+name = "ko-parser-engine"
+version = "0.1.0"
+description = "Deterministic document parsing engine for ko-parser"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = ["ko-parser-contracts>=0.1.1,<0.2"]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ko_parser"]
