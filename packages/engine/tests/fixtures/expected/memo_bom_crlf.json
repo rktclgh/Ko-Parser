@@ -1,0 +1,157 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-md-memo_bom_crlf",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "memo_bom_crlf.md",
+    "mime": "text/markdown",
+    "content_hash": "sha256:d56bf63da125e85572d16ded6a924e5238d2895ca29438edaddc3a60c520318b",
+    "page_count": null
+  },
+  "pages": [],
+  "blocks": [
+    {
+      "block_id": "b_51f188dfc2c6aa57ef8b6821",
+      "content_hash": "c_7aa9b2d1498b4f06e02b3579b97f6ff8",
+      "order": 0,
+      "kind": "heading",
+      "text": "회의록",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "lines",
+        "section_path": [],
+        "line_start": 1,
+        "line_end": 1
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_e13438a9f5e2bda5dbd0470e",
+      "content_hash": "c_722bda9a0132b3b1b4d97b5a4367e955",
+      "order": 1,
+      "kind": "paragraph",
+      "text": "일시: 2026년 10월 2일",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "회의록"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "회의록"
+        ],
+        "line_start": 3,
+        "line_end": 3
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_6bbfb0ddb92d259b8fb366e4",
+      "content_hash": "c_20fc69a6380a62a2876e0cbef2a90d27",
+      "order": 2,
+      "kind": "list_item",
+      "text": "참석: 기획팀, 예산팀",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "회의록"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "회의록"
+        ],
+        "line_start": 5,
+        "line_end": 5
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_612b0b4fff56e37a21586364",
+      "content_hash": "c_f1557155957e5b47c3f988646dbc85e0",
+      "order": 3,
+      "kind": "list_item",
+      "text": "안건: 하반기 집행 점검",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "회의록"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "회의록"
+        ],
+        "line_start": 6,
+        "line_end": 6
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_072a4ccb351f340c1f508010",
+      "content_hash": "c_5cac7b75860d1e53b2010d7490450e1f",
+      "order": 4,
+      "kind": "heading",
+      "text": "결정 사항",
+      "table": null,
+      "level": 2,
+      "section_path": [
+        "회의록"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "회의록"
+        ],
+        "line_start": 8,
+        "line_end": 8
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_54d2956d8afa1d5adbb0ef6b",
+      "content_hash": "c_44b642d8c362459bd94039c4d71753ac",
+      "order": 5,
+      "kind": "list_item",
+      "text": "1. 집행률 보고는 매월 한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "회의록",
+        "결정 사항"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "회의록",
+          "결정 사항"
+        ],
+        "line_start": 10,
+        "line_end": 10
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    }
+  ]
+}

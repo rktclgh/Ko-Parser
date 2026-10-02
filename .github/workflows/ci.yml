@@ -43,3 +43,5 @@ jobs:
         run: uv run python -W error::EncodingWarning -m ko_parser_contracts.schema --check
       - name: Contract fixtures up to date
         run: uv run python -W error::EncodingWarning packages/contracts/tests/build_fixtures.py --check
+      - name: Engine fixtures up to date
+        run: uv run python -W error::EncodingWarning packages/engine/tests/build_fixtures.py --check

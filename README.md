@@ -5,4 +5,12 @@
 - `packages/contracts` — 엔진·VLM 레이어·소비자가 주고받는 데이터 계약 (`ko-parser-contracts`)
 - `packages/engine` — 결정론 엔진과 `ko-parser` 명령 (`ko-parser-engine`)
 
+## 빠른 시작
+
+```
+uv sync
+uv run ko-parser parse 문서.md --format md
+uv run ko-parser changes
+```
+
 라이선스: Apache-2.0

@@ -5,7 +5,10 @@ description = "Deterministic document parsing engine for ko-parser"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
-dependencies = ["ko-parser-contracts>=0.1.1,<0.2"]
+dependencies = ["ko-parser-contracts>=0.1.1,<0.2", "markdown-it-py>=3,<5", "platformdirs>=4,<5"]
+
+[project.scripts]
+ko-parser = "ko_parser.cli:main"
 
 [build-system]
 requires = ["hatchling>=1.25"]
