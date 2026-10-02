@@ -48,7 +48,7 @@ class LocalEngine:
                             page_count=len(parsed.pages) or None)
         tree = build_tree(parsed, doc_id, 1 if latest is None else latest.version + 1, source)
         change = diff_trees(latest, tree)
-        if change is None:  # 원본은 달라도 블록이 같다
+        if change is None:  # 원본은 달라도 블록과 쪽 정보가 같다
             assert latest is not None
             return _ref(latest)
         self._store.commit(tree, change, ProcessingHistory(document_id=doc_id, version=tree.version))
