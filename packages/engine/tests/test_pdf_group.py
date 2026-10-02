@@ -210,3 +210,45 @@ def test_opening_bracket_is_not_a_leading_marker(opener):
     """여는 괄호·따옴표는 앞머리가 아니다: 둘째 글자에 맞춘 다음 줄도 내어쓰기로 잇지 않는다."""
     p = page(line(opener, 72, 100) + line("단위: 백만원 )", 88.5, 100), line("이어지는 줄", 88.5, 116))
     assert kinds_texts(specs(p)) == [("paragraph", f"{opener} 단위: 백만원 )"), ("paragraph", "이어지는 줄")]
+
+
+@pytest.mark.parametrize("text", ["나. 항목", "하. 항목", "마) 항목", "3) 항목", "1. 2026년 계획", "2. 1.5배 증가"])
+def test_list_marker_ordinals_still_match(text):
+    assert LIST_MARKER.match(text)
+
+
+@pytest.mark.parametrize("text", ["요. 그러나", "것) 그러나", "각. 항목", "2026. 10. 3. 발표", "10. 3. 발표", "2026. 10."])
+def test_list_marker_rejects_other_syllables_and_dates(text):
+    """가~하 열네 글자만 차례 표지다(유니코드 범위 가-하가 아니다). 날짜 앞 숫자도 표지가 아니다."""
+    assert not LIST_MARKER.match(text)
+
+
+def test_wrapped_sentence_does_not_become_list_items():
+    for first, second in (("이 사업은 2026년부터 시행했어", "요. 그러나 예산은 부족하"),
+                          ("예산이 부족하다는", "것) 그러나 조정한다.")):
+        p = page(line(first, 72, 100), line(second, 72, 116))
+        assert kinds_texts(specs(p)) == [("paragraph", f"{first}\n{second}")]
+    date = page(line("발표 일자는 다음과 같다", 72, 100), line("2026. 10. 3. 발표", 72, 116))
+    assert kinds_texts(specs(date)) == [("paragraph", "발표 일자는 다음과 같다\n2026. 10. 3. 발표")]
+
+
+def test_wrapped_line_starting_with_da_ordinal_is_still_a_list_item():
+    """남은 한계: '다.'는 차례 표지(가. 나. 다.)와 구별할 수 없어 줄 첫머리에 오면 목록 항목이 된다."""
+    p = page(line("이 사업은 2026년부터 시행된", 72, 100), line("다. 그러나 예산은 부족하", 72, 116),
+             line("다. 이에 따라 조정한다.", 72, 132))
+    assert [s["kind"] for s in specs(p)] == ["paragraph", "list_item", "list_item"]
+
+
+def test_short_fragment_keeps_word_space_under_tight_tracking():
+    """자간 -3pt, 낱말 사이 1.4pt(12pt): 글자·숫자 간격이 둘뿐이어도 작은 쪽 중앙값으로 자간을 잡는다."""
+    chars = line("총", 72, 100, size=12, gap=-3) + line("매출", 72 + 12 + 1.4, 100, size=12, gap=-3)
+    assert [f.text for f in fragments(page(chars))] == ["총 매출"]
+
+
+def test_number_cells_in_margin_are_not_footer_but_lone_page_number_is():
+    cells = [page(line(f"{i}쪽 본문은 머리말보다 글자가 많다", 72, 300), line("1,234", 72, 812, 9),
+                  line("5,678", 300, 812, 9), number=i) for i in range(1, 4)]
+    assert "page_footer" not in [s["kind"] for s in specs(*cells)]
+    numbers = [page(line(f"{i}쪽 본문은 머리말보다 글자가 많다", 72, 300), line(f"{i}", 290, 812, 9), number=i)
+               for i in range(1, 4)]
+    assert [s["text"] for s in specs(*numbers) if s["kind"] == "page_footer"] == ["1", "2", "3"]

@@ -26,8 +26,11 @@ MARGIN = 0.08  # 머리말·꼬리말 영역: 쪽 높이의 위·아래 8%(줄�
 SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
 CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8}
-# 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →)
-LIST_MARKER = re.compile(r"^\s*(\d+[.)]|\(\d+\)|[가-하][.)]|[①-⑳]|[□■○●◦◆◇▶▷\-–•※ㅇㆍ·∙‣▸▪⇨→])\s")
+# 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →). 차례 글자는 가~하 열네 글자뿐
+# (유니코드 범위 가-하가 아니다). 숫자 뒤에 "10. "처럼 또 숫자 차례가 오면 날짜("2026. 10. 3.")라 표지가 아니다.
+LIST_MARKER = re.compile(
+    r"^\s*(\d+[.)](?!\s+\d+[.)](?:\s|$))|\(\d+\)|[가나다라마바사아자차카타파하][.)]|[①-⑳]"
+    r"|[□■○●◦◆◇▶▷\-–•※ㅇㆍ·∙‣▸▪⇨→])\s")
 _OPENERS = frozenset("(〈《「『[［（\"“'‘")  # 여는 괄호·따옴표는 앞머리가 아니다("( 단위: 백만원 )")
 _DIGITS = re.compile(r"\d")
 _SPACES = re.compile(r"\s+")
@@ -59,7 +62,7 @@ def _fragment(page: PageText, chars: Sequence[Char]) -> Fragment | None:
     간격의 중앙값(음수일 때만, 목차 점선 같은 기호는 빼고). 공백만 있으면 None."""
     w, h = page.width_pt, page.height_pt
     gaps = sorted((b.x0 - a.x1) * w for a, b in zip(chars, chars[1:]) if a.text.isalnum() and b.text.isalnum())
-    tracking = min(gaps[len(gaps) // 2], 0.0) if gaps else 0.0  # 자간을 좁힌 문서(한글 -25% 등)
+    tracking = min(gaps[(len(gaps) - 1) // 2], 0.0) if gaps else 0.0  # 작은 쪽 중앙값. 자간을 좁힌 문서(한글 -25% 등)
     parts = [chars[0].text]
     for a, b in zip(chars, chars[1:]):
         if (not a.text.isspace() and not b.text.isspace()
@@ -131,7 +134,8 @@ def _zone(f: Fragment, height: float) -> str | None:
 
 def repeated_margins(pages: Sequence[PageText], frags: Sequence[Sequence[Fragment]]) -> dict[tuple[int, int], str]:
     """{(쪽 순번, 조각 순번): page_header|page_footer}. 위·아래 8% 안의 줄이 숫자를 지운 글자 기준으로
-    같은 위치(±2%)에 문서 쪽 수의 절반 이상 반복되면 머리말·꼬리말. 3쪽 미만 문서는 없음."""
+    같은 위치(±2%)에 문서 쪽 수의 절반 이상 반복되면 머리말·꼬리말. 숫자를 지우면 글자가 남지 않는 줄은 그 쪽의
+    같은 영역에 같은 글자 줄이 하나뿐일 때만 센다. 3쪽 미만 문서는 없음."""
     if len(pages) < MIN_PAGES_FOR_REPEAT:
         return {}
     candidates: dict[tuple[str, str], list[tuple[int, int, float]]] = defaultdict(list)
@@ -142,7 +146,10 @@ def repeated_margins(pages: Sequence[PageText], frags: Sequence[Sequence[Fragmen
                 key = _SPACES.sub("", _DIGITS.sub("", unicodedata.normalize("NFC", f.text)))
                 candidates[(zone, key)].append((p, i, (f.y0 + f.y1) / 2 / page.height_pt))
     found: dict[tuple[int, int], str] = {}
-    for (zone, _), items in candidates.items():
+    for (zone, key), items in candidates.items():
+        if not any(ch.isalpha() for ch in key):  # 숫자뿐인 줄은 그 쪽 영역에 하나일 때만(쪽 번호. 표의 숫자 칸은 여럿)
+            per_page = Counter(q for q, _, _ in items)
+            items = [item for item in items if per_page[item[0]] == 1]
         for p, i, center in items:
             if len({q for q, _, c in items if abs(c - center) <= SAME_POSITION}) * 2 >= len(pages):
                 found[(p, i)] = zone
