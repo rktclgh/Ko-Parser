@@ -469,6 +469,7 @@
           "title": "Locator"
         },
         "region_id": {
+          "minLength": 1,
           "title": "Region Id",
           "type": "string"
         }

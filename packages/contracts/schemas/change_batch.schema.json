@@ -68,7 +68,7 @@
     },
     "LineageEdge": {
       "additionalProperties": false,
-      "description": "옛 블록 → 새 블록. 분할은 같은 old_id의 여러 간선, 병합은 같은 new_id의 여러 간선.",
+      "description": "옛 블록 → 새 블록. 분할은 같은 old_id의 여러 간선, 병합은 같은 new_id의 여러 간선.\n\n살아남은 블록은 updated에 둔다(예: 병합에서 기존 id가 남는 경우).",
       "properties": {
         "kind": {
           "enum": [
