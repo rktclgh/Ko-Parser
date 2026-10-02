@@ -1,0 +1,89 @@
+"""변경 내역: 소비자가 커서로 증분 갱신한다. 바뀐 블록의 내용은 get_tree(document_id, version)으로 얻는다."""
+
+from typing import Literal, Self
+
+from pydantic import Field, model_validator
+
+from .base import ContractModel, VersionedModel
+
+
+class LineageEdge(ContractModel):
+    """옛 블록 → 새 블록. 분할은 같은 old_id의 여러 간선, 병합은 같은 new_id의 여러 간선.
+
+    살아남은 블록은 updated에 둔다(예: 병합에서 기존 id가 남는 경우).
+    """
+
+    old_id: str
+    new_id: str | None = None
+    kind: Literal["replaced", "split", "merged", "removed"]
+
+    @model_validator(mode="after")
+    def _check_new_id(self) -> Self:
+        if (self.kind == "removed") != (self.new_id is None):
+            raise ValueError("new_id must be None if and only if kind == 'removed'")
+        return self
+
+
+class DocumentChange(ContractModel):
+    document_id: str = Field(min_length=1)
+    version: int = Field(ge=1)
+    previous_version: int | None = Field(default=None, ge=1)
+    added: tuple[str, ...] = ()
+    updated: tuple[str, ...] = ()
+    removed: tuple[str, ...] = ()
+    lineage: tuple[LineageEdge, ...] = ()
+
+    @model_validator(mode="after")
+    def _check_change(self) -> Self:
+        for name in ("added", "updated", "removed"):
+            ids = getattr(self, name)
+            if len(set(ids)) != len(ids):
+                raise ValueError(f"duplicate block id in {name}")
+        if len(set(self.lineage)) != len(self.lineage):
+            raise ValueError("duplicate lineage edge")
+        added, updated, removed = set(self.added), set(self.updated), set(self.removed)
+        if added & updated or added & removed or updated & removed:
+            raise ValueError("added, updated and removed must be disjoint")
+        for edge in self.lineage:
+            if edge.old_id not in removed | updated:
+                raise ValueError(f"lineage old_id {edge.old_id!r} must be in removed or updated")
+            if edge.kind == "removed" and edge.old_id not in removed:
+                raise ValueError(f"lineage old_id {edge.old_id!r} with kind 'removed' must be in removed")
+            if edge.new_id is not None and edge.new_id not in added | updated:
+                raise ValueError(f"lineage new_id {edge.new_id!r} must be in added or updated")
+        if self.previous_version is None:
+            if self.version != 1:
+                raise ValueError("versions greater than 1 require previous_version")
+            if self.updated or self.removed or self.lineage:
+                raise ValueError("first version may only contain added blocks")
+        elif self.previous_version >= self.version:
+            raise ValueError("previous_version must be smaller than version")
+        return self
+
+
+class ChangeBatch(VersionedModel):
+    """커서는 엔진의 단조 증가 시퀀스 번호. resync_required면 소비자는 전체를 다시 색인한다."""
+
+    cursor_from: int | None = Field(default=None, ge=0)
+    next_cursor: int = Field(ge=0)
+    changes: tuple[DocumentChange, ...] = ()
+    resync_required: bool = False
+
+    @model_validator(mode="after")
+    def _check_batch(self) -> Self:
+        if self.resync_required and self.changes:
+            raise ValueError("resync_required batches must not contain changes")
+        if self.cursor_from is not None and self.next_cursor < self.cursor_from:
+            raise ValueError("next_cursor must be >= cursor_from")
+        if self.changes and self.cursor_from is not None and self.next_cursor <= self.cursor_from:
+            raise ValueError("next_cursor must advance when changes are returned")
+        last: dict[str, int] = {}
+        for change in self.changes:
+            prev = last.get(change.document_id)
+            if prev is not None:
+                if change.version <= prev:
+                    raise ValueError("versions of a document must increase within a batch")
+                if change.previous_version != prev:
+                    raise ValueError("previous_version must chain to the preceding change of the same document")
+            last[change.document_id] = change.version
+        return self
