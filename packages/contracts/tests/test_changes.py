@@ -90,3 +90,22 @@ def test_versions_increase_and_chain_within_batch():
         ChangeBatch(next_cursor=5, changes=[chg(2, 1), chg(3, 1)])
     ChangeBatch(next_cursor=5, changes=[chg(2, 1), chg(3, 2)])
     ChangeBatch(next_cursor=5, changes=[chg(2, 1, "d1"), chg(5, 4, "d2"), chg(3, 2, "d1"), chg(6, 5, "d2")])
+
+
+@pytest.mark.parametrize("field", ["added", "updated", "removed"])
+def test_duplicate_ids_rejected(field):
+    with pytest.raises(ValidationError, match="duplicate"):
+        DocumentChange(document_id="doc-1", version=2, previous_version=1, **{field: ["x", "x"]})
+
+
+def test_duplicate_lineage_edges_rejected():
+    edge = LineageEdge(old_id="a", new_id="x", kind="replaced")
+    with pytest.raises(ValidationError, match="duplicate"):
+        DocumentChange(document_id="doc-1", version=2, previous_version=1, added=["x"], removed=["a"],
+                       lineage=[edge, edge])
+
+
+def test_later_versions_require_previous_version():
+    with pytest.raises(ValidationError, match="previous_version"):
+        DocumentChange(document_id="doc-1", version=3, added=["x"])
+    DocumentChange(document_id="doc-1", version=1, added=["x"])
