@@ -35,6 +35,12 @@ class DocumentChange(ContractModel):
 
     @model_validator(mode="after")
     def _check_change(self) -> Self:
+        for name in ("added", "updated", "removed"):
+            ids = getattr(self, name)
+            if len(set(ids)) != len(ids):
+                raise ValueError(f"duplicate block id in {name}")
+        if len(set(self.lineage)) != len(self.lineage):
+            raise ValueError("duplicate lineage edge")
         added, updated, removed = set(self.added), set(self.updated), set(self.removed)
         if added & updated or added & removed or updated & removed:
             raise ValueError("added, updated and removed must be disjoint")
@@ -46,6 +52,8 @@ class DocumentChange(ContractModel):
             if edge.new_id is not None and edge.new_id not in added | updated:
                 raise ValueError(f"lineage new_id {edge.new_id!r} must be in added or updated")
         if self.previous_version is None:
+            if self.version != 1:
+                raise ValueError("versions greater than 1 require previous_version")
             if self.updated or self.removed or self.lineage:
                 raise ValueError("first version may only contain added blocks")
         elif self.previous_version >= self.version:
