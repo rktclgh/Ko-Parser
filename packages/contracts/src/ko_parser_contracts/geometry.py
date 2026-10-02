@@ -1,13 +1,14 @@
 """좌표: 페이지 기준 0~1 정규화, 원점 왼쪽 위, 회전 보정 후."""
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, get_args
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from .base import ContractModel
 
 Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 TextLayerState = Literal["digital", "scanned", "unreliable"]
+_NEEDS_STATS = [state for state in get_args(TextLayerState) if state != "digital"]
 
 
 class BBox(ContractModel):
@@ -38,6 +39,12 @@ class PageInfo(ContractModel):
 
     text_layer는 글자층 판정(scanned·unreliable 쪽에는 블록이 없다), text_stats는 그 근거.
     """
+
+    # 아래 검증기 규칙을 JSON Schema에도 싣는다(digital이 아니면 text_stats가 null이 아닌 값으로 있어야 한다)
+    model_config = ConfigDict(json_schema_extra={
+        "if": {"properties": {"text_layer": {"enum": _NEEDS_STATS}}, "required": ["text_layer"]},
+        "then": {"properties": {"text_stats": {"not": {"type": "null"}}}, "required": ["text_stats"]},
+    })
 
     page: int = Field(ge=1)
     width_pt: float = Field(gt=0)
