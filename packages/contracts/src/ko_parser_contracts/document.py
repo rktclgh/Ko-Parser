@@ -16,6 +16,13 @@ BlockKind = Literal["heading", "paragraph", "list_item", "table", "figure", "cap
 BlockState = Literal["det", "unverified", "vlm"]
 TextSource = Literal["native", "text_layer", "ocr", "vlm", "mixed"]
 LayerState = Literal["det", "vlm_running", "vlm_done", "vlm_failed"]
+# 레이어 상태별로 허용되는 블록 상태. VLM 실패 시 문서 전체가 det로 복귀한다.
+ALLOWED_BLOCK_STATES: dict[str, frozenset[str]] = {
+    "det": frozenset({"det"}),
+    "vlm_running": frozenset({"det", "unverified"}),
+    "vlm_done": frozenset({"det", "vlm"}),
+    "vlm_failed": frozenset({"det"}),
+}
 
 
 def check_kind_fields(kind: str, table: Table | None, level: int | None) -> None:
@@ -39,7 +46,7 @@ class Block(ContractModel):
     confidence: float = Field(ge=0.0, le=1.0)
     state: BlockState
     text_source: TextSource
-    region_id: str | None = None
+    region_id: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _check_invariants(self) -> Self:
@@ -53,6 +60,10 @@ class Block(ContractModel):
                 raise ValueError(f"table block text_source must be {expected!r}")
         elif self.text_source == "mixed":
             raise ValueError("only table blocks may use text_source 'mixed'")
+        has_vlm_text = self.text_source == "vlm" or (
+            self.table is not None and any(c.text_source == "vlm" for c in self.table.cells))
+        if has_vlm_text and self.state != "vlm":
+            raise ValueError("vlm text requires state 'vlm'")
         if self.content_hash != compute_content_hash(self.kind, self.text, self.level, self.table):
             raise ValueError("content_hash does not match block content")
         return self
@@ -85,6 +96,8 @@ class DocumentTree(VersionedModel):
         for block in self.blocks:
             expected = compute_block_id(self.document_id, block.content_hash, seen[block.content_hash])
             seen[block.content_hash] += 1
+            if block.state not in ALLOWED_BLOCK_STATES[self.layer_state]:
+                raise ValueError(f"block state {block.state!r} not allowed when layer_state is {self.layer_state!r}")
             if block.block_id != expected:
                 raise ValueError(f"block_id mismatch at order {block.order}")
             if isinstance(block.locator, PageLocator) and block.locator.page not in page_numbers:

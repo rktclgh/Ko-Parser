@@ -110,3 +110,49 @@ def test_empty_document_and_schema_version():
 def test_source_hash_format():
     with pytest.raises(ValidationError):
         SourceInfo(name="a", mime="x", content_hash="md5:abc")
+
+
+def vlm_para(text="v", idx=0, **kw):
+    return dict(para(text, idx), state="vlm", text_source="vlm", **kw)
+
+
+def layered(layer_state, blocks):
+    return DocumentTree(document_id="doc-1", version=1, layer_state=layer_state, source=SRC, blocks=blocks)
+
+
+def test_block_region_id_not_empty():
+    with pytest.raises(ValidationError):
+        build_blocks("doc-1", [dict(para("x"), region_id="")])
+
+
+def test_vlm_text_requires_vlm_state():
+    with pytest.raises(ValidationError, match="requires state 'vlm'"):
+        build_blocks("doc-1", [dict(para("x"), text_source="vlm")])
+    table_spec = {"kind": "table", "table": simple_table("text_layer", "vlm"), "locator": FLOW, "confidence": 0.9,
+                  "state": "det", "text_source": "mixed"}
+    with pytest.raises(ValidationError, match="requires state 'vlm'"):
+        build_blocks("doc-1", [table_spec])
+
+
+def test_block_state_follows_layer_state():
+    det = para("d")
+    unverified = dict(para("u", 1), state="unverified")
+    vlm = vlm_para("v", 2)
+    with pytest.raises(ValidationError, match="not allowed when layer_state"):
+        layered("det", build_blocks("doc-1", [det, vlm]))
+    assert layered("vlm_running", build_blocks("doc-1", [det, unverified])).layer_state == "vlm_running"
+    with pytest.raises(ValidationError, match="not allowed when layer_state"):
+        layered("vlm_done", build_blocks("doc-1", [det, unverified]))
+    assert layered("vlm_done", build_blocks("doc-1", [det, vlm])).layer_state == "vlm_done"
+    with pytest.raises(ValidationError, match="not allowed when layer_state"):
+        layered("vlm_failed", build_blocks("doc-1", [vlm]))
+
+
+def test_block_id_golden_vectors():
+    b = build_blocks("doc-golden", [para("가나 다")])[0]
+    assert b.content_hash == "c_53bf5c2f88243e563cac81d25529d803"
+    assert b.block_id == "b_9f586ab8fef1f480819b13e6"
+    first, second = build_blocks("doc-golden", [para("Ａ  B"), para("A B", 1)])
+    assert first.content_hash == second.content_hash == "c_0afae7ebf409ac68a98ee4753c4170e7"
+    assert first.block_id == compute_block_id("doc-golden", first.content_hash, 0)
+    assert second.block_id == compute_block_id("doc-golden", second.content_hash, 1) == "b_7e3fa8bc7c4305e68511cc75"
