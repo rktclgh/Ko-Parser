@@ -1,0 +1,512 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-md-report",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "report.md",
+    "mime": "text/markdown",
+    "content_hash": "sha256:d101870d9be513a9ceefd9d1ac309fd969d6bfa1c0cc6067a7d8938901f8ad6a",
+    "page_count": null
+  },
+  "pages": [],
+  "blocks": [
+    {
+      "block_id": "b_e4d5fdc062ae98fbf6ba404a",
+      "content_hash": "c_62047e4dd8c3b480c5e74591e98f5c91",
+      "order": 0,
+      "kind": "heading",
+      "text": "2026년 사업 계획",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "lines",
+        "section_path": [],
+        "line_start": 1,
+        "line_end": 1
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_84c0f01c92044c9e48772c53",
+      "content_hash": "c_ffd0de305205389dde7e6a5517b2c1f3",
+      "order": 1,
+      "kind": "paragraph",
+      "text": "본 문서는 2026년 사업 추진 현황을 정리한다.\n둘째 줄은 예산 코드를 포함한다.\n강제 줄바꿈 뒤 글.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획"
+        ],
+        "line_start": 3,
+        "line_end": 5
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_b6c4aa70d86708dc2239782c",
+      "content_hash": "c_b5fc8f26da9b0e64f0eed78d43bfe126",
+      "order": 2,
+      "kind": "heading",
+      "text": "1. 추진 일정",
+      "table": null,
+      "level": 2,
+      "section_path": [
+        "2026년 사업 계획"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획"
+        ],
+        "line_start": 7,
+        "line_end": 7
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_0f6341185e3a179c44748b74",
+      "content_hash": "c_8e472bc12406954745e8d57adbc06c16",
+      "order": 3,
+      "kind": "list_item",
+      "text": "1분기: 참여 기관 모집",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "1. 추진 일정"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "1. 추진 일정"
+        ],
+        "line_start": 9,
+        "line_end": 9
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_99f9dc4be44905ff24d971ed",
+      "content_hash": "c_5955bd22f811d339c360b8e0e6732e53",
+      "order": 4,
+      "kind": "list_item",
+      "text": "공고문 게시",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "1. 추진 일정"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "1. 추진 일정"
+        ],
+        "line_start": 10,
+        "line_end": 10
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_c2c76673e54170df134d21cf",
+      "content_hash": "c_74fba80d81531da9076ee438262088a6",
+      "order": 5,
+      "kind": "list_item",
+      "text": "2분기: 선정 결과 통보",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "1. 추진 일정"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "1. 추진 일정"
+        ],
+        "line_start": 11,
+        "line_end": 11
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_f92918b9d0d63ec96e174ff1",
+      "content_hash": "c_3db159b7e027d95ed61cecb83f4c8cdc",
+      "order": 6,
+      "kind": "list_item",
+      "text": "3. 셋째 단계",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "1. 추진 일정"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "1. 추진 일정"
+        ],
+        "line_start": 14,
+        "line_end": 14
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_0c2cc1493fb332c5d7b15d76",
+      "content_hash": "c_0dd515a84aec8ffea1b7cdc6274a5343",
+      "order": 7,
+      "kind": "list_item",
+      "text": "4. 넷째 단계",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "1. 추진 일정"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "1. 추진 일정"
+        ],
+        "line_start": 15,
+        "line_end": 15
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_0671cc38397ff0d20f215b6c",
+      "content_hash": "c_99de4f591f65147b4d7346649125c65a",
+      "order": 8,
+      "kind": "figure",
+      "text": "추진 체계도",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "1. 추진 일정"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "1. 추진 일정"
+        ],
+        "line_start": 17,
+        "line_end": 17
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_a1efa8c6809f958ef20eff16",
+      "content_hash": "c_b7216aee8886f96d2679637c4de5f551",
+      "order": 9,
+      "kind": "paragraph",
+      "text": "참고: 세부 일정은 변경될 수 있다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "1. 추진 일정"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "1. 추진 일정"
+        ],
+        "line_start": 19,
+        "line_end": 19
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_b366538809928ff9278db6eb",
+      "content_hash": "c_dc38e1714ac391d4d0000acaf9ff63ee",
+      "order": 10,
+      "kind": "heading",
+      "text": "2. 예산",
+      "table": null,
+      "level": 2,
+      "section_path": [
+        "2026년 사업 계획"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획"
+        ],
+        "line_start": 21,
+        "line_end": 21
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_6b721f1af7663799b28a433f",
+      "content_hash": "c_5023221ebbff9b6818dc08d45f7061d4",
+      "order": 11,
+      "kind": "table",
+      "text": "분류\t금액(원)\n인건비\t4,250,000\n운영비\t1|800,000\n예비비\t",
+      "table": {
+        "n_rows": 4,
+        "n_cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "분류",
+            "header": "column",
+            "text_source": "native"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "금액(원)",
+            "header": "column",
+            "text_source": "native"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "인건비",
+            "header": "none",
+            "text_source": "native"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "4,250,000",
+            "header": "none",
+            "text_source": "native"
+          },
+          {
+            "row": 2,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "운영비",
+            "header": "none",
+            "text_source": "native"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "1|800,000",
+            "header": "none",
+            "text_source": "native"
+          },
+          {
+            "row": 3,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "예비비",
+            "header": "none",
+            "text_source": "native"
+          },
+          {
+            "row": 3,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "header": "none",
+            "text_source": "native"
+          }
+        ]
+      },
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "2. 예산"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "2. 예산"
+        ],
+        "line_start": 23,
+        "line_end": 27
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_dd73ff8c52397ca6d8863f12",
+      "content_hash": "c_d8cb435da7641dd6d8ff8403f4f9525f",
+      "order": 12,
+      "kind": "paragraph",
+      "text": "총액 = 인건비 + 운영비",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "2. 예산"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "2. 예산"
+        ],
+        "line_start": 29,
+        "line_end": 31
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_084772a69e97db7454a1b064",
+      "content_hash": "c_361c6b7200de2be7ba0e6949e0d611ae",
+      "order": 13,
+      "kind": "paragraph",
+      "text": "<div>\n별첨 1. 산출 근거\n</div>",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "2026년 사업 계획",
+        "2. 예산"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "2026년 사업 계획",
+          "2. 예산"
+        ],
+        "line_start": 33,
+        "line_end": 35
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_4c29086aca55e8c13e3a93ec",
+      "content_hash": "c_25e2aaa61b978f56df93d45c5c40a72b",
+      "order": 14,
+      "kind": "heading",
+      "text": "붙임",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "lines",
+        "section_path": [],
+        "line_start": 39,
+        "line_end": 40
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_bfdc6c4897c251db2741ba40",
+      "content_hash": "c_ffe1f77293a3404d3e245cf77815c57b",
+      "order": 15,
+      "kind": "paragraph",
+      "text": "자세한 내용은 별첨을 참고한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "붙임"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "붙임"
+        ],
+        "line_start": 42,
+        "line_end": 42
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    },
+    {
+      "block_id": "b_38761b7e63eb66e444cda4cc",
+      "content_hash": "c_ffe1f77293a3404d3e245cf77815c57b",
+      "order": 16,
+      "kind": "paragraph",
+      "text": "자세한 내용은 별첨을 참고한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "붙임"
+      ],
+      "locator": {
+        "kind": "lines",
+        "section_path": [
+          "붙임"
+        ],
+        "line_start": 44,
+        "line_end": 44
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "native",
+      "region_id": null
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.1",
+  "document_id": "fx-md-empty",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "empty.md",
+    "mime": "text/markdown",
+    "content_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "page_count": null
+  },
+  "pages": [],
+  "blocks": []
+}
