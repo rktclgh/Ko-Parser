@@ -3,6 +3,7 @@ import pytest
 from ko_parser import LocalEngine, MemoryStore
 from ko_parser.core import build_tree
 from ko_parser.errors import ParseError
+from ko_parser.export import to_markdown
 from ko_parser.formats.detect import default_parsers, detect_parser
 from ko_parser.formats.markdown import MarkdownParser
 from ko_parser_contracts import SourceInfo
@@ -104,6 +105,24 @@ def test_figures():
         ("figure", "가\n나", (), 5, 5),
         ("paragraph", "글 사진 뒤", (), 7, 7),
     ]
+
+
+def test_linked_image_paragraph_is_figure():
+    src = "[![배지](b.png)](https://x)\n\n[![가](a.png)](u) [![나](c.png)](v)\n\n[글 ![사진](c.png)](u)\n"
+    assert parse(src) == [
+        ("figure", "배지", (), 1, 1),
+        ("figure", "가\n나", (), 3, 3),
+        ("paragraph", "글 사진", (), 5, 5),
+    ]
+
+
+def test_multiline_setext_heading_folded_to_one_line():
+    tree = build_tree(MarkdownParser().parse("마\n바\n===\n\n본문\n".encode("utf-8"), "t.md"), "d", 1, SOURCE)
+    assert [(b.kind, b.text, b.section_path, b.locator.line_start, b.locator.line_end) for b in tree.blocks] == [
+        ("heading", "마 바", (), 1, 3),
+        ("paragraph", "본문", ("마 바",), 5, 5),
+    ]
+    assert to_markdown(tree) == "# 마 바\n\n본문\n"
 
 
 def test_block_fields_fixed():

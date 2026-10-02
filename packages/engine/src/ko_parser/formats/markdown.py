@@ -20,6 +20,7 @@ from .text import decode_text
 
 MIME = "text/markdown"
 _BREAKS = frozenset({"softbreak", "hardbreak"})
+_FIGURE_PARTS = frozenset({"image", "link_open", "link_close"}) | _BREAKS
 _TEXT = frozenset({"text", "code_inline", "html_inline"})
 _MAX_NESTING = 20  # markdown-it commonmark 기본 maxNesting. 넘으면 라이브러리가 내용을 조용히 버린다.
 
@@ -46,9 +47,9 @@ def inline_text(tokens: Sequence[Token]) -> str:
 
 
 def _is_figure(tokens: Sequence[Token]) -> bool:
-    """이미지와 공백·줄바꿈만 있는 문단."""
+    """이미지와 공백·줄바꿈만 있는 문단. 이미지를 감싼 링크는 투명하게 본다."""
     return any(t.type == "image" for t in tokens) and all(
-        t.type == "image" or t.type in _BREAKS or (t.type == "text" and not t.content.strip()) for t in tokens)
+        t.type in _FIGURE_PARTS or (t.type == "text" and not t.content.strip()) for t in tokens)
 
 
 class _Collector:
@@ -96,7 +97,7 @@ class _Collector:
 
     def heading(self, token: Token, inline: Token) -> None:
         level = int(token.tag[1:])
-        text = inline_text(inline.children or ()).strip()
+        text = " ".join(line.strip() for line in inline_text(inline.children or ()).split("\n")).strip()  # 여러 줄은 한 줄로
         lines = self.lines(token)
         if not text:
             return

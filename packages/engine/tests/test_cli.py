@@ -71,9 +71,51 @@ def test_export_documents_changes_history(capsys, db, tmp_path):
 
 
 @pytest.mark.parametrize("argv", [[], ["parse"], ["unknown"], ["changes", "--limit", "0"],
-                                  ["export", "d", "--version", "0"], ["changes", "--cursor", "-1"]])
-def test_usage_errors_exit_2(capsys, argv):
+                                  ["export", "d", "--version", "0"], ["changes", "--cursor", "-1"],
+                                  ["parse", "a.md", "--id", ""]])
+def test_usage_errors_exit_2(capsys, tmp_path, monkeypatch, argv):
+    state = tmp_path / "state.db"
+    monkeypatch.setenv("KO_PARSER_DB", str(state))
     assert run(capsys, *argv)[0] == 2  # 인자 해석 단계에서 끝나 상태 파일을 열지 않는다
+    assert not state.exists()
+
+
+def test_db_option_before_and_after_subcommand(capsys, tmp_path, monkeypatch):
+    env_db = tmp_path / "env.db"
+    monkeypatch.setenv("KO_PARSER_DB", str(env_db))
+    path = write(tmp_path / "a.md", "가\n")
+    before, after = tmp_path / "before.db", tmp_path / "after.db"
+    assert run(capsys, "--db", before, "parse", path, "--id", "d1")[0] == 0
+    assert run(capsys, "parse", path, "--db", after, "--id", "d2")[0] == 0
+    assert before.exists() and after.exists() and not env_db.exists()
+    assert [d["document_id"] for d in json.loads(run(capsys, "--db", before, "documents")[1])] == ["d1"]
+    assert [d["document_id"] for d in json.loads(run(capsys, "documents", "--db", after)[1])] == ["d2"]
+
+
+def test_db_option_given_twice_later_wins(capsys, tmp_path, monkeypatch):
+    monkeypatch.delenv("KO_PARSER_DB", raising=False)
+    first, second = tmp_path / "first.db", tmp_path / "second.db"
+    assert run(capsys, "--db", first, "documents", "--db", second)[0] == 0
+    assert second.exists() and not first.exists()
+
+
+def test_parse_out_directory_fails_before_store(capsys, db, tmp_path):
+    path = write(tmp_path / "a.md", "가\n")
+    out_dir = tmp_path / "출력"
+    out_dir.mkdir()
+    code, out, err = run(capsys, "parse", path, "--db", db, "--out", out_dir)
+    assert (code, out) == (1, "") and err.count("\n") == 1 and "Traceback" not in err
+    assert not db.exists()
+    assert json.loads(run(capsys, "documents", "--db", db)[1]) == []
+
+
+def test_stderr_backslashreplaces_unencodable(monkeypatch):
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stderr", io.TextIOWrapper(raw, encoding="ascii", newline=""))
+    cli._configure_streams()  # main()이 쓰는 것과 같은 재설정
+    print("ko-parser: \udc80 문서", file=sys.stderr)  # 짝 없는 서로게이트가 든 메시지
+    sys.stderr.flush()
+    assert raw.getvalue() == "ko-parser: \\udc80 문서\n".encode("utf-8")
 
 
 def test_help_exits_0(capsys):

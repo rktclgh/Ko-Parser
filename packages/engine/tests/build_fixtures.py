@@ -20,6 +20,7 @@ from ko_parser_contracts import DocumentTree, SourceInfo
 
 ROOT = Path(__file__).resolve().parent / "fixtures"
 
+# 빈 목록 항목 "- "의 뒤 공백은 의미가 있어 \x20으로 명시한다(편집기·git diff --check가 지우지 않도록).
 REPORT = """# 2026년 사업 계획
 
 본 문서는 **2026년** 사업 [추진 현황](https://example.com)을 정리한다.
@@ -31,7 +32,7 @@ REPORT = """# 2026년 사업 계획
 - 1분기: 참여 기관 모집
   - 공고문 게시
 - 2분기: 선정 결과 통보
-- 
+-\x20
 
 3. 셋째 단계
 4. 넷째 단계

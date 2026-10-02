@@ -50,18 +50,35 @@ def _non_negative(text: str) -> int:
     return value
 
 
+def _non_empty(text: str) -> str:
+    if not text:
+        raise argparse.ArgumentTypeError("must not be empty")
+    return text
+
+
+def _configure_streams() -> None:
+    """stdout은 UTF-8 고정, stderr는 인코딩 못 하는 글자(짝 없는 서로게이트 등)를 이스케이프해 예외를 막는다."""
+    for stream, errors in ((sys.stdout, "strict"), (sys.stderr, "backslashreplace")):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:  # 콘솔 기본 인코딩(Windows cp949 등)에 기대지 않는다
+            reconfigure(encoding="utf-8", errors=errors)
+
+
 def _build_parser() -> argparse.ArgumentParser:
+    db_help = f"상태 파일 경로 (기본: ${DB_ENV} 또는 사용자 데이터 폴더/state.db)"
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--db", help=f"상태 파일 경로 (기본: ${DB_ENV} 또는 사용자 데이터 폴더/state.db)")
+    # 하위 명령 기본값이 최상위 값을 덮어쓰지 않도록 SUPPRESS. 둘 다 주면 뒤(하위 명령 쪽)가 이긴다.
+    common.add_argument("--db", default=argparse.SUPPRESS, help=db_help)
     output = argparse.ArgumentParser(add_help=False)
     output.add_argument("--format", choices=("json", "md"), default="json")
     output.add_argument("--out", help="출력 파일 경로 (기본: 표준 출력)")
 
     parser = argparse.ArgumentParser(prog=APP_NAME, description="한국어 특화 문서 파싱 엔진")
+    parser.add_argument("--db", help=db_help)
     sub = parser.add_subparsers(dest="command", required=True)
     parse = sub.add_parser("parse", parents=[common, output], help="파일을 파싱·저장하고 문서 트리를 출력")
     parse.add_argument("file")
-    parse.add_argument("--id", dest="document_id", help="문서 ID (기본: doc_ + 원본 sha256 앞 24자리)")
+    parse.add_argument("--id", dest="document_id", type=_non_empty, help="문서 ID (기본: doc_ + 원본 sha256 앞 24자리)")
     parse.add_argument("--force", action="store_true", help="원본이 같아도 다시 파싱")
     export = sub.add_parser("export", parents=[common, output], help="저장된 문서 트리를 출력")
     export.add_argument("document_id")
@@ -110,15 +127,14 @@ def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    for stream in (sys.stdout, sys.stderr):  # 콘솔 기본 인코딩(Windows cp949 등)에 기대지 않는다
-        reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is not None:
-            reconfigure(encoding="utf-8")
+    _configure_streams()
     try:
         args = _build_parser().parse_args(argv)
     except SystemExit as exc:  # argparse: 사용법 오류 2, --help 0
         return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     try:
+        if args.command == "parse" and args.out and Path(args.out).is_dir():  # 저장소를 건드리기 전에 막는다
+            raise IsADirectoryError(f"--out is a directory: {args.out}")
         with SqliteStore(resolve_db(args.db)) as store:
             _run(args, LocalEngine(store))
     except KoParserError as exc:
