@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # PR은 최신 커밋만 보면 되지만 develop·main 푸시는 커밋마다 결과를 남긴다
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # PR은 브랜치별 그룹이라 새 커밋이 이전 실행을 취소한다. develop·main 푸시는 실행마다 그룹이 달라 커밋마다 결과가 남는다
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   test:
