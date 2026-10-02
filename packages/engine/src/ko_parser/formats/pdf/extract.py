@@ -69,10 +69,11 @@ def extract_pages(data: bytes, name: str) -> tuple[PageText, ...]:
             raise ParseError("PDF has no pages", name)
         pages = []
         for index in range(len(pdf)):
+            location = f"{name}:{index + 1}"
             try:
-                pages.append(_page(pdf, index))
+                pages.append(_page(pdf, index, location))
             except pdfium.PdfiumError as exc:
-                raise ParseError(f"invalid PDF page: {exc}", f"{name}:{index + 1}") from None
+                raise ParseError(f"invalid PDF page: {exc}", location) from None
         return tuple(pages)
     finally:
         pdf.close()
@@ -106,12 +107,15 @@ def _address(handle: object) -> int:
     return ctypes.cast(handle, ctypes.c_void_p).value or 0
 
 
-def _page(pdf: pdfium.PdfDocument, index: int) -> PageText:
+def _page(pdf: pdfium.PdfDocument, index: int, location: str) -> PageText:
     page = pdf[index]
     try:
         width, height = page.get_size()
         rotation = page.get_rotation()
         box = page.get_bbox()
+        left, bottom, right, top = box
+        if not (right > left and top > bottom):  # 예: CropBox가 MediaBox 밖(0×0). 좌표를 0~1로 바꿀 수 없다
+            raise ParseError("PDF page has an empty box", location)
         textpage = page.get_textpage()
         try:
             chars = tuple(_chars(textpage, box, rotation))
@@ -176,10 +180,12 @@ def _chars(textpage: pdfium.PdfTextPage, box: Box, rotation: int) -> Iterator[Ch
         width = ctypes.c_float()
         # 너비는 유니코드 → 글자 코드 역매핑으로 찾는다. 같은 유니코드에 글자 코드가 여럿이면 하나만 보므로
         # 너비가 조금 다를 수 있다(bbox·공백 판단에만 영향, 글자는 그대로).
-        has_width = pdfium_c.FPDFFont_GetGlyphWidth(font, ord(text[0]), ctypes.c_float(font_size), width)
+        has_width = pdfium_c.FPDFFont_GetGlyphWidth(font, ord(text[0]), ctypes.c_float(abs(font_size)), width)
         if has_width and width.value > 0 and ascent > descent:
+            # Tf가 음수면 글자가 원점에서 왼쪽·아래로 뒤집혀 그려진다: 진행 폭도 높이처럼 Tf 부호를 따른다
+            advance = math.copysign(width.value, font_size)
             corners = [(ox.value + m.a * x + m.c * y, oy.value + m.b * x + m.d * y)
-                       for x in (0.0, width.value) for y in (descent * font_size, ascent * font_size)]
+                       for x in (0.0, advance) for y in (descent * font_size, ascent * font_size)]
         else:  # 글꼴 정보가 없으면 PDFium의 느슨한 상자(대체 글꼴에 따라 달라질 수 있다)
             rect = pdfium_c.FS_RECTF()
             pdfium_c.FPDFText_GetLooseCharBox(textpage, i, rect)

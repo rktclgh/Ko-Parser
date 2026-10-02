@@ -135,16 +135,25 @@ def test_large_form_with_small_image_counts_only_the_image():
     assert only_page(make_pdf(draw)).image_coverage == pytest.approx((30 * 30 / (595 * 842),))
 
 
-def test_negative_font_size_gives_positive_size():
+def test_negative_font_size_gives_positive_size(monkeypatch):
+    """음수 Tf도 글꼴 사전 상자를 쓴다(OS마다 다른 느슨한 상자로 빠지지 않는다). 글자는 원점 왼쪽·아래로 뒤집힌다."""
     def draw(c):
         t = c.beginText(300, 400)
         t.setFont(FONT, -11)  # 글자가 뒤집혀 왼쪽으로 진행한다
         t.textOut("가나")
         c.drawText(t)
 
+    def no_loose_box(*args):
+        raise AssertionError("loose char box fallback used")
+
+    monkeypatch.setattr(pdfium_c, "FPDFText_GetLooseCharBox", no_loose_box)
     chars = only_page(make_pdf(draw)).chars
     assert [c.size for c in chars] == pytest.approx([11.0, 11.0])
-    assert all(c.x0 < c.x1 and c.y0 < c.y1 for c in chars)
+    assert [(c.x0 * 595, c.x1 * 595) for c in chars] == pytest.approx([(289, 300), (278, 289)])
+    for c in chars:
+        assert c.y0 == pytest.approx((842 - (400 + 0.142 * 11)) / 842)
+        assert c.y1 == pytest.approx((842 - (400 - 0.752 * 11)) / 842)
+        assert c.baseline == pytest.approx((842 - 400) / 842)
 
 
 def test_chars_outside_page_are_dropped():
@@ -218,3 +227,18 @@ def test_pdf_without_pages_is_parse_error():
     with pytest.raises(ParseError) as info:
         extract_pages(zero_page_pdf(), "빈.pdf")
     assert info.value.location == "빈.pdf"
+
+
+@pytest.mark.parametrize("content", ["text", "image", "empty"])
+def test_empty_page_box_is_parse_error(content):
+    """CropBox가 MediaBox 밖이면 PDFium의 쪽 상자는 0×0이다. 0으로 나누지 않고 ParseError(이름:쪽)."""
+    def draw(c):
+        c.setCropBox((700, 700, 800, 800))
+        if content == "text":
+            put(c, 72, 770, 11, "가")
+        elif content == "image":
+            c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 0, 0, width=100, height=100)
+
+    with pytest.raises(ParseError) as info:
+        extract_pages(make_pdf(draw), "상자.pdf")
+    assert (info.value.reason, info.value.location) == ("PDF page has an empty box", "상자.pdf:1")
