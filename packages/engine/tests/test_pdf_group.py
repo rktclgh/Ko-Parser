@@ -168,15 +168,18 @@ def test_header_footer_needs_same_position_on_half_the_pages():
                   number=i + 1)
              for i in range(4)]  # 위 여백 안이지만 쪽마다 2% 넘게 움직인다
     assert "page_header" not in [s["kind"] for s in specs(*moved)]
-    states = ["digital", "scanned", "scanned", "digital"]  # 반복 2/4쪽 = 절반
+    states = ["digital", "unreliable", "unreliable", "digital"]  # 반복 2/4쪽 = 절반
     assert [s["kind"] for s in specs(*pages, states=states)].count("page_footer") == 2
 
 
-def test_scanned_and_unreliable_pages_make_no_blocks():
-    p1, p2 = page(line("보이는 쪽", 72, 100)), page(line("스캔 쪽", 72, 100), number=2)
+def test_scanned_pages_keep_visible_text_unreliable_pages_make_no_blocks():
+    """scanned 쪽도 보이는 글자는 블록이 된다(숨은 글자만 버린다). unreliable 쪽은 블록이 없다."""
+    p1 = page(line("보이는 쪽", 72, 100))
+    p2 = page(line("스캔 쪽 숨은 글자", 72, 100, invisible=True), line("스캔 쪽 쪽 번호", 72, 130), number=2)
     result = specs(p1, p2, states=["digital", "scanned"])
-    assert [s["locator"]["page"] for s in result] == [1]
-    assert specs(p1, p2, states=["unreliable", "scanned"]) == []
+    assert [(s["text"], s["locator"]["page"]) for s in result] == [("보이는 쪽", 1), ("스캔 쪽 쪽 번호", 2)]
+    assert [s["locator"]["page"] for s in specs(p1, p2, states=["unreliable", "scanned"])] == [2]
+    assert specs(p1, p2, states=["unreliable", "unreliable"]) == []
 
 
 def test_text_is_nfc_and_block_fields():
@@ -212,12 +215,14 @@ def test_opening_bracket_is_not_a_leading_marker(opener):
     assert kinds_texts(specs(p)) == [("paragraph", f"{opener} 단위: 백만원 )"), ("paragraph", "이어지는 줄")]
 
 
-@pytest.mark.parametrize("text", ["나. 항목", "하. 항목", "마) 항목", "3) 항목", "1. 2026년 계획", "2. 1.5배 증가"])
+@pytest.mark.parametrize("text", ["나. 항목", "하. 항목", "마) 항목", "3) 항목", "(3) 항목", "1. 2026년 계획",
+                                  "2. 1.5배 증가", "1. 3.5% 증가", "2) 1.5배"])
 def test_list_marker_ordinals_still_match(text):
     assert LIST_MARKER.match(text)
 
 
-@pytest.mark.parametrize("text", ["요. 그러나", "것) 그러나", "각. 항목", "2026. 10. 3. 발표", "10. 3. 발표", "2026. 10."])
+@pytest.mark.parametrize("text", ["요. 그러나", "것) 그러나", "각. 항목", "2026. 10. 3. 발표", "10. 3. 발표", "2026. 10.",
+                                  "2026. 10.03. 발표", "2026. 10.3. 발표", "2026. 10.3."])
 def test_list_marker_rejects_other_syllables_and_dates(text):
     """가~하 열네 글자만 차례 표지다(유니코드 범위 가-하가 아니다). 날짜 앞 숫자도 표지가 아니다."""
     assert not LIST_MARKER.match(text)
@@ -228,8 +233,9 @@ def test_wrapped_sentence_does_not_become_list_items():
                           ("예산이 부족하다는", "것) 그러나 조정한다.")):
         p = page(line(first, 72, 100), line(second, 72, 116))
         assert kinds_texts(specs(p)) == [("paragraph", f"{first}\n{second}")]
-    date = page(line("발표 일자는 다음과 같다", 72, 100), line("2026. 10. 3. 발표", 72, 116))
-    assert kinds_texts(specs(date)) == [("paragraph", "발표 일자는 다음과 같다\n2026. 10. 3. 발표")]
+    for when in ("2026. 10. 3. 발표", "2026. 10.03. 발표", "2026. 10.3. 발표"):
+        date = page(line("발표 일자는 다음과 같다", 72, 100), line(when, 72, 116))
+        assert kinds_texts(specs(date)) == [("paragraph", f"발표 일자는 다음과 같다\n{when}")]
 
 
 def test_wrapped_line_starting_with_da_ordinal_is_still_a_list_item():
@@ -253,3 +259,31 @@ def test_number_cells_in_margin_are_not_footer_but_lone_page_number_is():
     numbers = [page(line(f"{i}쪽 본문은 머리말보다 글자가 많다", 72, 300), line(f"{i}", 290, 812, 9), number=i)
                for i in range(1, 4)]
     assert [s["text"] for s in specs(*numbers) if s["kind"] == "page_footer"] == ["1", "2", "3"]
+
+
+def test_letterless_margin_line_counts_only_when_alone_in_its_zone():
+    """글자 없이 숫자·기호뿐인 줄은 그 쪽 그 영역(위·아래)에 그런 줄이 하나뿐일 때만 머리말·꼬리말 후보다."""
+    def body(i):
+        return line(f"{i}쪽 본문은 머리말보다 글자가 많다", 72, 300)
+
+    mixed = [page(body(i), line("1,234", 72, 812, 9), line("12.5", 300, 812, 9), number=i) for i in range(1, 4)]
+    assert "page_footer" not in [s["kind"] for s in specs(*mixed)]
+    # 위 영역의 숫자 칸은 아래 영역의 쪽 번호를 막지 않는다
+    split = [page(line("1,234", 72, 30, 9), line("12.5", 300, 30, 9), body(i), line(f"- {i} -", 282, 812, 9),
+                  number=i) for i in range(1, 4)]
+    result = specs(*split)
+    assert [s["text"] for s in result if s["kind"] == "page_footer"] == ["- 1 -", "- 2 -", "- 3 -"]
+    assert "page_header" not in [s["kind"] for s in result]
+
+
+def test_reading_frame_orders_and_spaces_upside_down_chars():
+    """줄 안 순서·공백은 글자의 진행 방향을 따른다: 180° 뒤집힌 글자(axes (2, 3))는 오른쪽에서 왼쪽으로 읽는다."""
+    out = []
+    x = 400.0
+    for ch in "가나다라":
+        if ch == "다":
+            x -= 4  # 낱말 사이 4pt
+        out.append(Char(text=ch, x0=(x - 11) / W, y0=(100 - 1.6) / H, x1=x / W, y1=(100 + 8.3) / H,
+                        baseline=1 - 100 / H, size=11, axes=(2, 3)))
+        x -= 11
+    assert [f.text for f in fragments(page(out))] == ["가나 다라"]

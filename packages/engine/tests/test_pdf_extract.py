@@ -135,6 +135,97 @@ def test_large_form_with_small_image_counts_only_the_image():
     assert only_page(make_pdf(draw)).image_coverage == pytest.approx((30 * 30 / (595 * 842),))
 
 
+def clip(c, x, y, w, h):
+    path = c.beginPath()
+    path.rect(x, y, w, h)
+    c.clipPath(path, stroke=0, fill=0)
+
+
+def full_page_image(c):
+    c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 0, 0, width=595, height=842)
+
+
+def clipped_top_level(c):
+    c.saveState()
+    clip(c, 50, 700, 40, 40)
+    full_page_image(c)
+    c.restoreState()
+
+
+def clipped_twice(c):  # 클리핑 경로 둘의 교집합(x 200~300)
+    c.saveState()
+    clip(c, 0, 0, 300, 842)
+    clip(c, 200, 0, 395, 842)
+    full_page_image(c)
+    c.restoreState()
+
+
+def clipped_inside_form(c):  # 폼 안 클리핑은 폼 좌표: 폼 행렬(0.5배·이동)을 거친다
+    c.beginForm("logo")
+    clip(c, 50, 700, 40, 40)
+    full_page_image(c)
+    c.endForm()
+    c.saveState()
+    c.translate(10, 10)
+    c.scale(0.5, 0.5)
+    c.doForm("logo")
+    c.restoreState()
+
+
+def clipped_around_form(c):  # 폼을 그리기 전 클리핑은 폼 객체에 붙고 폼 안 그림에도 적용된다
+    c.beginForm("page")
+    full_page_image(c)
+    c.endForm()
+    c.saveState()
+    clip(c, 100, 100, 40, 40)
+    c.translate(10, 10)
+    c.scale(0.5, 0.5)
+    c.doForm("page")
+    c.restoreState()
+
+
+@pytest.mark.parametrize("draw,area", [(clipped_top_level, 40 * 40), (clipped_twice, 100 * 842),
+                                       (clipped_inside_form, 20 * 20), (clipped_around_form, 40 * 40)])
+def test_image_coverage_counts_only_the_clipped_visible_part(draw, area):
+    assert only_page(make_pdf(draw)).image_coverage == pytest.approx((area / (595 * 842),), abs=1e-6)
+
+
+def test_unreadable_clip_path_falls_back_to_the_image_box(monkeypatch):
+    monkeypatch.setattr(pdfium_c, "FPDFClipPath_CountPaths", lambda clip_path: -1)
+    assert only_page(make_pdf(clipped_top_level)).image_coverage == pytest.approx((1.0,))
+
+
+@pytest.mark.parametrize("rotation,axes", [(0, (0, 1)), (90, (1, 2)), (180, (2, 3)), (270, (3, 0))])
+def test_reading_axes_and_baseline_follow_page_rotation(rotation, axes):
+    """axes = (진행 방향, 줄 아래 방향), 보이는 쪽의 +x·+y·−x·−y = 0·1·2·3. baseline은 줄 아래 방향 축 위 원점의
+    위치라 회전과 관계없이 원래 쪽의 위에서부터 잰 값이다. reportlab은 90·270도면 MediaBox를 842×595로 눕힌다."""
+    def draw(c):
+        c.setPageRotation(rotation)
+        put(c, 72, 300, 11, "가")
+
+    page = only_page(make_pdf(draw))
+    assert (page.width_pt, page.height_pt) == (595.0, 842.0)
+    (char,) = page.chars
+    assert char.axes == axes
+    assert char.baseline == pytest.approx(1 - 300 / (842 if rotation in (0, 180) else 595))
+
+
+def test_reading_axes_of_negative_size_and_mirrored_text():
+    def draw(c):
+        t = c.beginText(300, 400)
+        t.setFont(FONT, -11)
+        t.textOut("가")
+        c.drawText(t)
+        c.saveState()
+        c.transform(-1, 0, 0, 1, 595, 0)
+        put(c, 300, 300, 11, "나")
+        c.restoreState()
+
+    flipped, mirrored = only_page(make_pdf(draw)).chars
+    assert (flipped.axes, mirrored.axes) == ((2, 3), (2, 1))
+    assert flipped.baseline == pytest.approx(400 / 842) and mirrored.baseline == pytest.approx((842 - 300) / 842)
+
+
 def test_negative_font_size_gives_positive_size(monkeypatch):
     """음수 Tf도 글꼴 사전 상자를 쓴다(OS마다 다른 느슨한 상자로 빠지지 않는다). 글자는 원점 왼쪽·아래로 뒤집힌다."""
     def draw(c):
@@ -153,7 +244,7 @@ def test_negative_font_size_gives_positive_size(monkeypatch):
     for c in chars:
         assert c.y0 == pytest.approx((842 - (400 + 0.142 * 11)) / 842)
         assert c.y1 == pytest.approx((842 - (400 - 0.752 * 11)) / 842)
-        assert c.baseline == pytest.approx((842 - 400) / 842)
+        assert c.baseline == pytest.approx(400 / 842)  # 줄 아래 방향(보이는 −y) 축의 원점 위치
 
 
 def test_chars_outside_page_are_dropped():

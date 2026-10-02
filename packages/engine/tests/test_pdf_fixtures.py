@@ -70,9 +70,11 @@ def test_header_footer_repeat_but_one_off_margin_text_is_paragraph():
 
 @pytest.mark.parametrize("name,invisible,coverage", [("scanned_invisible.pdf", 0.9268, 0.0),
                                                      ("image_page.pdf", 0.0, 0.2954)])
-def test_scanned_pages_keep_reasons_without_blocks(name, invisible, coverage):
+def test_scanned_pages_keep_reasons_and_only_visible_text(name, invisible, coverage):
+    """숨은 글자층은 블록이 되지 않고 보이는 쪽 번호만 블록으로 남는다."""
     tree = _expected(name)
-    assert tree.blocks == ()
+    page_number = {"scanned_invisible.pdf": "- 1 -", "image_page.pdf": "- 3 -"}[name]
+    assert [(b.text, b.locator.page) for b in tree.blocks] == [(page_number, 1)]
     (page,) = tree.pages
     assert page.text_layer == "scanned"
     assert (page.text_stats.chars, page.text_stats.invisible_ratio, page.text_stats.max_image_coverage) == (

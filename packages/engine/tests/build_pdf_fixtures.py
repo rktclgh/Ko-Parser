@@ -91,7 +91,7 @@ def header_footer(c: Canvas) -> None:
 
 
 def scanned_invisible(c: Canvas) -> None:
-    """숨은 글자층(렌더 모드 3)만 있고 보이는 글자는 쪽 번호뿐 → scanned."""
+    """숨은 글자층(렌더 모드 3)만 있고 보이는 글자는 쪽 번호뿐 → scanned. 숨은 글자는 버리고 쪽 번호는 블록."""
     for i, line in enumerate(["스캔한 쪽 위에 얹은 글자층이다.", "사람 눈에는 보이지 않는다.", "판정은 scanned다."]):
         text(c, 72, 770 - 20 * i, 11, line, INVISIBLE)
     text(c, 282, 30, 9, "- 1 -")
@@ -99,8 +99,8 @@ def scanned_invisible(c: Canvas) -> None:
 
 
 def image_page(c: Canvas) -> None:
-    """쪽 면적의 약 30%를 덮는 그림 + 쪽 번호만 → scanned(그림 쪽 규칙). 스펙 기준값(0.5)이면 digital이 될 쪽이라
-    공공누리 실측으로 낮춘 기준(0.15·50자)을 고정한다."""
+    """쪽 면적의 약 30%를 덮는 그림 + 쪽 번호만 → scanned(그림 쪽 규칙), 쪽 번호는 블록. 스펙 기준값(0.5)이면
+    digital이 될 쪽이라 공공누리 실측으로 낮춘 기준(0.15·50자)을 고정한다."""
     c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 97.5, 300, width=400, height=370)
     text(c, 282, 30, 9, "- 3 -")
     c.showPage()

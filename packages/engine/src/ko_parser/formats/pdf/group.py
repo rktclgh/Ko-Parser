@@ -1,15 +1,18 @@
-"""digital 쪽의 글자 → 줄 조각 → 블록 명세(제목·문단·목록·머리말·꼬리말). 길이 단위는 pt(원점 왼쪽 위)."""
+"""보이는 글자 → 줄 조각 → 블록 명세(제목·문단·목록·머리말·꼬리말). 길이 단위는 pt.
+
+줄·순서·간격은 글자마다 읽기 좌표(x = 진행 방향, y = 줄 아래 방향, 원점은 그 방향으로 읽을 때의 왼쪽 위)에서
+잰다. 바로 선 글자면 보이는 쪽 좌표와 같고, 회전한 쪽·음수 Tf·거울 글자도 진행 방향 순서대로 읽는다."""
 
 import re
 import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from ko_parser_contracts import TextLayerState
 
-from .extract import Char, PageText
+from .extract import UPRIGHT, Axes, Char, PageText
 
 SAME_LINE = 0.5  # 기준선 차이 ≤ 실제 크기 × 0.5면 같은 줄
 SPLIT_GAP = 3.0  # 줄 안 글자 간격 > 실제 크기 × 3이면 줄 조각을 나눈다(표 칸·다단)
@@ -27,9 +30,10 @@ SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
 CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8}
 # 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →). 차례 글자는 가~하 열네 글자뿐
-# (유니코드 범위 가-하가 아니다). 숫자 뒤에 "10. "처럼 또 숫자 차례가 오면 날짜("2026. 10. 3.")라 표지가 아니다.
+# (유니코드 범위 가-하가 아니다). 숫자 뒤에 "10. "·"10.03"처럼 숫자 차례가 또 오면 날짜("2026. 10. 3.",
+# "2026. 10.03.")라 표지가 아니다. "1.5배"처럼 숫자 차례 뒤가 숫자·공백이 아니면 표지다("2. 1.5배 증가").
 LIST_MARKER = re.compile(
-    r"^\s*(\d+[.)](?!\s+\d+[.)](?:\s|$))|\(\d+\)|[가나다라마바사아자차카타파하][.)]|[①-⑳]"
+    r"^\s*(\d+[.)](?!\s*\d+[.)](?:\s|$|\d+[.)]))|\(\d+\)|[가나다라마바사아자차카타파하][.)]|[①-⑳]"
     r"|[□■○●◦◆◇▶▷\-–•※ㅇㆍ·∙‣▸▪⇨→])\s")
 _OPENERS = frozenset("(〈《「『[［（\"“'‘")  # 여는 괄호·따옴표는 앞머리가 아니다("( 단위: 백만원 )")
 _DIGITS = re.compile(r"\d")
@@ -38,11 +42,12 @@ _SPACES = re.compile(r"\s+")
 
 @dataclass(frozen=True, slots=True)
 class Fragment:
-    """줄 조각. 좌표는 pt, size는 0.5pt 단위 대표 크기(가장 많은 크기, 같으면 큰 쪽)."""
+    """줄 조각. 좌표는 읽기 좌표 pt(axes 방향, 바로 선 글자면 보이는 쪽 좌표), size는 0.5pt 단위 대표 크기
+    (가장 많은 크기, 같으면 큰 쪽)."""
 
     page: int
     text: str
-    chars: tuple[Char, ...]  # 공백이 아닌 글자
+    chars: tuple[Char, ...]  # 공백이 아닌 글자(읽기 좌표 0~1)
     x0: float
     y0: float
     x1: float
@@ -51,16 +56,36 @@ class Fragment:
     size: float
     bold: bool  # 글자 과반이 굵다
     content_x0: float  # 앞머리(목록 표지 또는 글자·숫자가 아닌 한 글자) 다음 글자의 시작. 앞머리가 없으면 x0
+    axes: Axes = UPRIGHT
 
 
 def step(size: float) -> float:
     return round(size / SIZE_STEP) * SIZE_STEP
 
 
-def _fragment(page: PageText, chars: Sequence[Char]) -> Fragment | None:
-    """공백 글자 없이 벌어진 곳에 공백을 끼운다. 간격에서 보통 자간을 뺀 값으로 본다: 보통 자간은 글자·숫자끼리
-    간격의 중앙값(음수일 때만, 목차 점선 같은 기호는 빼고). 공백만 있으면 None."""
+def frame_size(page: PageText, axes: Axes) -> tuple[float, float]:
+    """읽기 좌표의 (너비, 높이) pt. 진행 방향이 보이는 쪽의 세로면 너비·높이가 바뀐다."""
     w, h = page.width_pt, page.height_pt
+    return (w, h) if axes[0] % 2 == 0 else (h, w)
+
+
+def _span(lo: float, hi: float, axis: int) -> tuple[float, float]:
+    """보이는 쪽 축 위 구간(0~1) → axis 방향(+x·+y·−x·−y = 0·1·2·3)으로 잰 구간. 같은 식이 역변환이다."""
+    return (lo, hi) if axis < 2 else (1 - hi, 1 - lo)
+
+
+def _turn(c: Char) -> Char:
+    """글자 상자를 읽기 좌표(0~1)로 옮긴다. baseline은 이미 읽기 좌표다."""
+    if c.axes == UPRIGHT:
+        return c
+    (x0, x1), (y0, y1) = (_span(*((c.x0, c.x1) if axis % 2 == 0 else (c.y0, c.y1)), axis) for axis in c.axes)
+    return replace(c, x0=x0, y0=y0, x1=x1, y1=y1)
+
+
+def _fragment(page: PageText, chars: Sequence[Char], axes: Axes) -> Fragment | None:
+    """공백 글자 없이 벌어진 곳에 공백을 끼운다. 간격에서 보통 자간을 뺀 값으로 본다: 보통 자간은 글자·숫자끼리
+    간격의 중앙값(음수일 때만, 목차 점선 같은 기호는 빼고). 공백만 있으면 None. chars는 읽기 좌표."""
+    w, h = frame_size(page, axes)
     gaps = sorted((b.x0 - a.x1) * w for a, b in zip(chars, chars[1:]) if a.text.isalnum() and b.text.isalnum())
     # 중앙값. 작은 쪽 중앙값은 실제 문서에서 남는 공백을 늘려 쓰지 않음. 자간을 좁힌 문서(한글 -25% 등)
     tracking = min(gaps[len(gaps) // 2], 0.0) if gaps else 0.0
@@ -81,7 +106,7 @@ def _fragment(page: PageText, chars: Sequence[Char]) -> Fragment | None:
                     x1=max(c.x1 for c in ink) * w, y1=max(c.y1 for c in ink) * h,
                     baseline=ink[0].baseline * h, size=max(sizes, key=lambda s: (sizes[s], s)),
                     bold=sum(c.bold for c in ink) * 2 > len(ink),
-                    content_x0=ink[skip if skip < len(ink) else 0].x0 * w)
+                    content_x0=ink[skip if skip < len(ink) else 0].x0 * w, axes=axes)
 
 
 def _marker_length(text: str) -> int:
@@ -96,25 +121,31 @@ def _marker_length(text: str) -> int:
 
 
 def fragments(page: PageText) -> list[Fragment]:
-    """보이는 글자를 기준선으로 줄에 묶고, 줄 안의 큰 간격에서 나눈다. 순서는 위→아래, 왼쪽→오른쪽."""
-    chars = sorted((c for c in page.chars if not c.invisible), key=lambda c: (c.baseline, c.x0))
-    lines: list[list[Char]] = []
-    for c in chars:
-        anchor = lines[-1][0] if lines else None
-        if anchor is None or (c.baseline - anchor.baseline) * page.height_pt > SAME_LINE * max(c.size, anchor.size):
-            lines.append([])
-        lines[-1].append(c)
+    """보이는 글자를 읽는 방향(axes)별로 나눠 읽기 좌표에서 기준선으로 줄에 묶고, 줄 안의 큰 간격에서 나눈다.
+    순서는 방향마다 위→아래, 왼쪽→오른쪽(읽기 좌표). 방향은 글자가 많은 것부터(같으면 axes 순)."""
+    by_axes: dict[Axes, list[Char]] = defaultdict(list)
+    for c in page.chars:
+        if not c.invisible:
+            by_axes[c.axes].append(_turn(c))
     out: list[Fragment] = []
-    for line in lines:
-        line.sort(key=lambda c: c.x0)
-        start = 0
-        for i in range(1, len(line) + 1):
-            if i == len(line) or (line[i].x0 - line[i - 1].x1) * page.width_pt > SPLIT_GAP * max(
-                    line[i].size, line[i - 1].size):
-                fragment = _fragment(page, line[start:i])
-                if fragment is not None:
-                    out.append(fragment)
-                start = i
+    for axes in sorted(by_axes, key=lambda a: (-len(by_axes[a]), a)):
+        w, h = frame_size(page, axes)
+        lines: list[list[Char]] = []
+        for c in sorted(by_axes[axes], key=lambda c: (c.baseline, c.x0)):
+            anchor = lines[-1][0] if lines else None
+            if anchor is None or (c.baseline - anchor.baseline) * h > SAME_LINE * max(c.size, anchor.size):
+                lines.append([])
+            lines[-1].append(c)
+        for line in lines:
+            line.sort(key=lambda c: c.x0)
+            start = 0
+            for i in range(1, len(line) + 1):
+                if i == len(line) or (line[i].x0 - line[i - 1].x1) * w > SPLIT_GAP * max(
+                        line[i].size, line[i - 1].size):
+                    fragment = _fragment(page, line[start:i], axes)
+                    if fragment is not None:
+                        out.append(fragment)
+                    start = i
     return out
 
 
@@ -124,8 +155,13 @@ def body_size(pages: Sequence[Sequence[Fragment]]) -> float | None:
     return max(counts, key=lambda s: (counts[s], -s)) if counts else None
 
 
-def _zone(f: Fragment, height: float) -> str | None:
-    center = (f.y0 + f.y1) / 2 / height
+def _center(f: Fragment, page: PageText) -> float:
+    """읽기 좌표에서 조각의 세로 중심(0~1)."""
+    return (f.y0 + f.y1) / 2 / frame_size(page, f.axes)[1]
+
+
+def _zone(f: Fragment, page: PageText) -> str | None:
+    center = _center(f, page)
     if center <= MARGIN:
         return "page_header"
     if center >= 1 - MARGIN:
@@ -135,22 +171,23 @@ def _zone(f: Fragment, height: float) -> str | None:
 
 def repeated_margins(pages: Sequence[PageText], frags: Sequence[Sequence[Fragment]]) -> dict[tuple[int, int], str]:
     """{(쪽 순번, 조각 순번): page_header|page_footer}. 위·아래 8% 안의 줄이 숫자를 지운 글자 기준으로
-    같은 위치(±2%)에 문서 쪽 수의 절반 이상 반복되면 머리말·꼬리말. 숫자를 지우면 글자가 남지 않는 줄은 그 쪽의
-    같은 영역에 같은 글자 줄이 하나뿐일 때만 센다. 3쪽 미만 문서는 없음."""
+    같은 위치(±2%)에 문서 쪽 수의 절반 이상 반복되면 머리말·꼬리말. 숫자를 지우면 글자(문자)가 남지 않는 줄은
+    그 쪽의 같은 영역에 그런 줄이 하나뿐일 때만 센다(쪽 번호. 표의 숫자 칸은 여럿). 3쪽 미만 문서는 없음."""
     if len(pages) < MIN_PAGES_FOR_REPEAT:
         return {}
     candidates: dict[tuple[str, str], list[tuple[int, int, float]]] = defaultdict(list)
     for p, (page, page_frags) in enumerate(zip(pages, frags, strict=True)):
         for i, f in enumerate(page_frags):
-            zone = _zone(f, page.height_pt)
+            zone = _zone(f, page)
             if zone is not None:
                 key = _SPACES.sub("", _DIGITS.sub("", unicodedata.normalize("NFC", f.text)))
-                candidates[(zone, key)].append((p, i, (f.y0 + f.y1) / 2 / page.height_pt))
+                candidates[(zone, key)].append((p, i, _center(f, page)))
+    letterless = Counter((zone, p) for (zone, key), items in candidates.items()
+                         if not any(ch.isalpha() for ch in key) for p, _, _ in items)
     found: dict[tuple[int, int], str] = {}
     for (zone, key), items in candidates.items():
-        if not any(ch.isalpha() for ch in key):  # 숫자뿐인 줄은 그 쪽 영역에 하나일 때만(쪽 번호. 표의 숫자 칸은 여럿)
-            per_page = Counter(q for q, _, _ in items)
-            items = [item for item in items if per_page[item[0]] == 1]
+        if not any(ch.isalpha() for ch in key):
+            items = [item for item in items if letterless[(zone, item[0])] == 1]
         for p, i, center in items:
             if len({q for q, _, c in items if abs(c - center) <= SAME_POSITION}) * 2 >= len(pages):
                 found[(p, i)] = zone
@@ -158,15 +195,19 @@ def repeated_margins(pages: Sequence[PageText], frags: Sequence[Sequence[Fragmen
 
 
 def _box(frags: Sequence[Fragment], page: PageText) -> dict[str, float]:
-    """쪽 기준 0~1, 소수 셋째 자리 반올림. 반올림으로 폭·높이가 0이 되면 0.001 넓힌다."""
-    def axis(lo: float, hi: float, full: float) -> tuple[float, float]:
-        a, b = (round(min(max(v / full, 0.0), 1.0), 3) for v in (lo, hi))
+    """보이는 쪽 기준 0~1(읽기 좌표에서 되돌린다), 소수 셋째 자리 반올림. 반올림으로 폭·높이가 0이 되면 0.001
+    넓힌다. frags는 같은 axes."""
+    def axis(lo: float, hi: float) -> tuple[float, float]:
+        a, b = (round(min(max(v, 0.0), 1.0), 3) for v in (lo, hi))
         if b > a:
             return a, b
         return (a, round(a + 0.001, 3)) if a < 1.0 else (round(b - 0.001, 3), b)
 
-    x0, x1 = axis(min(f.x0 for f in frags), max(f.x1 for f in frags), page.width_pt)
-    y0, y1 = axis(min(f.y0 for f in frags), max(f.y1 for f in frags), page.height_pt)
+    axes = frags[0].axes
+    w, h = frame_size(page, axes)
+    spans = {axes[0] % 2: _span(min(f.x0 for f in frags) / w, max(f.x1 for f in frags) / w, axes[0]),
+             axes[1] % 2: _span(min(f.y0 for f in frags) / h, max(f.y1 for f in frags) / h, axes[1])}
+    (x0, x1), (y0, y1) = axis(*spans[0]), axis(*spans[1])
     return {"x0": x0, "y0": y0, "x1": x1, "y1": y1}
 
 
@@ -175,10 +216,12 @@ def _is_heading_size(f: Fragment, body: float) -> bool:
 
 
 def _continues(group: Sequence[Fragment], cur: Fragment, body: float) -> bool:
-    """cur가 group에 이어지는가: 아래 줄, 빈 간격 ≤ 줄 높이 × 0.8, 크기 차 ≤ 0.5pt, 왼쪽 시작 차 ≤ 본문 크기
-    (첫 줄에 앞머리가 있으면 앞머리 다음 글자의 시작도 기준: 내어쓰기), 새 목록 앞머리 아님, 제목 크기 여부가 같음."""
+    """cur가 group에 이어지는가: 같은 읽는 방향, 아래 줄, 빈 간격 ≤ 줄 높이 × 0.8, 크기 차 ≤ 0.5pt, 왼쪽 시작 차
+    ≤ 본문 크기(첫 줄에 앞머리가 있으면 앞머리 다음 글자의 시작도 기준: 내어쓰기), 새 목록 앞머리 아님, 제목 크기
+    여부가 같음."""
     first, prev = group[0], group[-1]
-    return (cur.baseline > prev.baseline
+    return (cur.axes == first.axes
+            and cur.baseline > prev.baseline
             and cur.y0 - prev.y1 <= PARA_GAP * (prev.y1 - prev.y0)
             and abs(cur.size - prev.size) <= PARA_SIZE_DIFF
             and min(abs(cur.x0 - first.x0), abs(cur.x0 - first.content_x0)) <= PARA_INDENT * body
@@ -187,8 +230,9 @@ def _continues(group: Sequence[Fragment], cur: Fragment, body: float) -> bool:
 
 
 def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]) -> list[dict[str, Any]]:
-    """블록 명세(계약 build_blocks 입력). scanned·unreliable 쪽은 블록이 없다. 순서: 쪽 → 위→아래 → 왼→오."""
-    frags = [fragments(page) if state == "digital" else [] for page, state in zip(pages, states, strict=True)]
+    """블록 명세(계약 build_blocks 입력). digital·scanned 쪽은 보이는 글자로 블록을 만들고(숨은 글자는 fragments가
+    버린다), unreliable 쪽은 블록이 없다. 순서: 쪽 → 위→아래 → 왼→오."""
+    frags = [fragments(page) if state != "unreliable" else [] for page, state in zip(pages, states, strict=True)]
     body = body_size(frags)
     if body is None:
         return []

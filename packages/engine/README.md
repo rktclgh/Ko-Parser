@@ -2,7 +2,7 @@
 
 ko-parser 결정론 엔진. 형식별 파서가 원문을 전사하고, core가 계약(`ko-parser-contracts`)의 문서 트리·변경 내역을 만들고, 저장 포트가 버전과 변경 피드를 보관한다.
 
-- 형식: Markdown(`.md`, `.markdown`; UTF-8·UTF-8 BOM·cp949), PDF(`.pdf`; 텍스트 레이어. 쪽마다 digital·scanned·unreliable 판정과 근거, scanned·unreliable 쪽은 블록 없음)
+- 형식: Markdown(`.md`, `.markdown`; UTF-8·UTF-8 BOM·cp949), PDF(`.pdf`; 텍스트 레이어. 쪽마다 digital·scanned·unreliable 판정과 근거, scanned 쪽은 보이는 글자만 블록(숨은 OCR 글자층은 버림), unreliable 쪽은 블록 없음)
 - PDF 한계: 쪽 내용 스트림의 글자만 읽는다. 입력 양식(AcroForm) 필드 값과 주석(annotation) 모양의 글자는 뽑지 않는다. 표·다단 읽기 순서는 아직 규칙 기반이다
 - 저장: `Store` 포트, 기본 구현 `MemoryStore`(테스트용)·`SqliteStore`(CLI 기본 상태 파일)
 - 문서 ID: `--id`로 주거나, 없으면 `doc_` + 원본 sha256 앞 24자리. 같은 원본은 새 버전을 만들지 않는다(`--force`로 재파싱)

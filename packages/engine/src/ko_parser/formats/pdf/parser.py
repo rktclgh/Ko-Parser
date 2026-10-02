@@ -1,4 +1,5 @@
-"""PDF → ParsedSource. 쪽마다 판정(text_layer·text_stats)을 붙이고 digital 쪽만 블록을 만든다."""
+"""PDF → ParsedSource. 쪽마다 판정(text_layer·text_stats)을 붙인다. digital·scanned 쪽은 보이는 글자(렌더 모드 3
+제외)로 블록을 만들고(scanned는 '그림 속 글자는 OCR이 필요하다'는 뜻), unreliable 쪽은 블록이 없다."""
 
 from ko_parser_contracts import PageInfo
 

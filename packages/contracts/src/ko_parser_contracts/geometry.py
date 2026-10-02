@@ -37,7 +37,7 @@ class TextLayerStats(ContractModel):
 class PageInfo(ContractModel):
     """width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.
 
-    text_layer는 글자층 판정(scanned·unreliable 쪽에는 블록이 없다), text_stats는 그 근거.
+    text_layer는 글자층 판정(scanned 쪽은 보이는 글자만 블록이 되고 unreliable 쪽에는 블록이 없다), text_stats는 그 근거.
     """
 
     # 아래 검증기 규칙을 JSON Schema에도 싣는다(digital이 아니면 text_stats가 null이 아닌 값으로 있어야 한다)

@@ -1,6 +1,9 @@
 import io
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
@@ -8,10 +11,14 @@ from reportlab.pdfgen.canvas import Canvas
 from ko_parser import LocalEngine, MemoryStore
 from ko_parser.errors import ParseError
 from ko_parser.formats.detect import default_parsers, detect_parser
-from ko_parser.formats.pdf import PdfParser
+from ko_parser.formats.pdf import PdfParser, extract
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
+GRAY_JPEG = bytes.fromhex(  # 8×8 회색 JPEG
+    "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123251d283a333d"
+    "3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b080008000801011100ffc40014000100"
+    "000000000000000000000000000005ffc40014100100000000000000000000000000000000ffda0008010100003f0041ffd9")
 
 
 def make_pdf(pages: list[list[tuple[float, str, int]]], **kw) -> bytes:
@@ -30,6 +37,31 @@ def make_pdf(pages: list[list[tuple[float, str, int]]], **kw) -> bytes:
         c.showPage()
     c.save()
     return buf.getvalue()
+
+
+def draw_pdf(draw, rotation: int = 0) -> bytes:
+    """한 쪽짜리 PDF. rotation은 /Rotate."""
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(595.0, 842.0), invariant=1, pageCompression=0)
+    c.setPageRotation(rotation)
+    draw(c)
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def put(c: Canvas, x: float, y: float, size: float, s: str, mode: int = 0) -> None:
+    c.saveState()
+    t = c.beginText(x, y)
+    t.setFont(FONT, size)
+    t.setTextRenderMode(mode)
+    t.textOut(s)
+    c.drawText(t)
+    c.restoreState()
+
+
+def kinds_texts(parsed) -> list[tuple[str, str]]:
+    return [(b["kind"], b["text"]) for b in parsed.blocks]
 
 
 def write(path, data: bytes):
@@ -93,8 +125,116 @@ def test_page_state_change_without_block_change_is_a_new_version(tmp_path):
     path = write(tmp_path / "a.pdf", make_pdf([[(770, "숨은 글자층이다.", 3)]]))
     engine = LocalEngine(MemoryStore())
     engine.ingest(str(path), document_id="d")
-    write(path, make_pdf([[(770, "다른 숨은 글자층이다.", 3), (40, "1", 0)]]))
+    write(path, draw_pdf(lambda c: (put(c, 72, 770, 11, "다른 숨은 글자층이다.", 3),
+                                    c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 72, 72, width=100, height=100))))
     ref = engine.ingest(str(path), document_id="d")
-    assert ref.version == 2 and engine.get_tree("d").pages[0].text_stats.chars == 1
+    assert ref.version == 2 and engine.get_tree("d").pages[0].text_stats.max_image_coverage > 0
     change = engine.changes(1).changes[0]
     assert (change.added, change.updated, change.removed) == ((), (), ())
+
+
+def test_parsing_from_many_threads_at_once_is_safe():
+    """PDFium은 문서가 달라도 동시에 부르면 프로세스가 죽는다. 패키지 잠금으로 한 번에 하나씩 부른다."""
+    data = make_pdf(PARAS * 3)
+    expected = PdfParser().parse(data, "a.pdf")
+    start = threading.Barrier(8)
+
+    def run(_):
+        start.wait()
+        return [PdfParser().parse(data, "a.pdf") for _ in range(30)]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = [r for rs in pool.map(run, range(8)) for r in rs]
+    assert len(results) == 240 and all(r == expected for r in results)
+
+
+def test_extract_waits_for_the_package_pdfium_lock():
+    """잠금은 패키지에 하나(쪽 그림 렌더러도 같이 쓴다). 다른 스레드가 잡고 있으면 추출은 기다린다."""
+    data = make_pdf(PARAS)
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (extract.extract_pages(data, "a.pdf"), done.set()))
+    with extract.PDFIUM_LOCK:
+        worker.start()
+        assert not done.wait(0.3)
+    worker.join(10)
+    assert done.is_set()
+
+
+def test_clipped_logo_does_not_make_a_titled_page_scanned():
+    """쪽 크기 그림을 40×40으로 잘라 보이는 로고: 그림 면적은 보이는 부분(클리핑 영역)만 센다."""
+    def draw(c):
+        c.saveState()
+        clip = c.beginPath()
+        clip.rect(50, 700, 40, 40)
+        c.clipPath(clip, stroke=0, fill=0)
+        c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 0, 0, width=595, height=842)
+        c.restoreState()
+        put(c, 72, 600, 18, "디지털 문서 제목과 부제")
+
+    parsed = PdfParser().parse(draw_pdf(draw), "logo.pdf")
+    (page,) = parsed.pages
+    assert page.text_layer == "digital"
+    assert page.text_stats.max_image_coverage == pytest.approx(1600 / (595 * 842), abs=1e-4)
+    assert kinds_texts(parsed) == [("paragraph", "디지털 문서 제목과 부제")]
+
+
+def test_scanned_image_page_keeps_visible_text_as_blocks():
+    """scanned는 '그림 속 글자는 OCR이 필요하다'는 뜻: 보이는 글자(쪽 번호)는 블록으로 남는다."""
+    def draw(c):
+        c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 97.5, 300, width=400, height=370)
+        put(c, 282, 30, 9, "- 3 -")
+
+    parsed = PdfParser().parse(draw_pdf(draw), "scan.pdf")
+    assert parsed.pages[0].text_layer == "scanned"
+    assert [(b["text"], b["text_source"], b["locator"]["page"]) for b in parsed.blocks] == [("- 3 -", "text_layer", 1)]
+
+
+def test_scanned_page_drops_only_invisible_ocr_text():
+    only_ocr = PdfParser().parse(make_pdf([[(770, "숨은 글자층이다.", 3), (750, "보이지 않는다.", 3)]]), "a.pdf")
+    assert only_ocr.pages[0].text_layer == "scanned" and only_ocr.blocks == ()
+    mixed = PdfParser().parse(make_pdf([[(770, "숨은 글자층이다.", 3), (750, "보이지 않는다.", 3),
+                                         (730, "보이는 글자.", 0)]]), "a.pdf")
+    assert mixed.pages[0].text_layer == "scanned" and kinds_texts(mixed) == [("paragraph", "보이는 글자.")]
+
+
+def two_lines(c):
+    """공백 글자 없이 4pt 띄운 두 낱말 + 아랫줄(11pt). reportlab은 90·270도면 MediaBox를 가로로 눕히므로 아래쪽에 쓴다."""
+    put(c, 72, 500, 11, "회전")
+    put(c, 72 + 22 + 4, 500, 11, "글자")
+    put(c, 72, 484, 11, "둘째 줄")
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_rotated_page_text_comes_out_in_reading_order(rotation):
+    parsed = PdfParser().parse(draw_pdf(two_lines, rotation), "rot.pdf")
+    assert kinds_texts(parsed) == [("paragraph", "회전 글자\n둘째 줄")]
+    box = parsed.blocks[0]["locator"]["bbox"]
+    wide = (box["x1"] - box["x0"]) * parsed.pages[0].width_pt > (box["y1"] - box["y0"]) * parsed.pages[0].height_pt
+    assert wide == (rotation in (0, 180))  # 상자는 보이는 쪽 기준
+
+
+def test_negative_font_size_and_mirrored_text_keep_reading_order():
+    """음수 Tf(180° 뒤집힘)와 거울 행렬(진행이 왼쪽)은 진행 방향을 따라 읽는다. 뒤집힌 글자는 쪽을 돌려 읽으므로
+    PDF에서 아래에 있는 줄이 먼저다."""
+    def negative(c):
+        t = c.beginText(300, 400)
+        t.setFont(FONT, -11)
+        t.textOut("가나 다라")
+        c.drawText(t)
+        t = c.beginText(300, 300)
+        t.setFont(FONT, -11)
+        t.textOut("마바")
+        c.drawText(t)
+        t = c.beginText(300 - 22 - 4, 300)  # 공백 글자 없이 4pt 띄운 다음 낱말
+        t.setFont(FONT, -11)
+        t.textOut("사아")
+        c.drawText(t)
+
+    def mirrored(c):
+        c.saveState()
+        c.transform(-1, 0, 0, 1, 595, 0)
+        put(c, 300, 400, 11, "가나 다라")
+        c.restoreState()
+
+    assert [t for _, t in kinds_texts(PdfParser().parse(draw_pdf(negative), "n.pdf"))] == ["마바 사아", "가나 다라"]
+    assert [t for _, t in kinds_texts(PdfParser().parse(draw_pdf(mirrored), "m.pdf"))] == ["가나 다라"]

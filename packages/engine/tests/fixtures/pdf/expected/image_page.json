@@ -26,5 +26,30 @@
       }
     }
   ],
-  "blocks": []
+  "blocks": [
+    {
+      "block_id": "b_a586d4904a0d9111f0c52bdc",
+      "content_hash": "c_e8eee3e1b21d2b15f70f608e8bd5d072",
+      "order": 0,
+      "kind": "list_item",
+      "text": "- 3 -",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.474,
+          "y0": 0.956,
+          "x1": 0.512,
+          "y1": 0.966
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    }
+  ]
 }
