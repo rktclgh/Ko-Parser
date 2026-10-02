@@ -1,4 +1,6 @@
+import inspect
 import math
+from typing import get_type_hints
 
 import pytest
 from pydantic import ValidationError
@@ -24,3 +26,27 @@ def test_job_status_progress_bounds():
 def test_engine_protocol_shape():
     names = {"ingest", "documents", "get_tree", "run_vlm", "job", "changes", "history"}
     assert names <= set(dir(Engine))
+
+
+def test_engine_ingest_accepts_document_id_and_force():
+    sig = inspect.signature(Engine.ingest)
+    params = sig.parameters
+
+    # 인자 순서·이름
+    assert list(params) == ["self", "path", "document_id", "force"]
+
+    # 모두 위치·키워드 겸용(기존 위치 호출 호환)
+    assert params["path"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert params["document_id"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert params["force"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+
+    # 기본값
+    assert params["document_id"].default is None
+    assert params["force"].default is False
+
+    # 타입 주석
+    hints = get_type_hints(Engine.ingest)
+    assert hints["path"] is str
+    assert hints["document_id"] == str | None
+    assert hints["force"] is bool
+    assert hints["return"] is DocRef
