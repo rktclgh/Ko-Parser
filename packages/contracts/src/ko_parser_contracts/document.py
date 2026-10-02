@@ -2,6 +2,7 @@
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from types import MappingProxyType
 from typing import Any, Literal, Self
 
 from pydantic import Field, model_validator
@@ -17,12 +18,12 @@ BlockState = Literal["det", "unverified", "vlm"]
 TextSource = Literal["native", "text_layer", "ocr", "vlm", "mixed"]
 LayerState = Literal["det", "vlm_running", "vlm_done", "vlm_failed"]
 # 레이어 상태별로 허용되는 블록 상태. VLM 실패 시 문서 전체가 det로 복귀한다.
-ALLOWED_BLOCK_STATES: dict[str, frozenset[str]] = {
+ALLOWED_BLOCK_STATES: Mapping[str, frozenset[str]] = MappingProxyType({
     "det": frozenset({"det"}),
     "vlm_running": frozenset({"det", "unverified"}),
     "vlm_done": frozenset({"det", "vlm"}),
     "vlm_failed": frozenset({"det"}),
-}
+})
 
 
 def check_kind_fields(kind: str, table: Table | None, level: int | None) -> None:

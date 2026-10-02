@@ -38,3 +38,14 @@ def test_public_api_exports():
                  "ALLOWED_BLOCK_STATES", "ATTEMPT_LAYER"):
         assert name in kpc.__all__ and hasattr(kpc, name), name
     assert all(hasattr(kpc, name) for name in kpc.__all__)
+
+
+def test_public_rule_mappings_are_read_only():
+    import pytest
+
+    for mapping in (kpc.ALLOWED_BLOCK_STATES, kpc.ATTEMPT_LAYER):
+        with pytest.raises(TypeError):
+            mapping["det"] = "x"
+        with pytest.raises(TypeError):
+            del mapping["det"]
+    assert isinstance(kpc.ALLOWED_BLOCK_STATES["det"], frozenset)

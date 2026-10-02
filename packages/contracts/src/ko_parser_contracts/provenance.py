@@ -1,5 +1,7 @@
 """처리 이력: 영역마다 어떤 레이어·모델로 처리했고 무엇이 채택됐는지."""
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Literal, Self
 
 from pydantic import Field, model_validator
@@ -81,7 +83,8 @@ class Attempt(ContractModel):
         return self
 
 
-ATTEMPT_LAYER = {"det": "det", "vlm": "vlm_small", "large": "vlm_large"}  # chosen -> Attempt.layer
+# RegionRecord.chosen → Attempt.layer
+ATTEMPT_LAYER: Mapping[str, str] = MappingProxyType({"det": "det", "vlm": "vlm_small", "large": "vlm_large"})
 
 
 class RegionRecord(ContractModel):
