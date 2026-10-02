@@ -8,7 +8,10 @@ from .base import ContractModel, VersionedModel
 
 
 class LineageEdge(ContractModel):
-    """옛 블록 → 새 블록. 분할은 같은 old_id의 여러 간선, 병합은 같은 new_id의 여러 간선."""
+    """옛 블록 → 새 블록. 분할은 같은 old_id의 여러 간선, 병합은 같은 new_id의 여러 간선.
+
+    살아남은 블록은 updated에 둔다(예: 병합에서 기존 id가 남는 경우).
+    """
 
     old_id: str
     new_id: str | None = None
@@ -36,10 +39,12 @@ class DocumentChange(ContractModel):
         if added & updated or added & removed or updated & removed:
             raise ValueError("added, updated and removed must be disjoint")
         for edge in self.lineage:
-            if edge.old_id not in removed:
-                raise ValueError(f"lineage old_id {edge.old_id!r} must be in removed")
-            if edge.new_id is not None and edge.new_id not in added:
-                raise ValueError(f"lineage new_id {edge.new_id!r} must be in added")
+            if edge.old_id not in removed | updated:
+                raise ValueError(f"lineage old_id {edge.old_id!r} must be in removed or updated")
+            if edge.kind == "removed" and edge.old_id not in removed:
+                raise ValueError(f"lineage old_id {edge.old_id!r} with kind 'removed' must be in removed")
+            if edge.new_id is not None and edge.new_id not in added | updated:
+                raise ValueError(f"lineage new_id {edge.new_id!r} must be in added or updated")
         if self.previous_version is None:
             if self.updated or self.removed or self.lineage:
                 raise ValueError("first version may only contain added blocks")
@@ -62,4 +67,15 @@ class ChangeBatch(VersionedModel):
             raise ValueError("resync_required batches must not contain changes")
         if self.cursor_from is not None and self.next_cursor < self.cursor_from:
             raise ValueError("next_cursor must be >= cursor_from")
+        if self.changes and self.cursor_from is not None and self.next_cursor <= self.cursor_from:
+            raise ValueError("next_cursor must advance when changes are returned")
+        last: dict[str, int] = {}
+        for change in self.changes:
+            prev = last.get(change.document_id)
+            if prev is not None:
+                if change.version <= prev:
+                    raise ValueError("versions of a document must increase within a batch")
+                if change.previous_version != prev:
+                    raise ValueError("previous_version must chain to the preceding change of the same document")
+            last[change.document_id] = change.version
         return self
