@@ -1,16 +1,18 @@
 import asyncio
 import base64
+import struct
 
 import pytest
 from pydantic import ValidationError
 
 from ko_parser_contracts.geometry import BBox
 from ko_parser_contracts.provenance import ErrorInfo, Usage
+from ko_parser_contracts.testing import tiny_png
 from ko_parser_contracts.vlm import (
     Capabilities, ImagePayload, PageRef, VlmBlock, VlmDriver, VlmError, VlmRequest, VlmResult,
 )
 
-PNG = b"\x89PNG\r\n\x1a\nfake-bytes"
+PNG = tiny_png(2, 3)
 BOX = BBox(x0=0.1, y0=0.2, x1=0.9, y1=0.6)
 
 
@@ -30,12 +32,49 @@ def test_image_payload_hash_and_base64_roundtrip():
         ImagePayload(png=PNG, page_bbox=BOX, dpi=144, sha256="0" * 64)
 
 
+def _with_ihdr(width: int, height: int) -> bytes:
+    return PNG[:16] + struct.pack(">II", width, height) + PNG[24:]
+
+
+@pytest.mark.parametrize("png, message", [
+    (b"", "png signature missing"),
+    (b"not a PNG", "png signature missing"),
+    (PNG[:8], "png must start with an IHDR chunk"),
+    (PNG[:-12], "png is truncated"),
+    (_with_ihdr(0, 3), "png dimensions out of range"),
+    (_with_ihdr(10_000, 10_000), "png dimensions out of range"),
+])
+def test_image_payload_rejects_non_png(png, message):
+    with pytest.raises(ValidationError, match=message):
+        ImagePayload.from_png(png, BOX, 144)
+
+
+def test_image_payload_rejects_oversized_bytes(monkeypatch):
+    monkeypatch.setattr("ko_parser_contracts.vlm.MAX_IMAGE_BYTES", len(PNG) - 1)
+    with pytest.raises(ValidationError, match="MAX_IMAGE_BYTES"):
+        ImagePayload.from_png(PNG, BOX, 144)
+
+
+def test_image_payload_width_height():
+    img = ImagePayload.from_png(PNG, BOX, 144)
+    assert (img.width, img.height) == (2, 3)
+    assert "width" not in img.model_dump()
+
+
+def test_tiny_png_is_deterministic_and_valid():
+    assert tiny_png(4, 5, 7) == tiny_png(4, 5, 7)
+    assert tiny_png(gray=0) != tiny_png(gray=255)
+    assert ImagePayload.from_png(tiny_png(4, 5, 7), BOX, 72).height == 5
+
+
 def test_request_region_rule():
     assert request().region_id == "r1"
     with pytest.raises(ValidationError, match="region_id"):
         request(region_id=None)
     with pytest.raises(ValidationError, match="region_id"):
         request(task="PAGE_FULL")
+    with pytest.raises(ValidationError):
+        request(task="REGION_TEXT", region_id="")
     assert request(task="PAGE_FULL", region_id=None).task == "PAGE_FULL"
 
 

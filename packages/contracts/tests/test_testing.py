@@ -5,14 +5,14 @@ import pytest
 from ko_parser_contracts.geometry import BBox
 from ko_parser_contracts.provenance import ErrorInfo
 from ko_parser_contracts.testing import (
-    Recording, RecordingMeta, ReplayDriver, ReplayMiss, ScriptedDriver, request_fingerprint,
+    Recording, RecordingMeta, ReplayDriver, ReplayMiss, ScriptedDriver, request_fingerprint, tiny_png,
 )
 from ko_parser_contracts.vlm import ImagePayload, PageRef, VlmDriver, VlmError, VlmRequest, VlmResult
 
 BOX = BBox(x0=0, y0=0, x1=1, y1=1)
 
 
-def req(request_id="req-1", png=b"img-a", anchor=None, hints=("ko",)) -> VlmRequest:
+def req(request_id="req-1", png=tiny_png(gray=0), anchor=None, hints=("ko",)) -> VlmRequest:
     return VlmRequest(request_id=request_id, task="REGION_TABLE", image=ImagePayload.from_png(png, BOX, 144),
                       region_id="r1", page_ref=PageRef(document_id="d", page=1), anchor_text=anchor,
                       language_hints=hints)
@@ -31,7 +31,7 @@ def test_fingerprint_ignores_request_id_but_not_content():
     base = request_fingerprint(req())
     assert base == request_fingerprint(req(request_id="other"))
     assert base == request_fingerprint(req(hints=("ko",)))
-    assert base != request_fingerprint(req(png=b"img-b"))
+    assert base != request_fingerprint(req(png=tiny_png(gray=255)))
     assert base != request_fingerprint(req(anchor="텍스트 레이어"))
     assert request_fingerprint(req(hints=("en", "ko"))) == request_fingerprint(req(hints=("ko", "en")))
 

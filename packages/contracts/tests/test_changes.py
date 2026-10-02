@@ -33,10 +33,10 @@ def test_sets_must_be_disjoint():
 
 
 def test_lineage_must_reference_removed_and_added():
-    with pytest.raises(ValidationError, match="removed"):
+    with pytest.raises(ValidationError, match="removed or updated"):
         DocumentChange(document_id="d", version=2, previous_version=1, added=["x"],
                        lineage=[LineageEdge(old_id="a", new_id="x", kind="replaced")])
-    with pytest.raises(ValidationError, match="added"):
+    with pytest.raises(ValidationError, match="added or updated"):
         DocumentChange(document_id="d", version=2, previous_version=1, removed=["a"],
                        lineage=[LineageEdge(old_id="a", new_id="x", kind="replaced")])
 
@@ -58,3 +58,35 @@ def test_change_batch_rules():
                     changes=[DocumentChange(document_id="d", version=1, added=["a"])])
     with pytest.raises(ValidationError, match="next_cursor"):
         ChangeBatch(cursor_from=10, next_cursor=9)
+
+
+def chg(version, previous_version, doc="d"):
+    return DocumentChange(document_id=doc, version=version, previous_version=previous_version, added=[f"n{version}"])
+
+
+def test_lineage_may_reference_surviving_ids():
+    change = DocumentChange(
+        document_id="d", version=2, previous_version=1, updated=["a"], removed=["b"],
+        lineage=[LineageEdge(old_id="a", new_id="a", kind="merged"),
+                 LineageEdge(old_id="b", new_id="a", kind="merged")],
+    )
+    assert len(change.lineage) == 2
+    with pytest.raises(ValidationError, match="must be in removed"):
+        DocumentChange(document_id="d", version=2, previous_version=1, updated=["a"], added=["x"],
+                       lineage=[LineageEdge(old_id="a", kind="removed")])
+
+
+def test_cursor_must_advance_with_changes():
+    with pytest.raises(ValidationError, match="must advance"):
+        ChangeBatch(cursor_from=10, next_cursor=10, changes=[chg(1, None)])
+    assert ChangeBatch(cursor_from=10, next_cursor=10, changes=()).changes == ()
+    assert ChangeBatch(cursor_from=10, next_cursor=11, changes=[chg(1, None)]).next_cursor == 11
+
+
+def test_versions_increase_and_chain_within_batch():
+    with pytest.raises(ValidationError, match="must increase"):
+        ChangeBatch(next_cursor=5, changes=[chg(3, 2), chg(2, 1)])
+    with pytest.raises(ValidationError, match="must chain"):
+        ChangeBatch(next_cursor=5, changes=[chg(2, 1), chg(3, 1)])
+    ChangeBatch(next_cursor=5, changes=[chg(2, 1), chg(3, 2)])
+    ChangeBatch(next_cursor=5, changes=[chg(2, 1, "d1"), chg(5, 4, "d2"), chg(3, 2, "d1"), chg(6, 5, "d2")])

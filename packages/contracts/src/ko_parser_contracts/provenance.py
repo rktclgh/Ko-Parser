@@ -74,15 +74,35 @@ class Attempt(ContractModel):
     correction: CorrectionSummary | None = None
     error: ErrorInfo | None = None
 
+    @model_validator(mode="after")
+    def _check_error(self) -> Self:
+        if self.error is not None and self.correction is not None:
+            raise ValueError("attempt with error must not carry a correction")
+        return self
+
+
+ATTEMPT_LAYER = {"det": "det", "vlm": "vlm_small", "large": "vlm_large"}  # chosen -> Attempt.layer
+
 
 class RegionRecord(ContractModel):
-    region_id: str
+    region_id: str = Field(min_length=1)
     locator: Locator
     kind: BlockKind
     attempts: tuple[Attempt, ...] = Field(min_length=1)
     chosen: Literal["det", "vlm", "large"]
     gate: GateResult | None = None
     fallback_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _check_choice(self) -> Self:
+        layer = ATTEMPT_LAYER[self.chosen]
+        if not any(a.layer == layer and a.error is None for a in self.attempts):
+            raise ValueError("chosen layer has no successful attempt")
+        if self.chosen != "det" and (self.gate is None or not self.gate.passed):
+            raise ValueError("non-det choice requires a passed gate")
+        if self.fallback_reason is not None and self.chosen != "det":
+            raise ValueError("fallback_reason is only valid when chosen == 'det'")
+        return self
 
 
 class ProcessingHistory(VersionedModel):
