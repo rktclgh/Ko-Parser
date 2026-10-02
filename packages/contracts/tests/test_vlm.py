@@ -116,3 +116,20 @@ def test_driver_protocol_is_runtime_checkable():
 
     assert isinstance(Dummy(), VlmDriver)
     assert asyncio.run(Dummy().health()) is True
+
+
+def test_png_with_overlapping_ihdr_and_iend_rejected():
+    png = tiny_png()
+    with pytest.raises(ValidationError, match="IHDR"):
+        ImagePayload.from_png(png[:24] + png[-12:], BOX, 144)
+
+
+def test_from_png_checks_structure_before_hashing(monkeypatch):
+    import ko_parser_contracts.vlm as vlm
+
+    def boom(_):
+        raise AssertionError("hashed before structure check")
+
+    monkeypatch.setattr(vlm.hashlib, "sha256", boom)
+    with pytest.raises(ValueError, match="signature"):
+        ImagePayload.from_png(b"not a PNG", BOX, 144)
