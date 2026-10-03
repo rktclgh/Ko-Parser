@@ -22,6 +22,7 @@ with warnings.catch_warnings():  # pypdfium2_raw는 import할 때 버전 파일�
     import pypdfium2.raw as pdfium_c
 
 from ...errors import ParseError
+from . import fonts  # pypdfium2를 위 경고 억제 블록에서 먼저 import한 뒤에 import한다
 
 Box = tuple[float, float, float, float]  # left, bottom, right, top (PDF 쪽 좌표)
 Axes = tuple[int, int]  # (진행 방향, 줄 아래 방향). 보이는 쪽의 +x·+y·−x·−y = 0·1·2·3
@@ -70,6 +71,7 @@ class PageText:
 
 def open_pdf(data: bytes, name: str) -> pdfium.PdfDocument:
     """암호화·손상 PDF는 ParseError. 부르는 쪽이 PDFIUM_LOCK을 잡고 있어야 한다."""
+    fonts.register_bundled_fonts()
     try:
         return pdfium.PdfDocument(data)
     except pdfium.PdfiumError as exc:
@@ -220,7 +222,8 @@ class _HangulCheck:
     Linux). 공백 한 칸 객체도 모든 OS에서 빠지고 빠진 객체의 내용은 알 수 없으므로 문서 전체를 보고 판단한다.
     빠진 객체의 미임베드 글꼴이 이 컴퓨터에서 '가'를 그리지 못하고, 그 글꼴 이름이 한국어 글꼴이거나 문서에서 나온
     한글을 그린 글꼴 중 '가'를 그리는 것이 하나도 없으면(이 컴퓨터에 한글 글꼴이 없다) ParseError. 라틴 문서의
-    공백 객체나, 한글이 제대로 그려지는 컴퓨터에서 한글을 담을 수 없는 중국·일본 글꼴의 공백 객체는 통과한다."""
+    공백 객체나, 한글이 제대로 그려지는 컴퓨터에서 한글을 담을 수 없는 중국·일본 글꼴의 공백 객체는 통과한다.
+    리눅스에서 ko-parser-fonts(번들 한글 글꼴)가 설치되어 있으면 open_pdf가 PDFium에 등록하므로 이 상황이 생기지 않는다."""
 
     hangul: bool = False  # 한글 글자가 나왔다
     rendered: bool = False  # 그 한글을 낸 글꼴 중 하나가 이 컴퓨터에서 '가'를 그린다
@@ -253,7 +256,8 @@ class _HangulCheck:
         for location, korean_name in self.dropped:
             if korean_name or (self.hangul and not self.rendered):
                 raise ParseError("PDF text uses a non-embedded font that has no Hangul glyphs on this system; "
-                                 "install a Korean font (e.g. fonts-noto-cjk)", location)
+                                 "install a Korean font (e.g. fonts-noto-cjk) or pip install \"ko-parser-engine[fonts]\"",
+                                 location)
 
 
 def _draws_hangul(pdf: pdfium.PdfDocument, font: object) -> bool:

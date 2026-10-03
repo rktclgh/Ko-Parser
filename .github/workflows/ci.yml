@@ -35,15 +35,15 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Korean font (Linux)
-        # PDFium은 미임베드 한글 글꼴을 시스템 글꼴로 대신 그린다. 러너에 한글 글꼴이 없으면 한 글자짜리 글자 객체가
-        # 텍스트에서 빠진다(extract.py가 ParseError로 알린다). macOS·Windows는 기본 한글 글꼴이 있다
-        if: runner.os == 'Linux'
-        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends fonts-noto-cjk
+      # ubuntu에는 한글 글꼴을 설치하지 않는다: 워크스페이스의 ko-parser-fonts가 PDFium에 등록되는지 검증한다
+      # (번들 없을 때 가드는 test_pdf_fonts가 하위 프로세스로 검증)
       - name: Sync
         run: uv sync --locked
       - name: Tests
         # EncodingWarning 오류화는 pyproject filterwarnings가 한다. 명령줄 -W는 그 안의 pypdfium2 예외 필터를 덮어쓰므로 쓰지 않는다
+        env:
+          # 리눅스에만 준다(env에는 if를 못 쓴다): 시스템 한글 글꼴이 생겨 번들 없음 가드 시험이 건너뛰어지면 실패시킨다
+          KO_PARSER_CI_NO_KOREAN_FONT: ${{ runner.os == 'Linux' && '1' || '' }}
         run: uv run pytest -q
       - name: Contract schemas up to date
         run: uv run python -W error::EncodingWarning -m ko_parser_contracts.schema --check

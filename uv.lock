@@ -7,6 +7,7 @@ members = [
     "ko-parser",
     "ko-parser-contracts",
     "ko-parser-engine",
+    "ko-parser-fonts",
 ]
 
 [[package]]
@@ -210,6 +211,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "ko-parser-contracts" },
     { name = "ko-parser-engine" },
+    { name = "ko-parser-fonts" },
 ]
 
 [package.dev-dependencies]
@@ -223,6 +225,7 @@ dev = [
 requires-dist = [
     { name = "ko-parser-contracts", editable = "packages/contracts" },
     { name = "ko-parser-engine", editable = "packages/engine" },
+    { name = "ko-parser-fonts", editable = "packages/fonts" },
 ]
 
 [package.metadata.requires-dev]
@@ -254,13 +257,25 @@ dependencies = [
     { name = "pypdfium2" },
 ]
 
+[package.optional-dependencies]
+fonts = [
+    { name = "ko-parser-fonts" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "ko-parser-contracts", editable = "packages/contracts" },
+    { name = "ko-parser-fonts", marker = "extra == 'fonts'", editable = "packages/fonts" },
     { name = "markdown-it-py", specifier = ">=3,<5" },
     { name = "platformdirs", specifier = ">=4,<5" },
-    { name = "pypdfium2", specifier = ">=5,<6" },
+    { name = "pypdfium2", specifier = ">=5.8,<6" },
 ]
+provides-extras = ["fonts"]
+
+[[package]]
+name = "ko-parser-fonts"
+version = "0.1.0"
+source = { editable = "packages/fonts" }
 
 [[package]]
 name = "markdown-it-py"
