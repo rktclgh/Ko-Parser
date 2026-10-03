@@ -520,9 +520,12 @@ def _edge_rule(p: Point, q: Point) -> Rule | None:
 
 
 def _rect(sub: _Subpath) -> tuple[float, float, float, float] | None:
-    """곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL, 네 모서리가 모두 있는 사각형이면 (left, top, right,
-    bottom), 아니면 None."""
+    """곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL, 네 모서리가 모두 있고 이웃 꼭짓점 사이(닫는 변 포함)가
+    모두 가로·세로(± AXIS_TOL)인 사각형이면 (left, top, right, bottom), 아니면 None(대각선으로 도는 나비 모양 등)."""
     if sub.curved or len(sub.points) < 4:
+        return None
+    if any(min(abs(x1 - x0), abs(y1 - y0)) > AXIS_TOL
+           for (x0, y0), (x1, y1) in zip(sub.points, sub.points[1:] + sub.points[:1], strict=True)):
         return None
     xs, ys = [p[0] for p in sub.points], [p[1] for p in sub.points]
     left, top, right, bottom = min(xs), min(ys), max(xs), max(ys)
@@ -618,10 +621,11 @@ def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: 
         if not (stroked or filled):
             continue
         subs = _subpaths(obj, matrix, box, rotation, width, height)
-        # 사각형 여럿으로 된 채운 path(속이 빈 틀, 칸 여러 개의 틀)는 채움 규칙(even-odd·nonzero)을 따지지 않고
-        # 테두리로 본다: 넓은 사각형의 네 변도 fill이 아니라 stroke. 얇은 사각형은 그대로(점선 조각). 맞바꾼 것: 실제로
-        # 속까지 칠한 배경을 사각형 여럿인 path로 그리면 머리행 표시를 잃는다(머리행은 덧붙인 정보일 뿐이다)
-        border = filled and len(subs) > 1 and all(_rect(sub) is not None for sub in subs)
+        # 부분 경로가 여럿인 채운 path(속이 빈 틀, 칸 여러 개의 틀, 사각형과 다른 모양이 섞인 것)의 사각형은 채움
+        # 규칙(even-odd·nonzero)을 따지지 않고 테두리로 본다: 넓은 사각형의 네 변도 fill이 아니라 stroke. 얇은 사각형은
+        # 그대로(점선 조각), 사각형이 아닌 부분 경로는 무시. 맞바꾼 것: 실제로 속까지 칠한 배경을 이런 path로 그리면
+        # 머리행 표시를 잃는다(머리행은 덧붙인 정보일 뿐이다)
+        border = filled and len(subs) > 1
         for sub in subs:
             found = [_edge_rule(p, q) for p, q in sub.edges] if stroked else []
             fills = _fill_rules(sub) if filled else []

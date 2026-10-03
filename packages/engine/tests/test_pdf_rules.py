@@ -301,3 +301,39 @@ def test_one_fill_path_of_many_nested_rects_is_fast():
     seconds, page = extract_time(draw)
     assert seconds < 0.5
     assert {r.kind for r in page.rules} == {"stroke"}
+
+
+def test_rects_in_a_fill_path_with_other_shapes_are_still_borders():
+    """채운 path에 사각형 둘과 삼각형 하나: 삼각형은 무시하고 사각형 둘은 사각형만 있을 때와 같은 테두리(stroke 8변)."""
+    def rects(c, triangle):
+        path = c.beginPath()
+        path.rect(100, 500, 100, 50)
+        path.rect(300, 500, 100, 50)
+        if triangle:
+            path.moveTo(100, 300)
+            path.lineTo(200, 300)
+            path.lineTo(150, 350)
+            path.close()
+        c.setFillColorRGB(0.85, 0.85, 0.85)
+        c.drawPath(path, stroke=0, fill=1)
+
+    def key(rule):
+        return rule.axis, rule.pos, rule.start, rule.end
+
+    alone = sorted(rules_of(lambda c: rects(c, False)), key=key)
+    assert len(alone) == 8 and {r.kind for r in alone} == {"stroke"}
+    assert sorted(rules_of(lambda c: rects(c, True)), key=key) == alone
+
+
+def test_bowtie_through_the_four_corners_is_not_a_rect():
+    """네 모서리를 대각선으로 지나는 나비 모양(꼭짓점은 모두 외접 상자 모서리)은 사각형이 아니다."""
+    def draw(c):
+        path = c.beginPath()
+        path.moveTo(100, 500)
+        path.lineTo(200, 550)
+        path.lineTo(200, 500)
+        path.lineTo(100, 550)
+        path.close()
+        c.drawPath(path, stroke=0, fill=1)
+
+    assert rules_of(draw) == []
