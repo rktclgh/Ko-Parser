@@ -108,9 +108,8 @@ main.no-pages { grid-template-columns: minmax(0, 1fr); }
 .pages { display: flex; flex-direction: column; gap: 16px; }
 .page { position: relative; background: #fff; border: 1px solid var(--line); }
 .page img { display: block; width: 100%; height: 100%; }
-.page .label { position: absolute; left: 4px; top: 4px; font-size: 11px; background: #fff; padding: 0 4px; }
-.notice { position: absolute; inset: 28px 8% auto; background: #fff4e6; border: 1px solid #f08c00; padding: 8px 12px;
-          pointer-events: none; }
+.page-label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.notice { background: #fff4e6; border: 1px solid #f08c00; padding: 8px 12px; margin-bottom: 4px; }
 .box { position: absolute; border: 1.5px solid var(--c); background: color-mix(in srgb, var(--c) 8%, transparent); cursor: pointer; }
 .box.changed { outline: 2px dashed #e03131; outline-offset: 1px; }
 .box.selected, .item.selected { box-shadow: 0 0 0 3px var(--sel); }
@@ -176,6 +175,9 @@ const pagesNode = document.getElementById("pages");
 const pageNodes = new Map();
 if (!DATA.pages.length) document.getElementById("main").classList.add("no-pages");
 for (const p of DATA.pages) {
+  // 쪽 이름표와 안내는 그림 바깥(위)에 둔다: 그림 위에 겹치면 위쪽 블록 상자를 가린다
+  const wrap = el("div", "page-wrap");
+  wrap.appendChild(el("span", "page-label", p.page + "쪽 · " + (STATE_LABEL[p.state] || p.state)));
   const node = el("div", "page");
   node.style.aspectRatio = p.width + " / " + p.height;
   node.dataset.page = p.page;
@@ -185,18 +187,19 @@ for (const p of DATA.pages) {
     img.alt = p.page + "쪽";
     node.appendChild(img);
   }
-  node.appendChild(el("span", "label", p.page + "쪽 · " + (STATE_LABEL[p.state] || p.state)));
   if (p.notice) {
     const s = p.stats;
     const reasons = s ? ". 보이는 글자 " + s.chars + " · 숨은 글자 " + pct(s.invisible_ratio) + " · 매핑 실패 " +
       pct(s.unmapped_ratio) + " · PUA " + pct(s.pua_ratio) + " · 가장 큰 그림 " + pct(s.max_image_coverage) : "";
-    node.appendChild(el("div", "notice", (STATE_LABEL[p.state] || p.state) + " 쪽: " + p.notice + reasons));
+    wrap.appendChild(el("div", "notice", (STATE_LABEL[p.state] || p.state) + " 쪽: " + p.notice + reasons));
   }
+  wrap.appendChild(node);
   pageNodes.set(p.page, node);
-  pagesNode.appendChild(node);
+  pagesNode.appendChild(wrap);
 }
 
 const list = document.getElementById("list");
+const pending = [];
 for (const b of DATA.blocks) {
   const color = COLORS[b.kind] || "#495057";
   const item = el("div", "item");
@@ -229,9 +232,11 @@ for (const b of DATA.blocks) {
     box.title = b.kind + " #" + b.order;
     box.addEventListener("click", () => select(b.id, "box"));
     boxes.set(b.id, box);
-    page.appendChild(box);
+    pending.push({ page, box, area: (b.bbox[2] - b.bbox[0]) * (b.bbox[3] - b.bbox[1]) });
   }
 }
+// 큰 상자부터 붙여 작은 상자가 위에 오게 한다(표·그림 안의 블록도 누를 수 있게). 목록 순서는 그대로
+pending.sort((x, y) => y.area - x.area).forEach(({ page, box }) => page.appendChild(box));
 
 if (DATA.removed.length) {
   const removed = document.getElementById("removed");

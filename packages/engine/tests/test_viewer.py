@@ -140,3 +140,10 @@ def test_table_block_shows_markdown_table():
     # 사라진 표 블록도 살아 있는 블록과 같은 글자 규칙(마크다운 표)
     removed = data_of(render_html(pdf_tree(2, spec("본문", 0.2)), previous=tree))["removed"]
     assert [(r["kind"], r["text"]) for r in removed] == [("table", table.to_markdown())]
+
+
+def test_page_notice_is_not_overlaid_on_page_image():
+    # 안내가 그림 위에 겹치면 scanned 쪽 위쪽의 보이는 글자 상자를 가린다
+    page = render_html(pdf_tree(1, spec("- 2 -", 0.05, page=2)))
+    (rule,) = re.findall(r"\.notice \{([^}]*)\}", page)
+    assert "absolute" not in rule and "inset" not in rule
