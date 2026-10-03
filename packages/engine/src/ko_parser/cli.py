@@ -3,7 +3,10 @@
 import argparse
 import json
 import os
+import stat
 import sys
+import tempfile
+import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -15,11 +18,14 @@ from ko_parser_contracts import DocumentTree
 from .engine import LocalEngine
 from .errors import DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
 from .export import to_markdown
+from .formats.pdf.parser import MIME as PDF_MIME
 from .store.sqlite import SqliteStore
+from .viewer import DEFAULT_DPI, render_html, render_page_images
 
 APP_NAME = "ko-parser"
 DB_ENV = "KO_PARSER_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
+MAX_DPI = 600
 _EXIT_CODES: tuple[tuple[type[KoParserError], int], ...] = (
     (UnsupportedFormat, EXIT_UNSUPPORTED), (ParseError, EXIT_PARSE),
     (DocumentNotFound, EXIT_NOT_FOUND), (VersionNotFound, EXIT_NOT_FOUND),
@@ -47,6 +53,13 @@ def _non_negative(text: str) -> int:
     value = int(text)
     if value < 0:
         raise argparse.ArgumentTypeError("must be >= 0")
+    return value
+
+
+def _dpi(text: str) -> int:
+    value = int(text)
+    if not 1 <= value <= MAX_DPI:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_DPI}")
     return value
 
 
@@ -90,6 +103,11 @@ def _build_parser() -> argparse.ArgumentParser:
     history = sub.add_parser("history", parents=[common], help="처리 이력")
     history.add_argument("document_id")
     history.add_argument("--version", type=_positive)
+    view = sub.add_parser("view", parents=[common], help="파싱 결과를 HTML 한 장으로 만든다(원본이 같으면 저장된 버전)")
+    view.add_argument("file")
+    view.add_argument("--id", dest="document_id", type=_non_empty, help="문서 ID (기본: doc_ + 원본 sha256 앞 24자리)")
+    view.add_argument("--out", type=_non_empty, help="HTML 경로 (기본: 현재 폴더/<파일 이름(확장자 제외)>.view.html)")
+    view.add_argument("--dpi", type=_dpi, default=DEFAULT_DPI, help=f"쪽 이미지 해상도 (기본 {DEFAULT_DPI})")
     return parser
 
 
@@ -111,6 +129,50 @@ def _emit_tree(tree: DocumentTree, args: argparse.Namespace) -> None:
     _write(to_markdown(tree) if args.format == "md" else _json(tree.model_dump(mode="json")), args.out)
 
 
+def view_path(file: str, out: str | None) -> Path:
+    """--out이 없으면 현재 폴더의 <파일 이름(확장자 제외, NFC)>.view.html."""
+    if out:
+        return Path(out)
+    return Path.cwd() / (unicodedata.normalize("NFC", Path(file).stem) + ".view.html")
+
+
+def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
+    data = Path(args.file).read_bytes()  # 한 번만 읽어 수집과 쪽 그림에 같은 바이트를 쓴다
+    ref = engine.ingest_bytes(data, Path(args.file).name, document_id=args.document_id)
+    tree = engine.get_tree(ref.document_id, ref.version)
+    previous = engine.get_tree(ref.document_id, ref.version - 1) if ref.version > 1 else None
+    images = None
+    if tree.source.mime == PDF_MIME:
+        images = render_page_images(data, tree.source.name, args.dpi)
+    out = view_path(args.file, args.out)
+    html = render_html(tree, images, previous)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # 같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 HTML이 반쯤 덮이지 않는다
+    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=".ko-parser-view.", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
+    try:
+        # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
+        with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as f:
+            f.write(html)
+        if out.exists():
+            mode = stat.S_IMODE(out.stat().st_mode)
+        else:
+            umask = os.umask(0)  # umask는 읽으려면 바꿔야 한다(CLI는 한 스레드라 바로 되돌린다)
+            os.umask(umask)
+            mode = 0o666 & ~umask
+        try:  # mkstemp는 0600으로 만든다: 이미 있던 HTML의 권한 또는 umask 기본 권한으로
+            os.chmod(tmp, mode)
+        except OSError:
+            pass
+        os.replace(tmp, out)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
+            pass
+        raise
+    _write(f"{out}\n", None)
+
+
 def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
     match args.command:
         case "parse":
@@ -124,6 +186,8 @@ def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
             _write(_json(engine.changes(args.cursor, args.limit).model_dump(mode="json")), None)
         case "history":
             _write(_json(engine.history(args.document_id, args.version).model_dump(mode="json")), None)
+        case "view":
+            _view(args, engine)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -133,8 +197,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:  # argparse: 사용법 오류 2, --help 0
         return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     try:
-        if args.command == "parse" and args.out and Path(args.out).is_dir():  # 저장소를 건드리기 전에 막는다
-            raise IsADirectoryError(f"--out is a directory: {args.out}")
+        out = view_path(args.file, args.out) if args.command == "view" else args.out if args.command == "parse" else None
+        if out and Path(out).is_dir():  # 저장소를 건드리기 전에 막는다(view는 기본 출력 경로도)
+            raise IsADirectoryError(f"output path is a directory: {out}")
         with SqliteStore(resolve_db(args.db)) as store:
             _run(args, LocalEngine(store))
     except KoParserError as exc:

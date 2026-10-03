@@ -184,6 +184,19 @@ def test_source_name_is_nfc_file_name_only(engine, tmp_path):
     assert tmp_path.name not in tree.model_dump_json()  # 전체 경로는 저장하지 않는다
 
 
+def test_ingest_bytes_matches_ingest(parser, tmp_path):
+    """바이트로 넣어도 같은 이름·바이트면 파일 경로로 넣은 것과 같은 DocRef와 트리(이름은 NFC)."""
+    path = write(tmp_path / "보고서.fake", "가\n나\n")
+    by_path, by_bytes = LocalEngine(MemoryStore(), parsers=[parser]), LocalEngine(MemoryStore(), parsers=[parser])
+    ref = by_path.ingest(str(path))
+    assert by_bytes.ingest_bytes(path.read_bytes(), unicodedata.normalize("NFD", "보고서.fake")) == ref
+    assert by_bytes.get_tree(ref.document_id) == by_path.get_tree(ref.document_id)
+    assert by_bytes.ingest_bytes(path.read_bytes(), "보고서.fake") == ref  # 원본이 같으면 새 버전 없음
+    assert by_bytes.ingest_bytes(b"x\n", "x.fake", document_id="d").document_id == "d"
+    with pytest.raises(ValueError):
+        by_bytes.ingest_bytes(b"x\n", "x.fake", document_id="")
+
+
 def test_vlm_paths_unavailable(engine):
     with pytest.raises(VlmUnavailable):
         engine.run_vlm(DocFilter())

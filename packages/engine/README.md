@@ -16,8 +16,10 @@ ko-parser export DOC_ID [--version N] [--format json|md] [--out PATH]
 ko-parser documents
 ko-parser changes [--cursor N] [--limit N]
 ko-parser history DOC_ID [--version N]
+ko-parser view 문서.pdf [--id ID] [--out PATH] [--dpi N]
 ```
 
+- `view`: 수집(원본이 같으면 저장된 버전) 후 인터넷 없이 열리는 HTML 한 장(원본이 그대로면 저장된 버전과 그때 저장한 파일 이름을 보여 준다). 쪽 이미지(JPEG, 기본 110 DPI) 위 블록 영역, 블록 목록, 쪽 판정 근거(스캔 쪽은 보이는 글자만 블록, 글자 깨짐 쪽은 블록 없이 근거), 이전 버전 대비 변경. 기본 출력은 현재 폴더의 `<파일 이름(확장자 제외)>.view.html`. `--dpi`는 기본 110(1~600), 300 이상이면 쪽 수가 많은 문서의 HTML이 수십~수백 MB가 된다(60쪽 110 DPI 약 8MB).
 - 상태 파일: `--db PATH` > 환경변수 `KO_PARSER_DB` > 사용자 데이터 폴더의 `ko-parser/state.db`
 - 계약 0.2로 올라가며 이전 상태 파일은 지우고 다시 수집해야 한다
 - 출력은 UTF-8, JSON은 계약 모델 그대로

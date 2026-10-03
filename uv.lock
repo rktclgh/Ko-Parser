@@ -253,6 +253,7 @@ source = { editable = "packages/engine" }
 dependencies = [
     { name = "ko-parser-contracts" },
     { name = "markdown-it-py" },
+    { name = "pillow" },
     { name = "platformdirs" },
     { name = "pypdfium2" },
 ]
@@ -267,6 +268,7 @@ requires-dist = [
     { name = "ko-parser-contracts", editable = "packages/contracts" },
     { name = "ko-parser-fonts", marker = "extra == 'fonts'", editable = "packages/fonts" },
     { name = "markdown-it-py", specifier = ">=3,<5" },
+    { name = "pillow", specifier = ">=10.1,<13" },
     { name = "platformdirs", specifier = ">=4,<5" },
     { name = "pypdfium2", specifier = ">=5.8,<6" },
 ]
