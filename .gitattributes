@@ -1,2 +1,3 @@
 # 엔진 골든 예제는 바이트 그대로 비교한다(BOM·CRLF·cp949 입력). Windows autocrlf 변환을 끈다
 packages/engine/tests/fixtures/** -text
+*.otf binary
