@@ -38,6 +38,7 @@ MIN_RULE = 2.0  # 이보다 짧은 선분은 버린다(점선의 점은 아래�
 DASH = 0.2  # 점선 조각: 길이 DASH 이상 MIN_RULE 미만인 가로·세로 선분(한글 프로그램 점선은 0.48pt 점이 1.2pt 간격.
 # 잇지 않으면 공공누리 정답 표 채점에서 찾은 표 37→36, 완벽 30→28)
 DASH_GAP = 2.0  # 같은 위치의 점선 조각 사이가 ≤ 2pt면 한 선으로 잇는다
+DASH_DRIFT = 0.05  # 이은 점선의 위치 흐름이 AXIS_TOL보다 크면 길이 1pt마다 0.05pt까지만(천천히 흐르는 점선은 선, 사선 점선은 아니다)
 WHITE = 250  # 빨강·초록·파랑이 모두 이 이상이면 하얀색(배경과 같은 색)으로 보고 버린다
 
 _BOLD_NAME = re.compile(r"bold|black|heavy", re.IGNORECASE)
@@ -538,21 +539,25 @@ def _fill_rules(sub: _Subpath) -> list[Rule]:
         return [Rule("h", top, left, right, "fill"), Rule("h", bottom, left, right, "fill"),
                 Rule("v", left, top, bottom, "fill"), Rule("v", right, top, bottom, "fill")]
     out = []
-    # 두 변의 비교는 AXIS_TOL 여유를 둔다(좌표 변환의 부동소수 오차로 네모 점이 한 방향만 내지 않게)
-    if h <= THIN and w >= max(DASH, h - AXIS_TOL):
+    # 점선 조각(두 변 모두 MIN_RULE 미만)이면 두 변의 비교에 AXIS_TOL 여유를 둔다(좌표 변환의 부동소수 오차로 네모 점이
+    # 한 방향만 내지 않게). 그보다 큰 사각형은 그대로 비교해 긴 쪽 방향만
+    slack = AXIS_TOL if max(w, h) < MIN_RULE else 0.0
+    if h <= THIN and w >= max(DASH, h - slack):
         out.append(Rule("h", (top + bottom) / 2, left, right))
-    if w <= THIN and h >= max(DASH, w - AXIS_TOL):
+    if w <= THIN and h >= max(DASH, w - slack):
         out.append(Rule("v", (left + right) / 2, top, bottom))
     return out
 
 
 def _join_dashes(dashes: list[Rule]) -> Iterator[Rule]:
-    """점선 조각(MIN_RULE보다 짧은 선분)을 같은 축·같은 위치(위치 순으로 이웃 조각과 ± AXIS_TOL)에서 사이 ≤ DASH_GAP이면 이어 한 선(stroke)으로.
+    """점선 조각(MIN_RULE보다 짧은 선분)을 같은 축·같은 위치(위치 순으로 이웃 조각과 ± AXIS_TOL, 묶음 첫 조각과
+    2 × AXIS_TOL 안)에서 사이 ≤ DASH_GAP이면 이어 한 선(stroke)으로.
     조각 둘 이상을 이어 MIN_RULE 이상이 된 것만 낸다(글자 모양 조각·눈금 하나는 버린다)."""
     for axis in ("h", "v"):
         groups: list[list[Rule]] = []
         for dash in sorted((d for d in dashes if d.axis == axis), key=lambda d: d.pos):
-            if groups and dash.pos - groups[-1][-1].pos <= AXIS_TOL:  # 바로 앞 조각과 비교(천천히 흐르는 점선)
+            # 바로 앞 조각과 비교(천천히 흐르는 점선)하되 묶음 첫 조각에서 2 × AXIS_TOL 안까지만
+            if groups and dash.pos - groups[-1][-1].pos <= AXIS_TOL and dash.pos - groups[-1][0].pos <= 2 * AXIS_TOL:
                 groups[-1].append(dash)
             else:
                 groups.append([dash])
@@ -569,7 +574,11 @@ def _join_dashes(dashes: list[Rule]) -> Iterator[Rule]:
 
 
 def _chain(chain: list[Rule], end: float) -> Iterator[Rule]:
-    if len(chain) > 1 and end - chain[0].start >= MIN_RULE:
+    """조각 둘 이상, 길이 MIN_RULE 이상이고 곧은(위치 흐름 ≤ AXIS_TOL 또는 ≤ 길이 × DASH_DRIFT) 이음만 선."""
+    if len(chain) < 2 or end - chain[0].start < MIN_RULE:
+        return
+    drift = max(d.pos for d in chain) - min(d.pos for d in chain)
+    if drift <= AXIS_TOL or drift <= DASH_DRIFT * (end - chain[0].start):
         yield Rule(chain[0].axis, sum(d.pos for d in chain) / len(chain), chain[0].start, end)
 
 

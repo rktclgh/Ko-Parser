@@ -224,3 +224,23 @@ def test_stroked_and_filled_rectangle_gives_stroke_and_fill_sides():
              ("v", 300.0, 392.0, 442.0)]
     assert sorted(rules_of(draw), key=lambda r: (r.kind, r.axis, r.pos)) == (
         [Rule(*s, "fill") for s in sides] + [Rule(*s) for s in sides])
+
+
+def test_slanted_dotted_line_is_not_a_rule():
+    """점마다 0.375pt씩 오르는 점선(60개)은 기울어진 선이다: 이웃 점끼리는 가까워도 이어 붙이면 사선."""
+    def draw(c):
+        c.setLineWidth(0.36)
+        for i in range(60):
+            x, y = 100 + 1.2 * i, 500 + 0.375 * i
+            c.line(x, y, x + 0.48, y)
+
+    assert rules_of(draw) == []
+
+
+def test_filled_near_square_above_dash_size_gives_one_direction():
+    """2.2 × 2.0pt 채운 사각형은 점선 조각(두 변 < MIN_RULE)이 아니므로 두 변을 그대로 비교해 긴 쪽(가로) 한 방향만."""
+    def draw(c):
+        c.setFillColorRGB(0, 0, 0)
+        c.rect(100, 500, 2.2, 2.0, stroke=0, fill=1)
+
+    assert_rules(rules_of(draw), [Rule("h", 341.0, 100.0, 102.2)])

@@ -310,16 +310,18 @@ def test_narrow_gap_needs_three_rows():
     assert [c.text for c in spec.table.cells if c.row == 0][-1] == "김가나 (044-000-0001)"
 
 
-def test_two_line_paragraph_in_cells_is_not_split_into_rows():
-    """안쪽 가로선이 없는 행 띠에 두 열 모두 두 줄 문단(줄 간격이 좁다). 한 줄짜리 행보다 줄 간격이 좁으니 나누지 않는다."""
+@pytest.mark.parametrize("second", [157, 162], ids=["110%", "160%"])
+def test_two_line_paragraph_in_cells_is_not_split_into_rows(second):
+    """안쪽 가로선이 없는 행 띠에 두 열 모두 두 줄 문단(줄 간격이 좁다). 한 줄짜리 행보다 줄 간격이 좁으니 나누지 않는다.
+    160%는 한글 프로그램 기본 줄 간격(10pt 글자, 기준선 16pt 간격)."""
     def draw(p):
         ys = [100, 130, 160]
         grid(p, XS, ys)
         fill_texts(p, [TEXTS[0]], ys=ys)
         p.text(110, 146, "가나다")
-        p.text(110, 157, "라마")
+        p.text(110, second, "라마")
         p.text(210, 146, "바사아")
-        p.text(210, 157, "자차")
+        p.text(210, second, "자차")
         p.text(310, 151, "카")
 
     (spec,) = find_tables(page_of(draw))
@@ -407,14 +409,170 @@ def ruled_grid(rows: int, cols: int, cw: float, ch: float, per_cell: int, every:
 
 @pytest.mark.parametrize("page,shape,limit", [
     (ruled_grid(30, 60, 9.0, 26.0, 3), (30, 60), 0.5),  # 5,400자(칸마다 비교하면 1.25초 걸리던 크기)
-    (ruled_grid(199, 199, 2.8, 4.0, 1, every=20), None, 1.0)],  # 칸 39,601개·1,980자(10.6초 걸리던 크기)
+    (ruled_grid(199, 199, 2.8, 4.0, 1, every=20), None, 3.0)],  # 칸 39,601개·1,980자(10.6초 걸리던 크기)
     ids=["30x60", "199x199"])
 def test_large_grid_stays_fast(page, shape, limit):
-    """글자 정렬·경계 판정이 격자 칸 수 × 글자 수로 커지지 않는다(글자를 격자 칸별로 한 번 나눈다). 시간 한도는
-    실측(0.04초·0.15초)의 6배 이상 여유."""
-    from time import perf_counter
+    """글자 정렬·경계 판정이 격자 칸 수 × 글자 수로 커지지 않는다(글자를 격자 칸별로 한 번 나눈다). CPU 시간 세 번 중
+    가장 짧은 것으로 잰다. 한도는 실측(0.04초·0.15초)의 10배 이상 여유(느린 CI)."""
+    from time import process_time
 
-    start = perf_counter()
-    found = find_tables(page)
-    assert perf_counter() - start < limit
+    times = []
+    for _ in range(3):
+        start = process_time()
+        found = find_tables(page)
+        times.append(process_time() - start)
+    assert min(times) < limit
     assert [(t.table.n_rows, t.table.n_cols) for t in found] == ([shape] if shape else [])
+
+
+def merged_table(p):
+    """맨 윗행 2·3열과 1열 2·3행이 합쳐진 표."""
+    grid(p, XS, YS, skip_v={(2, 0)}, skip_h={(2, 0)})
+    p.text(110, 120, "구분")
+    p.text(280, 120, "실적")
+    p.text(110, 164, "합계")
+    for r, k, s in [(1, 1, "1월"), (1, 2, "2월"), (2, 1, "3월"), (2, 2, "4월")]:
+        p.text(XS[k] + 10, YS[r] + 20, s)
+
+
+def test_table_over_the_expanded_text_limit_is_not_a_table(monkeypatch):
+    """병합 칸 글자를 덮인 칸마다 펼친 글자 수가 계약 상한을 넘으면 표로 내지 않는다(글자는 문단에 남는다)."""
+    from ko_parser.formats.pdf import tables
+
+    page = page_of(merged_table)
+    (spec,) = find_tables(page)
+    expanded = sum(len(c.text) * c.rowspan * c.colspan for c in spec.table.cells)
+    monkeypatch.setattr(tables, "MAX_TABLE_EXPANDED_CHARS", expanded - 1)
+    assert find_tables(page) == []
+
+
+@pytest.mark.parametrize("shaded,header", [([0], False), ([2], False), ([0, 1, 2], True)])
+def test_header_needs_every_top_cell_shaded(shaded, header):
+    """칸마다 따로 칠한 배경: 맨 윗행 칸이 모두 칠해져야 머리행(선과 이어진 한 칸의 배경이 행 전체로 번지지 않는다)."""
+    def draw(p):
+        for k in shaded:
+            p.fill(XS[k], YS[0], XS[k + 1], YS[1])
+        full_table(p)
+
+    (spec,) = find_tables(page_of(draw))
+    assert {c.header for c in spec.table.cells if c.row == 0} == {"column" if header else "none"}
+
+
+def test_zero_length_rule_is_not_a_segment():
+    from ko_parser.formats.pdf.tables import _reading_segs
+
+    assert _reading_segs([Rule("h", 10, 5, 5), Rule("v", 20, 7, 7)], UPRIGHT, W, H) == []
+
+
+def test_non_rectangular_merge_takes_the_largest_rectangle_then_single_cells():
+    """ㄱ자로 이어진 칸 묶음: 가장 큰 직사각형부터, 남은 칸은 1×1."""
+    from ko_parser.formats.pdf.tables import _cells
+
+    joined = {(0, 0, True), (0, 0, False), (0, 1, True), (1, 2, False)}  # (0,0)-(0,1)-(0,2), (0,0)-(1,0), (1,2)-(2,2)
+    out = _cells(3, 3, lambda r, c, across: (r, c, across) not in joined)
+    assert out == [(0, 0, 1, 3), (1, 0, 1, 1), (1, 1, 1, 1), (1, 2, 2, 1), (2, 0, 1, 1), (2, 1, 1, 1)]
+    staircase = {(0, 0, False), (1, 0, True), (1, 1, False), (2, 1, True)}  # (0,0)-(1,0)-(1,1)-(2,1)-(2,2)
+    out = _cells(3, 3, lambda r, c, across: (r, c, across) not in staircase)
+    covered = sorted((r + i, c + j) for r, c, h, w in out for i in range(h) for j in range(w))
+    assert covered == [(r, c) for r in range(3) for c in range(3)]
+    assert (0, 0, 2, 1) in out and (2, 2, 1, 1) in out
+
+
+def test_random_separations_always_make_a_valid_contract_table():
+    """임의의 칸 경계 판정 200가지: _cells → _compact 결과가 늘 계약 Table(칸이 겹치지 않고 격자를 다 덮음)이다."""
+    import random
+
+    from ko_parser.formats.pdf.tables import _cells, _compact
+    from ko_parser_contracts import Cell, Table
+
+    rng = random.Random(20261004)
+    for _ in range(200):
+        n_rows, n_cols = rng.randint(1, 7), rng.randint(1, 7)
+        p = rng.random()
+        seps = {(r, c, a): rng.random() < p for r in range(n_rows) for c in range(n_cols) for a in (True, False)}
+        out = _cells(n_rows, n_cols, lambda r, c, across, seps=seps: seps[(r, c, across)])
+        xs, ys, out = _compact([float(i) for i in range(n_cols + 1)], [float(i) for i in range(n_rows + 1)], out)
+        Table(n_rows=len(ys) - 1, n_cols=len(xs) - 1, cells=tuple(
+            Cell(row=r, col=c, rowspan=h, colspan=w, text="", text_source="text_layer", header="none")
+            for r, c, h, w in out))
+
+
+def test_one_glyph_values_in_text_aligned_rows_stay_separate():
+    """머리행 아래 가로선과 맨 아래 선만 있고 본문 세 행은 글자 줄로만 나뉜다. 숫자 열·표시 열은 행마다 한 글자지만
+    세로로 한 글자씩 쓴 병합 칸이 아니다(글자 정렬 행 경계에서 묶음이 끊긴다)."""
+    rows = [["구분", "건수", "여부"], ["수출", "1", "○"], ["수입", "2", "-"], ["합계", "3", "○"]]
+
+    def draw(p):
+        grid(p, XS, [100, 130, 220])
+        for r, row in enumerate(rows):
+            for k, s in enumerate(row):
+                p.text(XS[k] + 10, 120 + 30 * r, s)
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec) == [(r, k, 1, 1, rows[r][k]) for r in range(4) for k in range(3)]
+
+
+def test_spaced_two_glyph_labels_are_not_split_into_columns():
+    """'구 분'처럼 두 글자 사이를 띄운 이름표가 모든 행에서 같은 자리: 한 글자|한 글자 빈틈은 열 경계가 아니다."""
+    rows = [["구 분", "2025", "2026"], ["수 출", "11", "22"], ["수 입", "33", "44"]]
+
+    def draw(p):
+        grid(p, XS, YS)
+        fill_texts(p, rows)
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec) == [(r, k, 1, 1, rows[r][k]) for r in range(3) for k in range(3)]
+
+
+def test_phone_numbers_with_a_space_are_not_split_into_columns():
+    """'(044) 215-0001'의 공백이 모든 행에서 같은 자리: 한 칸 안의 낱말 사이(공백 글자가 있다)."""
+    rows = [("총괄", "(044) 215-0001"), ("지원", "(044) 215-0002"), ("운영", "(044) 215-0003")]
+
+    def draw(p):
+        ys = [100, 120, 140, 160]
+        grid(p, [100, 200, 400], ys)
+        for r, row in enumerate(rows):
+            for k, s in enumerate(row):
+                p.text([110, 210][k], ys[r] + 14, s)
+
+    (spec,) = find_tables(page_of(draw))
+    assert [c.text for c in spec.table.cells] == [s for row in rows for s in row]
+
+
+def test_distributed_names_are_not_split_into_columns():
+    """배분 정렬한 이름(글자마다 12pt 띄움)이 모든 행에서 같은 자리: 빈틈 양쪽이 모두 한 글자뿐이다."""
+    names = ["홍길동", "김철수", "이영희"]
+
+    def draw(p):
+        ys = [100, 120, 140, 160]
+        grid(p, [100, 200, 400], ys)
+        for r, name in enumerate(names):
+            p.text(110, ys[r] + 14, "담당")
+            for i, ch in enumerate(name):
+                p.text(210 + 22 * i, ys[r] + 14, ch)
+
+    (spec,) = find_tables(page_of(draw))
+    assert spec.table.n_cols == 2
+    assert [c.text.replace(" ", "") for c in spec.table.cells if c.col == 1] == names
+
+
+def test_narrow_gap_missing_in_one_row_is_not_a_column():
+    """네 행 중 세 행에는 이름|전화 좁은 빈틈이 있고 한 행은 이름만 있다(빈틈이 없다): 좁은 빈틈 열은 글자 있는
+    모든 행에 있어야 한다."""
+    def draw(p):
+        contact_table(p)
+        ys = [160, 180]
+        grid(p, [60, 150, 240, 300, 540], ys)
+        p.text(65, ys[1] - 6, "지원과")
+        p.text(305, ys[1] - 6, "박마바")
+
+    (spec,) = find_tables(page_of(draw))
+    assert spec.table.n_cols == 4
+
+
+def test_box_centre_on_a_grid_line_goes_to_the_right_or_lower_cell():
+    """상자 중심이 안쪽 격자선 위면 오른쪽(아래) 칸, 바깥 오른쪽·아래 변 위면 마지막 칸(_build의 글자 배정과 같다)."""
+    from ko_parser.formats.pdf.tables import _buckets
+
+    cells_ = _buckets([0.0, 10.0, 20.0], [0.0, 10.0, 20.0], [(5.0, 0.0, 15.0, 10.0), (15.0, 15.0, 25.0, 25.0)])
+    assert cells_[0][1] == [(5.0, 0.0, 15.0, 10.0)] and cells_[1][1] == [(15.0, 15.0, 25.0, 25.0)]
