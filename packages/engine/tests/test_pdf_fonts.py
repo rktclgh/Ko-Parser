@@ -92,11 +92,12 @@ def test_register_collects_unreachable_documents_first(stubbed):
     assert stubbed == ["destroy", "init"]
 
 
-def test_register_skips_a_broken_fonts_package(fresh, monkeypatch):
+def test_register_surfaces_a_broken_fonts_package(fresh, monkeypatch):
+    """설치는 됐는데 깨진 패키지를 조용히 건너뛰면 가드가 '설치하라'고 잘못 안내한다: 그대로 실패해 드러낸다."""
     monkeypatch.setitem(sys.modules, "ko_parser_fonts", types.SimpleNamespace())  # font_dir 없음
-    assert fonts.register_bundled_fonts() is False
+    with pytest.raises(AttributeError):
+        fonts.register_bundled_fonts()
     assert fresh == []
-    assert fonts._attempted is True
 
 
 def test_open_pdf_registers_bundled_fonts_first(monkeypatch):

@@ -41,10 +41,10 @@ def register_bundled_fonts() -> bool:
         return False
     try:
         import ko_parser_fonts
-        bundle = ko_parser_fonts.font_dir()
-    except Exception:  # noqa: BLE001 — 패키지가 없거나 설치가 깨졌다(어떤 예외든 등록만 건너뛴다)
+    except ImportError:  # 패키지가 없다: 가드가 설치를 안내한다. 설치됐는데 깨졌으면 아래에서 그대로 실패해 드러낸다
         _attempted = True
         return False
+    bundle = ko_parser_fonts.font_dir()
     if _live_pdfium_objects():
         gc.collect()  # 참조 순환에만 남아 아직 닫히지 않은 문서는 모으면 닫힌다
         if _live_pdfium_objects():
