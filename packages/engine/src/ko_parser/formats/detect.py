@@ -6,11 +6,12 @@ from pathlib import PurePath
 from ..errors import UnsupportedFormat
 from .base import Parser
 from .markdown import MarkdownParser
+from .pdf import PdfParser
 
 
 def default_parsers() -> tuple[Parser, ...]:
     """기본 파서 묶음. 형식이 붙을 때마다 여기에 더한다."""
-    return (MarkdownParser(),)
+    return (MarkdownParser(), PdfParser())
 
 
 def detect_parser(name: str, parsers: Sequence[Parser]) -> Parser:

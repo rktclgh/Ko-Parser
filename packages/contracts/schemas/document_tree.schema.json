@@ -311,7 +311,7 @@
     },
     "PageInfo": {
       "additionalProperties": false,
-      "description": "width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.\n\ntext_layer는 글자층 판정(scanned·unreliable 쪽에는 블록이 없다), text_stats는 그 근거.",
+      "description": "width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.\n\ntext_layer는 글자층 판정(scanned 쪽은 보이는 글자만 블록이 되고 unreliable 쪽에는 블록이 없다), text_stats는 그 근거.",
       "if": {
         "properties": {
           "text_layer": {

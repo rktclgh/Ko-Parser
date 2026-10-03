@@ -1,0 +1,55 @@
+{
+  "schema_version": "0.2",
+  "document_id": "fx-pdf-scanned_invisible",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "scanned_invisible.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:f8f49a0d2e52a09cf0361d53c480ab205e02107d5bef20e38467e4e25fa95deb",
+    "page_count": 1
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "scanned",
+      "text_stats": {
+        "chars": 3,
+        "invisible_ratio": 0.9268,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "b_26af0636a5a44c6ff1574f28",
+      "content_hash": "c_bd6c0cb764c9bfb904e9cd033c1b5fc6",
+      "order": 0,
+      "kind": "list_item",
+      "text": "- 1 -",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.474,
+          "y0": 0.956,
+          "x1": 0.512,
+          "y1": 0.966
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    }
+  ]
+}

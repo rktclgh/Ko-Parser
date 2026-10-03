@@ -1,0 +1,301 @@
+{
+  "schema_version": "0.2",
+  "document_id": "fx-pdf-header_footer",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "header_footer.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:250b0a0e560cf90b77e6bc3fa965d0ffed8a99913ee9ea6beacd8b9f2a8467e6",
+    "page_count": 3
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": {
+        "chars": 35,
+        "invisible_ratio": 0.0,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    },
+    {
+      "page": 2,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": {
+        "chars": 32,
+        "invisible_ratio": 0.0,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    },
+    {
+      "page": 3,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": {
+        "chars": 32,
+        "invisible_ratio": 0.0,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "b_8e3d2ce08c49693ef96dd6bb",
+      "content_hash": "c_1f8193e10a7d7ebcc0b33927b834ae85",
+      "order": 0,
+      "kind": "page_header",
+      "text": "2026년 사업 계획 보고",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.024,
+          "x1": 0.28,
+          "y1": 0.034
+        }
+      },
+      "confidence": 0.8,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_1d05d22a3af175c9306f9a4c",
+      "content_hash": "c_0bb6a6f16de943d48352e3617626d95e",
+      "order": 1,
+      "kind": "paragraph",
+      "text": "대외비",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.807,
+          "y0": 0.024,
+          "x1": 0.852,
+          "y1": 0.034
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_c3ad04138a96491dabe2f984",
+      "content_hash": "c_6396abc04cf13858eaca6f319cecbbfd",
+      "order": 2,
+      "kind": "paragraph",
+      "text": "첫째 쪽 본문이다. 사업 개요를 설명한다.",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.159,
+          "x1": 0.482,
+          "y1": 0.171
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_47fb6772a2f6abc24ef7bc78",
+      "content_hash": "c_06e9d0df007d3794fe9f45c329b78add",
+      "order": 3,
+      "kind": "page_footer",
+      "text": "- 1 -",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.474,
+          "y0": 0.956,
+          "x1": 0.512,
+          "y1": 0.966
+        }
+      },
+      "confidence": 0.8,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_3a616ed545fb8c578a57297f",
+      "content_hash": "c_1f8193e10a7d7ebcc0b33927b834ae85",
+      "order": 4,
+      "kind": "page_header",
+      "text": "2026년 사업 계획 보고",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.024,
+          "x1": 0.28,
+          "y1": 0.034
+        }
+      },
+      "confidence": 0.8,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_8386798140f138f60a437829",
+      "content_hash": "c_33248269e1a934cb747355636cb17e32",
+      "order": 5,
+      "kind": "paragraph",
+      "text": "둘째 쪽 본문이다. 추진 일정을 설명한다.",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.159,
+          "x1": 0.482,
+          "y1": 0.171
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_1d305df8b048077e60d26417",
+      "content_hash": "c_8e9abadc5d04abd5df31bc5c53db2fec",
+      "order": 6,
+      "kind": "page_footer",
+      "text": "- 2 -",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 2,
+        "bbox": {
+          "x0": 0.474,
+          "y0": 0.956,
+          "x1": 0.512,
+          "y1": 0.966
+        }
+      },
+      "confidence": 0.8,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_bf1724beadc8858ff0dba893",
+      "content_hash": "c_1f8193e10a7d7ebcc0b33927b834ae85",
+      "order": 7,
+      "kind": "page_header",
+      "text": "2026년 사업 계획 보고",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 3,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.024,
+          "x1": 0.28,
+          "y1": 0.034
+        }
+      },
+      "confidence": 0.8,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_fb5aa7bcea9273dc25aacccf",
+      "content_hash": "c_0f62c7d6de2d9032f4679aa502e30252",
+      "order": 8,
+      "kind": "paragraph",
+      "text": "셋째 쪽 본문이다. 예산 계획을 설명한다.",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 3,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.159,
+          "x1": 0.482,
+          "y1": 0.171
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_b9104bf83b9b059b048e3a14",
+      "content_hash": "c_2d846c9779022f6dfb8604012354a39d",
+      "order": 9,
+      "kind": "page_footer",
+      "text": "- 3 -",
+      "table": null,
+      "level": null,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 3,
+        "bbox": {
+          "x0": 0.474,
+          "y0": 0.956,
+          "x1": 0.512,
+          "y1": 0.966
+        }
+      },
+      "confidence": 0.8,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    }
+  ]
+}

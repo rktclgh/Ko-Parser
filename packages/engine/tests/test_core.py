@@ -4,7 +4,7 @@ import pytest
 
 from ko_parser.core import build_tree, diff_trees
 from ko_parser.formats.base import ParsedSource
-from ko_parser_contracts import ChangeBatch, DocumentChange, DocumentTree, SourceInfo
+from ko_parser_contracts import ChangeBatch, DocumentChange, DocumentTree, PageInfo, SourceInfo, TextLayerStats
 
 CONTRACT_FIXTURES = Path(__file__).resolve().parents[2] / "contracts" / "fixtures"
 SOURCE = SourceInfo(name="메모.md", mime="text/markdown", content_hash="sha256:" + "0" * 64)
@@ -42,6 +42,20 @@ def test_first_version_of_empty_document_is_still_a_change():
 
 def test_identical_blocks_give_none():
     assert diff_trees(tree(1, spec("가", 1)), tree(2, spec("가", 1))) is None
+
+
+def test_pages_only_change_is_an_empty_change():
+    """블록이 같아도 쪽 판정이 바뀌면 새 버전(빈 변경). 쪽 정보까지 같으면 None."""
+    digital = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
+    scanned = digital.model_copy(update={"text_layer": "scanned", "text_stats": TextLayerStats(
+        chars=3, invisible_ratio=0.0, unmapped_ratio=0.0, pua_ratio=0.0, max_image_coverage=0.6)})
+
+    def pdf(version: int, page: PageInfo) -> DocumentTree:
+        return build_tree(ParsedSource(mime="application/pdf", pages=(page,)), "d1", version, SOURCE)
+
+    assert diff_trees(pdf(1, digital), pdf(2, scanned)) == DocumentChange(document_id="d1", version=2,
+                                                                          previous_version=1)
+    assert diff_trees(pdf(1, digital), pdf(2, digital)) is None
 
 
 def test_add_remove_and_unchanged():

@@ -4,7 +4,8 @@ from ko_parser_contracts import DocumentChange, DocumentTree
 
 
 def diff_trees(prev: DocumentTree | None, new: DocumentTree) -> DocumentChange | None:
-    """prev가 None이면 첫 버전(블록이 없어도 변경 1건). 그 밖에 added·updated·removed가 모두 비면 None.
+    """prev가 None이면 첫 버전(블록이 없어도 변경 1건). 그 밖에 added·updated·removed가 모두 비고 쪽 정보(pages)도
+    같으면 None. 블록은 같고 쪽 정보만 바뀌면(쪽 판정 등) 빈 변경으로 새 버전을 만든다.
 
     updated는 공통 id 중 블록 필드가 하나라도 바뀐 것: order·locator·section_path·state·confidence·text_source·
     region_id, 그리고 정규화 해시가 같아 id가 유지된 원문 text·table 차이.
@@ -20,7 +21,7 @@ def diff_trees(prev: DocumentTree | None, new: DocumentTree) -> DocumentChange |
     added = tuple(b.block_id for b in new.blocks if b.block_id not in old)
     updated = tuple(b.block_id for b in new.blocks if b.block_id in old and old[b.block_id] != b)
     removed = tuple(b.block_id for b in prev.blocks if b.block_id not in new_ids)
-    if not (added or updated or removed):
+    if not (added or updated or removed) and prev.pages == new.pages:
         return None
     return DocumentChange(document_id=new.document_id, version=new.version, previous_version=prev.version,
                           added=added, updated=updated, removed=removed)
