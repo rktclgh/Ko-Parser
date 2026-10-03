@@ -257,22 +257,47 @@ def test_rule_of_exactly_min_length_survives_float_error(x, length, kept):
     assert [r.axis for r in rules_of(draw)] == (["h", "v"] if kept else [])
 
 
-def test_one_fill_path_of_many_squares_is_fast():
-    """채운 path 하나에 작은 네모 10,000개: 부분 경로끼리 짝지어 비교하지 않는다(CPU 시간 세 번 중 가장 짧은 것)."""
+def extract_time(draw) -> tuple[float, PageText]:
+    """draw(canvas)로 만든 PDF의 extract_pages CPU 시간(세 번 중 가장 짧은 것)과 그 쪽."""
     from time import process_time
 
     buf = io.BytesIO()
     c = Canvas(buf, pagesize=(W, H), invariant=1, pageCompression=0)
-    path = c.beginPath()
-    for i in range(10_000):
-        path.rect(20 + 5 * (i % 100), 20 + 8 * (i // 100), 3, 3)
-    c.drawPath(path, stroke=0, fill=1)
+    draw(c)
     c.showPage()
     c.save()
     data = buf.getvalue()
     times = []
     for _ in range(3):
         start = process_time()
-        extract_pages(data, "t.pdf")
+        (page,) = extract_pages(data, "t.pdf")
         times.append(process_time() - start)
-    assert min(times) < 0.5
+    return min(times), page
+
+
+def test_one_fill_path_of_many_squares_is_fast_and_still_dotted_lines():
+    """채운 path 하나에 1pt 네모 점 10,000개(가로 2pt 간격 100개씩 100줄): 부분 경로끼리 비교하지 않고, 점은 얇은
+    사각형 처리(점선 조각)를 그대로 받아 줄마다 한 선으로 이어진다."""
+    def draw(c):
+        path = c.beginPath()
+        for i in range(10_000):
+            path.rect(20 + 2 * (i % 100), 20 + 8 * (i // 100), 1, 1)
+        c.drawPath(path, stroke=0, fill=1)
+
+    seconds, page = extract_time(draw)
+    assert seconds < 0.5
+    assert len(page.rules) == 100 and {(r.axis, r.kind, r.end - r.start) for r in page.rules} == {("h", "stroke", 199.0)}
+
+
+def test_one_fill_path_of_many_nested_rects_is_fast():
+    """채운 path 하나에 겹겹이 든 사각형 4,000개: 겹침을 따지지 않으니 선형."""
+    def draw(c):
+        path = c.beginPath()
+        for i in range(4_000):
+            d = 0.07 * i
+            path.rect(10 + d, 10 + d, 575 - 2 * d, 822 - 2 * d)
+        c.drawPath(path, stroke=0, fill=1, fillMode=0)
+
+    seconds, page = extract_time(draw)
+    assert seconds < 0.5
+    assert {r.kind for r in page.rules} == {"stroke"}

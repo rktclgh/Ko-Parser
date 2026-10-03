@@ -645,31 +645,33 @@ def framed_header_table(p, fill_mode=0, insets=(1,), reverse=False, one_path=Fal
     fill_texts(p)
 
 
-@pytest.mark.parametrize("kwargs,header", [
-    ({}, "none"), ({"one_path": True}, "none"),
-    ({"fill_mode": 1}, "column"), ({"fill_mode": 1, "reverse": True}, "none"),
-    ({"fill_mode": 1, "reverse": True, "one_path": True}, "none"),
-    ({"insets": (0.5, 1)}, "column"), ({"insets": (0.5, 1), "one_path": True}, "column")],
-    ids=["even-odd", "even-odd-one-path", "nonzero-same", "nonzero-opposite", "nonzero-opposite-one-path",
-         "even-odd-triple", "even-odd-triple-one-path"])
-def test_hollow_filled_frame_cells_are_borders_not_a_header_background(kwargs, header):
-    """채운 path 안의 사각형 테두리: even-odd에서 바깥·안쪽 사각형 한 쌍이면 속이 빈 틀(칸 테두리이지 배경이
-    아니다). nonzero는 감는 방향이 같으면 속까지 칠한 배경, 반대면 틀. 셋을 겹친 even-odd는 가운데가 다시 칠해져
-    배경. 칸마다 따로 그리든 한 path로 그리든 같다."""
+FRAME_CASES = {"even-odd": {}, "even-odd-one-path": {"one_path": True},
+               "nonzero-same": {"fill_mode": 1}, "nonzero-opposite": {"fill_mode": 1, "reverse": True},
+               "triple": {"insets": (0.5, 1)}, "triple-one-path": {"insets": (0.5, 1), "one_path": True},
+               "duplicate-inner": {"insets": (1, 1)}}
+
+
+@pytest.mark.parametrize("kwargs", FRAME_CASES.values(), ids=FRAME_CASES.keys())
+def test_multi_rect_filled_paths_are_borders_never_a_header_background(kwargs):
+    """채운 path 하나에 사각형이 여럿이면(속이 빈 틀, 칸 여러 개의 틀, 셋을 겹친 사각형, 같은 안쪽 사각형 둘) 채움
+    규칙을 따지지 않고 모두 테두리로 본다. 맞바꾼 것: nonzero 같은 방향·세 겹처럼 실제로 속까지 칠한 배경도 머리행
+    표시를 잃는다(머리행은 덧붙인 정보일 뿐이다)."""
     (spec,) = find_tables(page_of(lambda p: framed_header_table(p, **kwargs)))
     assert cells(spec) == [(r, k, 1, 1, TEXTS[r][k]) for r in range(3) for k in range(3)]
-    assert [c.header for c in spec.table.cells if c.row == 0] == [header] * 3
+    assert {c.header for c in spec.table.cells} == {"none"}
 
 
 @pytest.mark.parametrize("kwargs", [{}, {"fill_mode": 1, "reverse": True}, {"insets": (0.5, 1)}],
-                         ids=["even-odd", "nonzero-opposite", "even-odd-triple"])
+                         ids=["even-odd", "nonzero-opposite", "triple"])
 def test_frames_in_one_path_give_the_same_rules_as_separate_paths(kwargs):
     separate = page_of(lambda p: framed_header_table(p, **kwargs))
     merged = page_of(lambda p: framed_header_table(p, one_path=True, **kwargs))
+
     def key(rule):
         return rule.axis, rule.pos, rule.start, rule.end, rule.kind
 
     assert sorted(merged.rules, key=key) == sorted(separate.rules, key=key)
+    assert {r.kind for r in merged.rules} == {"stroke"}
 
 
 def test_shaded_rows_under_a_tall_top_left_cell_are_not_a_column_header():
