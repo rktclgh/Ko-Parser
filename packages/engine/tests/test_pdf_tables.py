@@ -268,3 +268,153 @@ def test_chars_of_another_direction_stay_out_of_the_table():
     (spec,) = find_tables(PageText(page=1, width_pt=W, height_pt=H, rotation=0, chars=(*page.chars, stray),
                                    image_coverage=(), rules=page.rules))
     assert len(page.chars) not in spec.char_ids
+
+
+def test_invisible_inner_vertical_line_column_from_text_alignment():
+    """2·3열 사이 세로선이 안 보인다(한글 프로그램 안쪽 테두리 '없음'). 모든 행에서 글자가 비켜 가는 넓은 빈틈."""
+    def draw(p):
+        grid(p, XS, YS, skip_v={(2, r) for r in range(3)})
+        fill_texts(p)
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec) == [(r, k, 1, 1, TEXTS[r][k]) for r in range(3) for k in range(3)]
+
+
+CONTACTS = [("담당 부서", "총괄과", "과장", "김가나", "(044-000-0001)"),
+            ("", "지원과", "사무관", "이다라", "(044-000-0002)"),
+            ("", "지원과", "주무관", "박마바", "(044-000-0003)")]
+
+
+def contact_table(p, rows=CONTACTS):
+    """보도자료 끝 담당자 표: 이름과 전화 사이에 선이 없고 공백 하나 남짓(3pt) 떨어져 있다."""
+    xs = [60, 150, 240, 300, 540]
+    ys = [100 + 20 * i for i in range(len(rows) + 1)]
+    grid(p, xs, ys)
+    for r, row in enumerate(rows):
+        for k, s in enumerate(row[:3]):
+            if s:
+                p.text(xs[k] + 5, ys[r] + 14, s)
+        p.text(305, ys[r] + 14, row[3])
+        p.text(338, ys[r] + 14, row[4])
+
+
+def test_narrow_aligned_gap_in_every_row_is_a_column():
+    (spec,) = find_tables(page_of(contact_table))
+    assert spec.table.n_cols == 5
+    assert [(c.col, c.text) for c in spec.table.cells if c.row == 0][-2:] == [(3, "김가나"), (4, "(044-000-0001)")]
+
+
+def test_narrow_gap_needs_three_rows():
+    (spec,) = find_tables(page_of(lambda p: contact_table(p, CONTACTS[:2])))
+    assert spec.table.n_cols == 4
+    assert [c.text for c in spec.table.cells if c.row == 0][-1] == "김가나 (044-000-0001)"
+
+
+def test_two_line_paragraph_in_cells_is_not_split_into_rows():
+    """안쪽 가로선이 없는 행 띠에 두 열 모두 두 줄 문단(줄 간격이 좁다). 한 줄짜리 행보다 줄 간격이 좁으니 나누지 않는다."""
+    def draw(p):
+        ys = [100, 130, 160]
+        grid(p, XS, ys)
+        fill_texts(p, [TEXTS[0]], ys=ys)
+        p.text(110, 146, "가나다")
+        p.text(110, 157, "라마")
+        p.text(210, 146, "바사아")
+        p.text(210, 157, "자차")
+        p.text(310, 151, "카")
+
+    (spec,) = find_tables(page_of(draw))
+    assert spec.table.n_rows == 2
+    assert [c.text for c in spec.table.cells if c.row == 1] == ["가나다\n라마", "바사아\n자차", "카"]
+
+
+def test_aligned_lines_with_wide_spacing_split_into_rows():
+    """가로선 없이 값 줄과 비율 줄이 열마다 같은 높이로 넉넉히 떨어져 있다(1열 이름은 두 줄 가운데: 병합 칸)."""
+    def draw(p):
+        ys = [100, 130, 190]
+        grid(p, XS, ys)
+        fill_texts(p, [TEXTS[0]], ys=ys)
+        p.text(110, 164, "수출")
+        for k, (value, ratio) in enumerate([("11", "(1.5)"), ("22", "(3.5)")], 1):
+            p.text(XS[k] + 10, 150, value)
+            p.text(XS[k] + 10, 178, ratio)
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec)[3:] == [(1, 0, 2, 1, "수출"), (1, 1, 1, 1, "11"), (1, 2, 1, 1, "22"),
+                               (2, 1, 1, 1, "(1.5)"), (2, 2, 1, 1, "(3.5)")]
+
+
+def test_one_char_per_row_in_a_column_is_a_merged_cell():
+    """세로로 한 글자씩 쓴 칸: 1열에는 행 사이 가로선이 없고 행마다 한 글자뿐이다."""
+    def draw(p):
+        ys = [100, 120, 140, 160, 180]
+        grid(p, XS, ys, skip_h={(j, 0) for j in (2, 3)})
+        p.text(110, 115, "구분")
+        for r, s in [(1, "조"), (2, "사"), (3, "치")]:
+            p.text(145, ys[r] + 15, s)
+        for r in range(4):
+            p.text(210, ys[r] + 15, f"{r}건")
+            p.text(310, ys[r] + 15, f"{r}명")
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec)[3] == (1, 0, 3, 1, "조\n사\n치")
+
+
+@pytest.mark.parametrize("baseline,merged", [(119, False), (129, True)])
+def test_one_sided_text_splits_only_when_centered_in_its_own_row(baseline, merged):
+    """1열 1·2행 사이 가로선이 없고 위 칸에만 글자. 글자가 제 행 가운데면 나뉜 칸(아래는 빈 칸), 경계 쪽으로 치우쳐
+    있으면(병합 칸 가운데 정렬) 합친 칸."""
+    def draw(p):
+        grid(p, XS, YS, skip_h={(2, 0)})
+        fill_texts(p, [TEXTS[0], ["", "1", "2"], ["", "3", "4"]])
+        p.text(110, baseline + 30, "합계")
+
+    (spec,) = find_tables(page_of(draw))
+    col0 = [(c.row, c.rowspan, c.text) for c in spec.table.cells if c.col == 0]
+    assert col0 == ([(0, 1, "구분"), (1, 2, "합계")] if merged else [(0, 1, "구분"), (1, 1, "합계"), (2, 1, "")])
+
+
+def test_words_across_a_partial_line_merge_the_header_cell():
+    """머리행에만 2·3열 사이 세로선이 없고, 낱말 사이 공백이 그 자리에 걸친 머리글은 한 칸(2열 병합)."""
+    def draw(p):
+        grid(p, XS, YS, skip_v={(2, 0)})
+        p.text(110, 120, "구분")
+        p.text(270, 120, "가나다 라마")
+        for r in (1, 2):
+            for k in range(3):
+                p.text(XS[k] + 10, YS[r] + 20, TEXTS[r][k])
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec)[:2] == [(0, 0, 1, 1, "구분"), (0, 1, 1, 2, "가나다 라마")]
+
+
+def ruled_grid(rows: int, cols: int, cw: float, ch: float, per_cell: int, every: int = 1) -> PageText:
+    """선을 모두 그은 rows × cols 표. every번째 칸마다 per_cell 글자(크기는 칸에 맞춘다). PDF 없이 PageText로."""
+    x0, y0 = 20.0, 20.0
+    rules = tuple([Rule("h", y0 + r * ch, x0, x0 + cols * cw) for r in range(rows + 1)]
+                  + [Rule("v", x0 + k * cw, y0, y0 + rows * ch) for k in range(cols + 1)])
+    size = min(cw / (per_cell + 1), ch * 0.6)
+    chars = []
+    for n, (r, k) in enumerate((r, k) for r in range(rows) for k in range(cols)):
+        if n % every:
+            continue
+        base = y0 + r * ch + ch * 0.7
+        for i in range(per_cell):
+            x = x0 + k * cw + 0.5 + i * size
+            chars.append(Char(text="가", x0=x / W, y0=(base - 0.752 * size) / H, x1=(x + size) / W,
+                              y1=(base + 0.142 * size) / H, baseline=base / H, size=size))
+    return PageText(page=1, width_pt=W, height_pt=H, rotation=0, chars=tuple(chars), image_coverage=(), rules=rules)
+
+
+@pytest.mark.parametrize("page,shape,limit", [
+    (ruled_grid(30, 60, 9.0, 26.0, 3), (30, 60), 0.5),  # 5,400자(칸마다 비교하면 1.25초 걸리던 크기)
+    (ruled_grid(199, 199, 2.8, 4.0, 1, every=20), None, 1.0)],  # 칸 39,601개·1,980자(10.6초 걸리던 크기)
+    ids=["30x60", "199x199"])
+def test_large_grid_stays_fast(page, shape, limit):
+    """글자 정렬·경계 판정이 격자 칸 수 × 글자 수로 커지지 않는다(글자를 격자 칸별로 한 번 나눈다). 시간 한도는
+    실측(0.04초·0.15초)의 6배 이상 여유."""
+    from time import perf_counter
+
+    start = perf_counter()
+    found = find_tables(page)
+    assert perf_counter() - start < limit
+    assert [(t.table.n_rows, t.table.n_cols) for t in found] == ([shape] if shape else [])
