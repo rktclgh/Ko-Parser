@@ -10,6 +10,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
 from ko_parser.errors import ParseError
+from ko_parser.formats.pdf import extract
 from ko_parser.formats.pdf.extract import PageText, decode_unicode, extract_pages, normalize_point
 
 FONT = "HYGothic-Medium"  # reportlab 내장 CID 글꼴: ascent 752, descent -142, 한글 너비 1000
@@ -245,6 +246,16 @@ def test_negative_font_size_gives_positive_size(monkeypatch):
         assert c.y0 == pytest.approx((842 - (400 + 0.142 * 11)) / 842)
         assert c.y1 == pytest.approx((842 - (400 - 0.752 * 11)) / 842)
         assert c.baseline == pytest.approx(400 / 842)  # 줄 아래 방향(보이는 −y) 축의 원점 위치
+
+
+def test_text_dropped_for_lack_of_hangul_glyphs_is_an_error(monkeypatch):
+    """PDFium은 글리프 외곽 상자 너비가 0인 글자 객체를 텍스트에서 뺀다. 공백 한 칸 객체는 모든 OS에서 빠지고
+    문제없지만, 한글 글꼴 없는 컴퓨터에서는 미임베드 한글 한 글자 객체도 그렇게 사라진다: 조용히 버리지 않는다."""
+    data = make_pdf(lambda c: (put(c, 72, 770, 11, "가나"), put(c, 72, 750, 11, " ")))
+    assert [c.text for c in only_page(data).chars] == ["가", "나"]
+    monkeypatch.setattr(extract, "_draws_hangul", lambda pdf, font: False)  # 한글 글꼴 없는 컴퓨터
+    with pytest.raises(ParseError, match="no Hangul glyphs"):
+        extract_pages(data, "t.pdf")
 
 
 def test_chars_outside_page_are_dropped():

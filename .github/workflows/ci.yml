@@ -35,6 +35,11 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+      - name: Korean font (Linux)
+        # PDFium은 미임베드 한글 글꼴을 시스템 글꼴로 대신 그린다. 러너에 한글 글꼴이 없으면 한 글자짜리 글자 객체가
+        # 텍스트에서 빠진다(extract.py가 ParseError로 알린다). macOS·Windows는 기본 한글 글꼴이 있다
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends fonts-noto-cjk
       - name: Sync
         run: uv sync --locked
       - name: Tests

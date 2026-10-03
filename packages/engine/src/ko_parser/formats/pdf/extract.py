@@ -4,6 +4,8 @@ PDFium은 스레드 안전하지 않다. 문서가 달라도 동시에 부르면
 열고 모두 닫을 때까지) 패키지에 하나뿐인 PDFIUM_LOCK을 잡는다. 쪽 그림 렌더러도 같은 잠금을 쓴다.
 글자 상자는 글꼴 사전의 너비(/W)·ascent·descent와 글자 원점으로 계산한다. PDFium의 글리프 상자는
 미임베드 글꼴이면 OS의 대체 글꼴에 따라 달라지므로 그 정보가 없을 때만 쓴다.
+미임베드 글꼴은 PDFium이 시스템 글꼴로 대신 그린다. 한글 글꼴이 없는 컴퓨터(글꼴 없는 Linux 등)에서는 한 글자짜리
+글자 객체가 텍스트에서 통째로 빠지므로 조용히 버리지 않고 ParseError로 알린다(_check_dropped_text).
 """
 
 import ctypes
@@ -158,10 +160,12 @@ def _page(pdf: pdfium.PdfDocument, index: int, location: str) -> PageText:
         if not (right > left and top > bottom):  # 예: CropBox가 MediaBox 밖(0×0). 좌표를 0~1로 바꿀 수 없다
             raise ParseError("PDF page has an empty box", location)
         textpage = page.get_textpage()
+        seen: set[int] = set()
         try:
-            chars = tuple(_chars(textpage, box, rotation))
+            chars = tuple(_chars(textpage, box, rotation, seen))
         finally:
             textpage.close()
+        _check_dropped_text(pdf, page, seen, location)
         return PageText(page=index + 1, width_pt=width, height_pt=height, rotation=rotation, chars=chars,
                         image_coverage=tuple(_image_coverage(page, box)))
     finally:
@@ -187,7 +191,42 @@ class _Fonts:
         return self._cache[key]
 
 
-def _chars(textpage: pdfium.PdfTextPage, box: Box, rotation: int) -> Iterator[Char]:
+def _check_dropped_text(pdf: pdfium.PdfDocument, page: pdfium.PdfPage, seen: set[int], location: str) -> None:
+    """PDFium의 텍스트 쪽은 상자 너비가 0에 가까운 글자 객체를 건너뛴다. 객체 상자는 글리프 외곽으로 재므로 미임베드
+    글꼴의 글리프를 이 컴퓨터의 어떤 글꼴에서도 찾지 못하면 한 글자짜리 객체가 글자째 빠진다(실측: 한글 글꼴 없는
+    Linux). 공백 한 칸짜리 객체도 같은 이유로 모든 OS에서 빠지므로, 텍스트 쪽이 건너뛴 객체의 미임베드 글꼴이
+    이 컴퓨터에서 한글을 그리지 못할 때만 ParseError(seen은 텍스트 쪽에 글자가 있는 객체 주소)."""
+    draws: dict[int, bool] = {}
+    for obj in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_TEXT]):
+        if _address(obj.raw) in seen:
+            continue
+        font = pdfium_c.FPDFTextObj_GetFont(obj.raw)
+        if not font or pdfium_c.FPDFFont_GetIsEmbedded(font) == 1:
+            continue
+        key = _address(font)
+        if key not in draws:
+            draws[key] = _draws_hangul(pdf, font)
+        if not draws[key]:
+            raise ParseError("PDF text uses a non-embedded font that has no Hangul glyphs on this system; "
+                             "install a Korean font (e.g. fonts-noto-cjk)", location)
+
+
+def _draws_hangul(pdf: pdfium.PdfDocument, font: object) -> bool:
+    """이 글꼴로 '가'를 그리면 상자가 생기는가(PDFium이 대신 쓸 한글 글리프를 찾았는가). 쪽에 넣지 않는 임시 객체."""
+    obj = pdfium_c.FPDFPageObj_CreateTextObj(pdf.raw, font, ctypes.c_float(1.0))
+    if not obj:
+        return False
+    try:
+        text = ctypes.create_string_buffer("가\0".encode("utf-16-le"))
+        if not pdfium_c.FPDFText_SetText(obj, ctypes.cast(text, ctypes.POINTER(pdfium_c.FPDF_WCHAR))):
+            return False
+        left, bottom, right, top = (ctypes.c_float() for _ in range(4))
+        return bool(pdfium_c.FPDFPageObj_GetBounds(obj, left, bottom, right, top)) and right.value > left.value
+    finally:
+        pdfium_c.FPDFPageObj_Destroy(obj)
+
+
+def _chars(textpage: pdfium.PdfTextPage, box: Box, rotation: int, seen: set[int]) -> Iterator[Char]:
     fonts = _Fonts()
     modes: dict[int, int] = {}
     count = textpage.count_chars()
@@ -209,6 +248,7 @@ def _chars(textpage: pdfium.PdfTextPage, box: Box, rotation: int) -> Iterator[Ch
         if unmapped:
             text = "\ufffd"
         key = _address(obj)
+        seen.add(key)
         if key not in modes:
             modes[key] = pdfium_c.FPDFTextObj_GetTextRenderMode(obj)
         font = pdfium_c.FPDFTextObj_GetFont(obj)
