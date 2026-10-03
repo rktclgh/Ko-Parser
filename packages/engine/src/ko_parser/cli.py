@@ -148,7 +148,7 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
     html = render_html(tree, images, previous)
     out.parent.mkdir(parents=True, exist_ok=True)
     # 같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 HTML이 반쯤 덮이지 않는다
-    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.", suffix=".tmp")
+    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=".ko-parser-view.", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
     try:
         # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
         with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as f:

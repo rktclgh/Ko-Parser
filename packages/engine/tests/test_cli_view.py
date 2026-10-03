@@ -263,3 +263,12 @@ def test_view_html_gets_normal_permissions(capsys, db, tmp_path):
         os.umask(old_umask)
     assert stat.S_IMODE(fresh.stat().st_mode) == 0o644
     assert stat.S_IMODE(existing.stat().st_mode) == 0o640 and b"old" not in existing.read_bytes()
+
+
+def test_view_long_output_name_within_file_name_limit(capsys, db, tmp_path):
+    """임시 파일 이름이 출력 이름보다 길어지지 않는다: 쓸 수 있는 긴 이름(245바이트)도 그대로 쓴다."""
+    pdf = write(tmp_path / "a.pdf", make_pdf("가나다"))
+    out = tmp_path / ("a" * 240 + ".html")
+    code, stdout, _ = run(capsys, "view", pdf, "--db", db, "--out", out)
+    assert code == 0 and out.is_file() and stdout.strip() == str(out)
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
