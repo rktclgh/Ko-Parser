@@ -2,28 +2,37 @@
 실제 글자 결과는 새 PDFium을 쓰는 하위 프로세스에서 시험한다(리눅스의 테스트 프로세스도 다른 PDF 테스트가
 open_pdf를 부르면서 한 번 다시 초기화된다)."""
 
+import io
 import os
 import subprocess
 import sys
 import textwrap
+import types
 from pathlib import Path
 
+import pypdfium2 as pdfium
 import pytest
 from ko_parser.errors import ParseError
 from ko_parser.formats.pdf import fonts
 
 
 @pytest.fixture
-def fresh(monkeypatch):
-    """등록 상태를 비우고, PDFium 초기화 함수를 기록기로 바꾼다."""
+def stubbed(monkeypatch):
+    """등록 상태를 비우고, PDFium 초기화 함수를 기록기로 바꾼다. 열린 객체 검사는 실제 것을 쓴다."""
     calls = []
     monkeypatch.setattr(fonts, "_attempted", False)
     monkeypatch.setattr(fonts, "_registered", False)
     monkeypatch.setattr(fonts.pdfium_c, "FPDF_DestroyLibrary", lambda: calls.append("destroy"))
     monkeypatch.setattr(fonts.pdfium_c, "FPDF_InitLibraryWithConfig", lambda cfg: calls.append("init"))
-    monkeypatch.setattr(fonts, "_live_pdfium_objects", lambda: False)
     monkeypatch.setattr(fonts.sys, "platform", "linux")
     return calls
+
+
+@pytest.fixture
+def fresh(stubbed, monkeypatch):
+    """stubbed에 더해 열린 PDFium 객체가 없다고 본다."""
+    monkeypatch.setattr(fonts, "_live_pdfium_objects", lambda: False)
+    return stubbed
 
 
 def test_font_paths_keep_pdfium_linux_defaults_and_add_the_bundle():
@@ -33,21 +42,10 @@ def test_font_paths_keep_pdfium_linux_defaults_and_add_the_bundle():
     assert paths[-1] == os.fsencode(extra)  # 같은 Path로 기대값을 만든다(Windows는 구분자가 \\로 바뀐다)
 
 
-def test_font_paths_are_fs_encoded():
-    extra = Path("/tmp/a b")
-    assert fonts.font_paths(extra)[-1] == os.fsencode(extra)
-
-
 def test_register_reinitializes_pdfium_once_on_linux(fresh):
     assert fonts.register_bundled_fonts() is True
     assert fonts.register_bundled_fonts() is True
     assert fresh == ["destroy", "init"]
-
-
-def test_register_runs_once(fresh):
-    for _ in range(5):
-        fonts.register_bundled_fonts()
-    assert fresh.count("init") == 1
 
 
 def test_register_does_nothing_off_linux(fresh, monkeypatch):
@@ -65,6 +63,40 @@ def test_register_skips_when_pdfium_objects_are_open(fresh, monkeypatch):
     monkeypatch.setattr(fonts, "_live_pdfium_objects", lambda: False)
     assert fonts.register_bundled_fonts() is True
     assert fresh == ["destroy", "init"]
+
+
+def one_page_pdf() -> bytes:
+    from reportlab.pdfgen.canvas import Canvas
+    b = io.BytesIO()
+    c = Canvas(b, invariant=1)
+    c.showPage()
+    c.save()
+    return b.getvalue()
+
+
+def test_live_pdfium_objects_tracks_real_documents():
+    """pypdfium2가 실제로 연 문서를 ObjectTracker로 보는지(모든 OS)."""
+    pdf = pdfium.PdfDocument(one_page_pdf())
+    assert fonts._live_pdfium_objects() is True
+    pdf.close()
+    assert fonts._live_pdfium_objects() is False
+
+
+def test_register_collects_unreachable_documents_first(stubbed):
+    """참조 순환에만 남은 문서는 gc가 아직 닫지 않았을 뿐이다: 한 번 모아 보고 등록한다."""
+    pdf = pdfium.PdfDocument(one_page_pdf())
+    pdf.self_ref = pdf  # 순환: del로는 풀리지 않고 gc만 닫는다
+    del pdf
+    assert fonts._live_pdfium_objects() is True
+    assert fonts.register_bundled_fonts() is True
+    assert stubbed == ["destroy", "init"]
+
+
+def test_register_skips_a_broken_fonts_package(fresh, monkeypatch):
+    monkeypatch.setitem(sys.modules, "ko_parser_fonts", types.SimpleNamespace())  # font_dir 없음
+    assert fonts.register_bundled_fonts() is False
+    assert fresh == []
+    assert fonts._attempted is True
 
 
 def test_open_pdf_registers_bundled_fonts_first(monkeypatch):
@@ -104,7 +136,7 @@ SINGLE_GLYPH = textwrap.dedent("""
 def run_single_glyph(block: str = "") -> str:
     code = SINGLE_GLYPH.format(block=block)
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8",
-                         check=False)
+                         errors="replace", timeout=120, check=False)
     assert out.returncode == 0, out.stderr
     return out.stdout.strip()
 

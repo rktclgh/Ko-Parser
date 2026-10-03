@@ -5,7 +5,7 @@ description = "Korean font (Noto Sans KR) bundled for ko-parser PDF parsing on L
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0 AND OFL-1.1"
-license-files = ["src/ko_parser_fonts/fonts/OFL.txt"]
+license-files = ["LICENSE", "src/ko_parser_fonts/fonts/OFL.txt"]
 dependencies = []
 
 [build-system]
