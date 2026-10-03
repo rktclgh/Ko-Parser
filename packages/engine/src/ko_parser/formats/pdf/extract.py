@@ -35,11 +35,12 @@ PDFIUM_LOCK = threading.Lock()  # PDFium 호출 전체를 줄 세운다(문서�
 AXIS_TOL = 0.5  # 선분의 다른 축 변화 ≤ 0.5pt면 가로·세로 선. 사선은 버린다
 THIN = 2.5  # 채운 사각형의 짧은 변 ≤ 2.5pt면 선(가운데 선을 stroke로)
 MIN_RULE = 2.0  # 이보다 짧은 선분은 버린다(점선의 점은 아래처럼 이어 붙인 뒤 잰다)
+LEN_EPS = 1e-3  # 길이를 MIN_RULE·DASH와 비교할 때의 여유(좌표 변환의 부동소수 오차로 정확히 2pt인 선이 빠지지 않게)
 DASH = 0.2  # 점선 조각: 길이 DASH 이상 MIN_RULE 미만인 가로·세로 선분(한글 프로그램 점선은 0.48pt 점이 1.2pt 간격.
 # 잇지 않으면 공공누리 정답 표 채점에서 찾은 표 37→36, 완벽 30→28)
 DASH_GAP = 2.0  # 같은 위치의 점선 조각 사이가 ≤ 2pt면 한 선으로 잇는다
 DASH_DRIFT = 0.05  # 이은 점선의 위치 흐름이 AXIS_TOL보다 크면 길이 1pt마다 0.05pt까지만(천천히 흐르는 점선은 선, 사선 점선은 아니다)
-WHITE = 250  # 빨강·초록·파랑이 모두 이 이상이면 하얀색(배경과 같은 색)으로 보고 버린다
+WHITE = 250  # 빨강·초록·파랑이 모두 이 이상이면 하얀색(배경과 같은 색)으로 보고 버린다(98% 이상 밝은 회색 칠도 버린다)
 
 _BOLD_NAME = re.compile(r"bold|black|heavy", re.IGNORECASE)
 _BOLD_WEIGHT = 600
@@ -425,8 +426,8 @@ def _image_coverage(page: pdfium.PdfPage, box: Box) -> Iterator[float]:
     """그림마다 쪽 상자 안에 보이는 면적 / 쪽 면적."""
     left, bottom, right, top = box
     area = (right - left) * (top - bottom)
-    for l, b, r, t in _image_boxes(page):
-        overlap = max(0.0, min(r, right) - max(l, left)) * max(0.0, min(t, top) - max(b, bottom))
+    for x0, y0, x1, y1 in _image_boxes(page):
+        overlap = max(0.0, min(x1, right) - max(x0, left)) * max(0.0, min(y1, top) - max(y0, bottom))
         yield min(1.0, overlap / area)
 
 
@@ -511,27 +512,55 @@ def _edge_rule(p: Point, q: Point) -> Rule | None:
     """가로·세로 직선 변이면 stroke Rule(길이 DASH 이상, MIN_RULE 미만이면 점선 조각), 사선이면 None."""
     (x0, y0), (x1, y1) = p, q
     dx, dy = abs(x1 - x0), abs(y1 - y0)
-    if dy <= AXIS_TOL and dx >= DASH and dy < dx:
+    if dy <= AXIS_TOL and dx >= DASH - LEN_EPS and dy < dx:
         return Rule("h", (y0 + y1) / 2, min(x0, x1), max(x0, x1))
-    if dx <= AXIS_TOL and dy >= DASH and dx < dy:
+    if dx <= AXIS_TOL and dy >= DASH - LEN_EPS and dx < dy:
         return Rule("v", (x0 + x1) / 2, min(y0, y1), max(y0, y1))
     return None
 
 
-def _fill_rules(sub: _Subpath) -> list[Rule]:
-    """채운 사각형(곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL, 네 모서리가 모두 있다): 두 변이 모두 THIN보다
-    길면 네 변(fill), 아니면 짧은 쪽이 THIN 이하인 방향의 가운데 선(stroke. 두 변 차가 AXIS_TOL 이하인 네모 점은 가로·세로
-    둘 다: 점선 조각). 넓이 0(보이지 않는다)이거나 사각형이 아니면 없음."""
+def _rect(sub: _Subpath) -> tuple[float, float, float, float] | None:
+    """곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL, 네 모서리가 모두 있는 사각형이면 (left, top, right,
+    bottom), 아니면 None."""
     if sub.curved or len(sub.points) < 4:
-        return []
+        return None
     xs, ys = [p[0] for p in sub.points], [p[1] for p in sub.points]
     left, top, right, bottom = min(xs), min(ys), max(xs), max(ys)
     if any(min(abs(x - left), abs(x - right)) > AXIS_TOL or min(abs(y - top), abs(y - bottom)) > AXIS_TOL
            for x, y in sub.points):
-        return []
+        return None
     if not all(any(abs(x - cx) <= AXIS_TOL and abs(y - cy) <= AXIS_TOL for x, y in sub.points)
                for cx in (left, right) for cy in (top, bottom)):  # 예: 채운 직각삼각형
+        return None
+    return left, top, right, bottom
+
+
+def _signed_area(sub: _Subpath) -> float:
+    pts = sub.points
+    return sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1], strict=True)) / 2
+
+
+def _frame_parts(subs: list[_Subpath], winding: bool) -> set[int]:
+    """한 채운 path에서 다른 사각형 부분 경로를 품거나 그 안에 든 사각형 부분 경로의 순번: 안쪽이 비는 틀(even-odd
+    채움, 또는 nonzero 채움에서 두 사각형을 감는 방향이 반대)."""
+    rects = [(i, rect, _signed_area(sub)) for i, sub in enumerate(subs) if (rect := _rect(sub)) is not None]
+    out: set[int] = set()
+    for i, a, area_a in rects:
+        for j, b, area_b in rects:
+            if (i != j and a != b and a[0] <= b[0] and a[1] <= b[1] and a[2] >= b[2] and a[3] >= b[3]
+                    and (not winding or area_a * area_b < 0)):
+                out |= {i, j}
+    return out
+
+
+def _fill_rules(sub: _Subpath) -> list[Rule]:
+    """채운 사각형(_rect): 두 변이 모두 THIN보다 길면 네 변(fill), 아니면 짧은 쪽이 THIN 이하인 방향의 가운데
+    선(stroke. 두 변 차가 AXIS_TOL 이하인 네모 점은 가로·세로 둘 다: 점선 조각). 넓이 0(보이지 않는다)이거나 사각형이
+    아니면 없음."""
+    rect = _rect(sub)
+    if rect is None:
         return []
+    left, top, right, bottom = rect
     w, h = right - left, bottom - top
     if min(w, h) < 1e-6:  # 넓이 0인 채움은 그려지지 않는다
         return []
@@ -541,10 +570,10 @@ def _fill_rules(sub: _Subpath) -> list[Rule]:
     out = []
     # 점선 조각(두 변 모두 MIN_RULE 미만)이면 두 변의 비교에 AXIS_TOL 여유를 둔다(좌표 변환의 부동소수 오차로 네모 점이
     # 한 방향만 내지 않게). 그보다 큰 사각형은 그대로 비교해 긴 쪽 방향만
-    slack = AXIS_TOL if max(w, h) < MIN_RULE else 0.0
-    if h <= THIN and w >= max(DASH, h - slack):
+    slack = AXIS_TOL if max(w, h) < MIN_RULE - LEN_EPS else 0.0
+    if h <= THIN and w >= max(DASH - LEN_EPS, h - slack):
         out.append(Rule("h", (top + bottom) / 2, left, right))
-    if w <= THIN and h >= max(DASH, w - slack):
+    if w <= THIN and h >= max(DASH - LEN_EPS, w - slack):
         out.append(Rule("v", (left + right) / 2, top, bottom))
     return out
 
@@ -575,7 +604,7 @@ def _join_dashes(dashes: list[Rule]) -> Iterator[Rule]:
 
 def _chain(chain: list[Rule], end: float) -> Iterator[Rule]:
     """조각 둘 이상, 길이 MIN_RULE 이상이고 곧은(위치 흐름 ≤ AXIS_TOL 또는 ≤ 길이 × DASH_DRIFT) 이음만 선."""
-    if len(chain) < 2 or end - chain[0].start < MIN_RULE:
+    if len(chain) < 2 or end - chain[0].start < MIN_RULE - LEN_EPS:
         return
     drift = max(d.pos for d in chain) - min(d.pos for d in chain)
     if drift <= AXIS_TOL or drift <= DASH_DRIFT * (end - chain[0].start):
@@ -586,7 +615,7 @@ def _clipped(rule: Rule, width: float, height: float) -> Rule | None:
     """쪽 밖 부분을 잘라 낸다. 쪽 밖이거나 잘라서 MIN_RULE보다 짧아지면 None. 좌표는 소수 셋째 자리."""
     span, depth = (width, height) if rule.axis == "h" else (height, width)
     start, end = max(rule.start, 0.0), min(rule.end, span)
-    if not 0 <= rule.pos <= depth or end - start < MIN_RULE:
+    if not 0 <= rule.pos <= depth or end - start < MIN_RULE - LEN_EPS:
         return None
     return Rule(rule.axis, round(rule.pos, 3), round(start, 3), round(end, 3), rule.kind)
 
@@ -606,12 +635,16 @@ def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: 
                   and _visible_color(pdfium_c.FPDFPageObj_GetFillColor, obj))
         if not (stroked or filled):
             continue
-        for sub in _subpaths(obj, matrix, box, rotation, width, height):
-            found = [_edge_rule(p, q) for p, q in sub.edges] if stroked else []
-            for rule in found + (_fill_rules(sub) if filled else []):
+        subs = _subpaths(obj, matrix, box, rotation, width, height)
+        # 속이 빈 틀(사각형 안에 사각형)은 채운 배경이 아니라 테두리: 두 사각형의 변을 stroke로
+        winding = fill_mode.value == pdfium_c.FPDF_FILLMODE_WINDING
+        frames = _frame_parts(subs, winding) if filled and len(subs) > 1 else set()
+        for i, sub in enumerate(subs):
+            found = [_edge_rule(p, q) for p, q in sub.edges] if stroked or i in frames else []
+            for rule in found + (_fill_rules(sub) if filled and i not in frames else []):
                 if rule is None:
                     continue
-                if rule.end - rule.start < MIN_RULE:
+                if rule.end - rule.start < MIN_RULE - LEN_EPS:
                     dashes.append(rule)
                 elif (clipped := _clipped(rule, width, height)) is not None:
                     yield clipped

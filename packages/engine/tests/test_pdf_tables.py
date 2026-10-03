@@ -169,7 +169,24 @@ def underline(p):
     p.h(123, 100, 160)
 
 
-@pytest.mark.parametrize("draw", [box_with_text, strip_1xn, bar_chart, underline])
+def framed_two_column_page(p, footer=False):
+    """쪽 테두리 상자 + 제목 밑줄 + 단 나눔 세로선(+ 꼬리말 위 가로선): 쪽 꾸밈이지 표가 아니다."""
+    left, right, top, bottom = 40, 555, 40, 802
+    grid(p, [left, right], [top, bottom])
+    p.h(100, left, right)
+    p.v(297, 100, 760 if footer else bottom)
+    if footer:
+        p.h(760, left, right)
+        p.text(60, 785, "- 1 -")
+    p.text(60, 80, "보도자료 제목")
+    for i in range(30):
+        p.text(50, 130 + 20 * i, f"왼쪽 단 본문 {i}줄")
+        p.text(307, 130 + 20 * i, f"오른쪽 단 본문 {i}줄")
+
+
+@pytest.mark.parametrize("draw", [box_with_text, strip_1xn, bar_chart, underline, framed_two_column_page,
+                                  lambda p: framed_two_column_page(p, footer=True)],
+                         ids=["box", "strip", "chart", "underline", "page-frame", "page-frame-footer"])
 def test_not_tables(draw):
     assert find_tables(page_of(draw)) == []
 
@@ -576,3 +593,70 @@ def test_box_centre_on_a_grid_line_goes_to_the_right_or_lower_cell():
 
     cells_ = _buckets([0.0, 10.0, 20.0], [0.0, 10.0, 20.0], [(5.0, 0.0, 15.0, 10.0), (15.0, 15.0, 25.0, 25.0)])
     assert cells_[0][1] == [(5.0, 0.0, 15.0, 10.0)] and cells_[1][1] == [(15.0, 15.0, 25.0, 25.0)]
+
+
+def test_large_non_rectangular_merge_stays_fast():
+    """199 × 199 격자(바깥 테두리와 짧은 눈금만, 맨 왼쪽 위 칸만 선으로 나뉨): 나머지 ㄱ자 칸 묶음에서 가장 큰
+    직사각형을 찾는 일이 칸 수의 제곱으로 커지지 않는다(이전 16.4초)."""
+    from time import process_time
+
+    n, cw, ch, x0, y0 = 199, 2.8, 4.0, 20.0, 20.0
+    right, bottom = x0 + n * cw, y0 + n * ch
+    rules = (Rule("h", y0, x0, right), Rule("h", bottom, x0, right), Rule("v", x0, y0, bottom), Rule("v", right, y0, bottom),
+             *(Rule("v", x0 + k * cw, y0, y0 + 1) for k in range(1, n)),
+             *(Rule("h", y0 + r * ch, x0, x0 + 1) for r in range(1, n)),
+             Rule("v", x0 + cw, y0, y0 + ch), Rule("h", y0 + ch, x0, x0 + cw))
+    size = 1.0
+    base = y0 + ch * 0.7
+    char = Char(text="가", x0=(x0 + 0.5) / W, y0=(base - 0.752 * size) / H, x1=(x0 + 1.5) / W,
+                y1=(base + 0.142 * size) / H, baseline=base / H, size=size)
+    page = PageText(page=1, width_pt=W, height_pt=H, rotation=0, chars=(char,), image_coverage=(), rules=rules)
+    times = []
+    for _ in range(3):
+        start = process_time()
+        found = find_tables(page)
+        times.append(process_time() - start)
+    assert min(times) < 2.0
+    (spec,) = found
+    assert [(c.row, c.col, c.rowspan, c.colspan) for c in spec.table.cells] == [(0, 0, 1, 1), (0, 1, 2, 1), (1, 0, 1, 1)]
+
+
+@pytest.mark.parametrize("fill_mode,header", [(0, "none"), (1, "column")], ids=["even-odd", "nonzero"])
+def test_hollow_filled_frame_cells_are_borders_not_a_header_background(fill_mode, header):
+    """맨 윗행 칸을 '바깥 사각형 + 1pt 안쪽 사각형'을 한 path로 채웠다. even-odd면 속이 빈 틀: 칸 테두리이지 배경이
+    아니다. nonzero(두 사각형이 같은 방향)면 속까지 칠한 배경."""
+    def draw(p):
+        xs, ys = [100, 200, 300], [100, 150, 200]
+        for k in range(2):
+            path = p.c.beginPath()
+            x, y = xs[k], p.height - ys[1]
+            path.rect(x, y, 100, 50)
+            path.rect(x + 1, y + 1, 98, 48)
+            p.c.drawPath(path, stroke=0, fill=1, fillMode=fill_mode)
+        grid(p, xs, ys[1:])
+        for r in range(2):
+            for k in range(2):
+                p.text(xs[k] + 10, ys[r] + 30, TEXTS[r][k])
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec) == [(r, k, 1, 1, TEXTS[r][k]) for r in range(2) for k in range(2)]
+    assert [c.header for c in spec.table.cells] == [header, header, "none", "none"]
+
+
+def test_shaded_rows_under_a_tall_top_left_cell_are_not_a_column_header():
+    """맨 왼쪽 위 칸이 두 행을 차지하고(rowspan 2) 위 두 행이 칠해졌다: 머리글이 한 행이 아니니 열 머리행으로 보지
+    않는다(그 아래 셋째 행과 비교해 머리행이라 하지 않는다)."""
+    def draw(p):
+        p.fill(XS[0], YS[0], XS[1], YS[2])  # 칸마다 따로 칠한 배경
+        for r in (0, 1):
+            p.fill(XS[1], YS[r], XS[-1], YS[r + 1])
+        grid(p, XS, YS, skip_h={(1, 0)})
+        p.text(110, 134, "구분")
+        for r, row in enumerate([["", "상반기", "하반기"], ["", "1월", "7월"], ["수출", "11", "22"]]):
+            for k, s in enumerate(row):
+                if s:
+                    p.text(XS[k] + 10, YS[r] + 20, s)
+
+    (spec,) = find_tables(page_of(draw))
+    assert cells(spec)[0] == (0, 0, 2, 1, "구분")
+    assert {c.header for c in spec.table.cells} == {"none"}

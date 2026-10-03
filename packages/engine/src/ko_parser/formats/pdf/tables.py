@@ -36,6 +36,12 @@ CORE = 0.25  # 글자 정렬 행 경계는 글자 상자 가운데(위아래 25%
 # 촘촘한 줄. 0.1·0.4 같음, 0이면 37·4·29·0.935)
 CROSS_EPS = 0.1  # 글자 상자가 경계를 이만큼(pt) 넘어야 가로지른 것(0~1.0 같음)
 
+# 쪽 꾸밈 선(쪽 테두리 상자·제목 밑줄·단 나눔 선·꼬리말 선)이 만든 격자는 표가 아니다: 표 상자가 쪽 넓이의
+# LAYOUT_AREA를 넘게 덮고 선 격자 칸 하나에 본문 LAYOUT_LINES줄 이상. 넣기 전·후 채점 같음(37·4·30·0.936). 정답 표
+# 상자는 쪽의 0.60 이하이고 그중 9~12줄 칸이 있다: 0.6 같음, 0.55면 33·4·26·0.928, 0.5면 33·3·26·0.928
+LAYOUT_AREA = 0.65
+LAYOUT_LINES = 6  # (넓이 0.5에서 3이면 32·3·25, 10이면 35·3·28, 13이면 같음)
+
 Box = tuple[float, float, float, float]  # x0, y0, x1, y1 (읽기 좌표 pt)
 CellPos = tuple[int, int, int, int]  # row, col, rowspan, colspan
 
@@ -54,13 +60,12 @@ class TableSpec:
 
 @dataclass(slots=True)
 class _Seg:
-    """읽기 좌표 선분. h면 pos = y, start·end = x. stroke·fill은 모은 선분 중 그 종류가 있는지."""
+    """읽기 좌표 선분. h면 pos = y, start·end = x. fill은 채운 사각형 변인지(모은 선분은 그중 하나라도)."""
 
     axis: str
     pos: float
     start: float
     end: float
-    stroke: bool
     fill: bool
 
 
@@ -90,14 +95,12 @@ class _Lines:
 
 @dataclass(slots=True)
 class _Layout:
-    """한 영역의 격자선과 글자. boxes는 공백이 아닌 글자 상자(읽기 좌표 pt), size는 영역의 본문 크기(pt).
-    text_xs·text_ys는 그중 글자 정렬로 더한 격자선, cells[r][k]는 격자 칸별 글자 상자(_buckets), columns[k]는 그
-    열의 모든 상자. stacked는 열마다 행별 _stacked 결과(처음 물을 때 한 번 계산)."""
+    """한 영역의 격자선과 글자. size는 영역의 본문 크기(pt). text_xs·text_ys는 격자선 중 글자 정렬로 더한 것,
+    cells[r][k]는 격자 칸별 공백이 아닌 글자 상자(읽기 좌표 pt, _buckets), columns[k]는 그 열의 모든 상자. stacked는 열마다 행별 _stacked 결과(처음 물을 때 한 번 계산)."""
 
     lines: _Lines
     xs: list[float]
     ys: list[float]
-    boxes: list[Box]
     size: float
     text_xs: frozenset[float] = frozenset()
     text_ys: frozenset[float] = frozenset()
@@ -128,11 +131,11 @@ def _reading_segs(rules: Iterable[Rule], axes: Axes, vw: float, vh: float) -> li
         a = (r.start, r.pos) if r.axis == "h" else (r.pos, r.start)
         b = (r.end, r.pos) if r.axis == "h" else (r.pos, r.end)
         (x0, y0), (x1, y1) = _to_reading(*a, axes, vw, vh), _to_reading(*b, axes, vw, vh)
-        stroke = r.kind == "stroke"
+        fill = r.kind == "fill"
         if abs(y1 - y0) < abs(x1 - x0):
-            out.append(_Seg("h", y0, min(x0, x1), max(x0, x1), stroke, not stroke))
+            out.append(_Seg("h", y0, min(x0, x1), max(x0, x1), fill))
         else:
-            out.append(_Seg("v", x0, min(y0, y1), max(y0, y1), stroke, not stroke))
+            out.append(_Seg("v", x0, min(y0, y1), max(y0, y1), fill))
     return out
 
 
@@ -158,7 +161,7 @@ def _merge(segs: Sequence[_Seg]) -> list[_Seg]:
                     runs.append([s])
                     end = s.end
             out += [_Seg(axis, sum(s.pos for s in run) / len(run), min(s.start for s in run),
-                         max(s.end for s in run), any(s.stroke for s in run), any(s.fill for s in run))
+                         max(s.end for s in run), any(s.fill for s in run))
                     for run in runs]
     return out
 
@@ -277,7 +280,7 @@ def _text_columns(cells: list[list[list[Box]]], spaces: list[list[list[Box]]], s
     for k in range(len(cells[0]) if cells else 0):
         rows = [row[k] for row in cells]
         gaps: list[tuple[float, float, int, int, bool]] = []  # 빈틈 x 구간, 왼쪽·오른쪽 덩어리 글자 수, 공백 글자
-        for row, blanks in zip(rows, (row[k] for row in spaces)):
+        for row, blanks in zip(rows, (row[k] for row in spaces), strict=True):
             found: list[tuple[float, float]] = []
             counts: list[int] = []
             end = None
@@ -334,13 +337,14 @@ def _text_rows(ys: Sequence[float], cells: list[list[list[Box]]], size: float) -
         cuts = []
         for i in range(n - 1):
             upper, lower = [c[i] for c in multi], [c[i + 1] for c in multi]
-            aligned = all(max(l[1] for l in ls) - min(l[1] for l in ls) <= ROW_ALIGN * size for ls in (upper, lower))
-            gap = min(l[1] for l in lower) - max(l[3] for l in upper)
-            step_ = min(l[1] for l in lower) - max(l[1] for l in upper)
+            aligned = all(max(ln[1] for ln in lns) - min(ln[1] for ln in lns) <= ROW_ALIGN * size
+                          for lns in (upper, lower))
+            gap = min(ln[1] for ln in lower) - max(ln[3] for ln in upper)
+            step_ = min(ln[1] for ln in lower) - max(ln[1] for ln in upper)
             if not aligned or (gap < ROW_GAP * size and (pitch is None or step_ < pitch)):
                 cuts = []
                 break
-            cuts.append((max(l[3] for l in upper) + min(l[1] for l in lower)) / 2)
+            cuts.append((max(ln[3] for ln in upper) + min(ln[1] for ln in lower)) / 2)
         others = [c for c in cols if len(c) != n]
         if cuts and all(len(c) == 1 and all(c[0][1] < y < c[0][3] for y in cuts) for c in others):
             out += cuts
@@ -397,7 +401,7 @@ def _separated(lay: _Layout, r: int, c: int, across: bool) -> bool:
         return bool(filled[0])
     if across:
         return False
-    (a, z), text = next((side, f) for side, f in zip(sides, filled) if f)
+    (a, z), text = next((side, f) for side, f in zip(sides, filled, strict=True) if f)
     middle = (min(b[1] for b in text) + max(b[3] for b in text)) / 2
     return abs(middle - (a + z) / 2) <= CENTER_TOL * (z - a)
 
@@ -417,26 +421,32 @@ def _layout(lines: _Lines, grid: tuple[list[float], list[float]], boxes: list[Bo
     ys = sorted({*ys, *text_ys})
     cells = _buckets(xs, ys, boxes)
     columns = [[b for row in cells for b in row[k]] for k in range(len(xs) - 1)]
-    return _Layout(lines, xs, ys, boxes, size, frozenset(text_xs), frozenset(text_ys), cells, columns)
+    return _Layout(lines, xs, ys, size, frozenset(text_xs), frozenset(text_ys), cells, columns)
 
 
 def _largest_rect(group: set[tuple[int, int]]) -> CellPos:
-    """칸 묶음 안에 완전히 든 가장 큰 직사각형(넓이가 같으면 위·왼쪽부터)."""
-    best, best_area = (0, 0, 1, 1), 0
-    for r, c in sorted(group):
-        width = 0
-        while (r, c + width) in group:
-            width += 1
-        height = 0
-        while width > 0:
-            w = 0
-            while w < width and (r + height, c + w) in group:
-                w += 1
-            if w == 0:
-                break
-            width, height = min(width, w), height + 1
-            if width * height > best_area:
-                best, best_area = (r, c, height, width), width * height
+    """칸 묶음 안에 완전히 든 가장 큰 직사각형(넓이가 같으면 위·왼쪽, 그다음 낮은 것부터). 묶음 외접 상자의 행마다
+    위로 이어진 칸 높이(히스토그램)에서 칸마다 그 높이로 좌우 끝까지 편 직사각형만 본다(가장 큰 직사각형은 더 펼 수
+    없으니 이 안에 있다). 외접 상자 칸 수에 비례한다."""
+    r0, r1 = min(r for r, _ in group), max(r for r, _ in group)
+    c0, c1 = min(c for _, c in group), max(c for _, c in group)
+    width = c1 - c0 + 1
+    heights = [0] * width
+    best, best_key = (r0, c0, 1, 1), (0, 0, 0, 0)
+    for r in range(r0, r1 + 1):
+        heights = [h + 1 if (r, c0 + i) in group else 0 for i, h in enumerate(heights)]
+        lefts, rights, stack = [0] * width, [width] * width, []
+        for i, h in enumerate(heights):  # 왼쪽·오른쪽으로 높이 ≥ h인 칸이 이어지는 끝(단조 스택)
+            while stack and heights[stack[-1]] >= h:
+                rights[stack.pop()] = i
+            lefts[i] = stack[-1] + 1 if stack else 0
+            stack.append(i)
+        for i, h in enumerate(heights):
+            if h:
+                w = rights[i] - lefts[i]
+                key = (h * w, -(r - h + 1), -(c0 + lefts[i]), -h)
+                if key > best_key:
+                    best, best_key = (r - h + 1, c0 + lefts[i], h, w), key
     return best
 
 
@@ -507,15 +517,17 @@ def _cell_text(page: PageText, chars: Sequence[Char]) -> str:
 
 
 def _header(xs: Sequence[float], ys: Sequence[float], cells: Sequence[CellPos], fills: _Lines) -> bool:
-    """맨 윗행 칸이 모두 채운 사각형(칸의 위·아래 변을 HEADER_COVER 이상 덮는 fill 변) 안에 있고, 그 아래 행 칸이
-    모두 그렇지는 않으면 True. fills는 fill 변만 담은 색인(그은 선과 모으지 않아 칸마다 제 배경만 본다)."""
+    """맨 윗행 칸이 모두 한 행 높이이고 모두 채운 사각형(칸의 위·아래 변을 HEADER_COVER 이상 덮는 fill 변) 안에 있으며,
+    둘째 행에서 시작하는 칸이 모두 그렇지는 않으면 True(여러 행에 걸친 머리글은 열 머리행으로 보지 않는다). fills는
+    fill 변만 담은 색인(그은 선과 모으지 않아 칸마다 제 배경만 본다)."""
     def filled(r: int, c: int, h: int, w: int) -> bool:
         return (fills.cover("h", ys[r], xs[c], xs[c + w]) >= HEADER_COVER
                 and fills.cover("h", ys[r + h], xs[c], xs[c + w]) >= HEADER_COVER)
 
     top = [cell for cell in cells if cell[0] == 0]
-    below = [cell for cell in cells if cell[0] == max(h for _, _, h, _ in top)]
-    return all(filled(*cell) for cell in top) and not all(filled(*cell) for cell in below)
+    below = [cell for cell in cells if cell[0] == 1]
+    return (all(h == 1 for _, _, h, _ in top) and all(filled(*cell) for cell in top)
+            and not all(filled(*cell) for cell in below))
 
 
 def _build(page: PageText, region: list[_Seg], chars: Sequence[tuple[int, Char, Box]], axes: Axes,
@@ -532,8 +544,12 @@ def _build(page: PageText, region: list[_Seg], chars: Sequence[tuple[int, Char, 
         return None
     sizes = Counter(step(c.size) for c, _ in ink)
     size = max(sizes, key=lambda s: (sizes[s], -s))
+    boxes = [b for _, b in ink]
+    if (right - left) * (bottom - top) > LAYOUT_AREA * page.width_pt * page.height_pt and any(
+            len(_lines(cell, size)) >= LAYOUT_LINES for row in _buckets(*grid, boxes) for cell in row if cell):
+        return None
     lines = _Lines(region)
-    lay = _layout(lines, grid, [b for _, b in ink], size, [b for _, c, b in inside if c.text.isspace()])
+    lay = _layout(lines, grid, boxes, size, [b for _, c, b in inside if c.text.isspace()])
     if len(lay.xs) < 3 or len(lay.ys) < 3 or (len(lay.xs) - 1) * (len(lay.ys) - 1) > MAX_TABLE_CELLS:
         return None
     xs, ys, cells = _compact(lay.xs, lay.ys, _cells(len(lay.ys) - 1, len(lay.xs) - 1,

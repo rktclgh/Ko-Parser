@@ -244,3 +244,14 @@ def test_filled_near_square_above_dash_size_gives_one_direction():
         c.rect(100, 500, 2.2, 2.0, stroke=0, fill=1)
 
     assert_rules(rules_of(draw), [Rule("h", 341.0, 100.0, 102.2)])
+
+
+@pytest.mark.parametrize("x", [100.0, 100.37, 333.3, 501.13])
+@pytest.mark.parametrize("length,kept", [(1.99, False), (2.0, True), (2.01, True)])
+def test_rule_of_exactly_min_length_survives_float_error(x, length, kept):
+    """MIN_RULE(2pt) 길이 선은 좌표 변환의 부동소수 오차로 2pt를 살짝 밑돌아도 남는다."""
+    def draw(c):
+        c.line(x, 400, x + length, 400)
+        c.line(200, x, 200, x + length)
+
+    assert [r.axis for r in rules_of(draw)] == (["h", "v"] if kept else [])
