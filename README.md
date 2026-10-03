@@ -10,6 +10,7 @@
 ```
 uv sync
 uv run ko-parser parse 문서.md --format md
+uv run ko-parser view 문서.pdf
 uv run ko-parser changes
 ```
 
