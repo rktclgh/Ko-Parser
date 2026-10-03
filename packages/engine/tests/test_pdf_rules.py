@@ -126,3 +126,101 @@ def test_rules_are_clipped_to_the_page():
         c.line(100, 900, 300, 900)  # 쪽 위 밖
 
     assert rules_of(draw) == [Rule("h", 142.0, 0.0, 100.0)]
+
+
+def assert_rules(found, expected) -> None:
+    """축·종류는 같고 좌표는 ± 0.002pt."""
+    assert [(r.axis, r.kind) for r in found] == [(r.axis, r.kind) for r in expected]
+    for got, want in zip(found, expected, strict=True):
+        assert (got.pos, got.start, got.end) == pytest.approx((want.pos, want.start, want.end), abs=2e-3)
+
+
+@pytest.mark.parametrize("size,count,horizontal", [(0.48, 100, True), (0.48, 100, False), (1.0, 30, True)])
+def test_dotted_line_of_small_filled_squares_is_one_rule(size, count, horizontal):
+    """작은 채운 네모 점(가로·세로 길이가 같다)이 줄지은 점선은 위치와 상관없이 한 선(좌표가 둥근 수가 아니어도)."""
+    x0, y0 = (100.37, 500.13) if horizontal else (200.29, 300.41)
+
+    def draw(c):
+        c.setFillColorRGB(0, 0, 0)
+        for i in range(count):
+            dx, dy = (1.2 * i, 0.0) if horizontal else (0.0, 1.2 * i)
+            c.rect(x0 + dx, y0 + dy, size, size, stroke=0, fill=1)
+
+    run = 1.2 * (count - 1) + size
+    if horizontal:
+        expected = Rule("h", H - (y0 + size / 2), x0, x0 + run)
+    else:
+        expected = Rule("v", x0 + size / 2, H - (y0 + run), H - y0)
+    assert_rules(rules_of(draw), [expected])
+
+
+def test_slowly_drifting_dotted_line_is_one_rule():
+    """점마다 위치가 0.02pt씩 흘러도(40개, 모두 0.78pt) 한 선."""
+    def draw(c):
+        c.setLineWidth(0.36)
+        for i in range(40):
+            x, y = 100 + 1.2 * i, 500 + 0.02 * i
+            c.line(x, y, x + 0.48, y)
+
+    (rule,) = rules_of(draw)
+    assert (rule.axis, rule.start, rule.end) == ("h", 100.0, pytest.approx(147.28, abs=1e-3))
+
+
+def test_vertical_dotted_line_is_joined():
+    def draw(c):
+        c.setLineWidth(0.36)
+        for i in range(100):
+            y = 400 + 1.2 * i
+            c.line(100, y, 100, y + 0.48)
+
+    assert_rules(rules_of(draw), [Rule("v", 100.0, 322.72, 442.0)])
+
+
+def test_filled_triangle_and_zero_area_fill_give_no_rules():
+    """채운 직각삼각형(꼭짓점이 모두 외접 상자 위)과 넓이 0인 채운 사각형은 선이 아니다."""
+    def draw(c):
+        c.setFillColorRGB(0, 0, 0)
+        for x, y, w, h in ((100, 600, 200, 100), (100, 400, 200, 1.0)):
+            p = c.beginPath()
+            p.moveTo(x, y)
+            p.lineTo(x + w, y)
+            p.lineTo(x, y + h)
+            p.close()
+            c.drawPath(p, stroke=0, fill=1)
+        c.rect(100, 300, 200, 0, stroke=0, fill=1)
+        c.rect(100, 200, 0, 50, stroke=0, fill=1)
+
+    assert rules_of(draw) == []
+
+
+def test_rules_inside_nested_form_xobjects_compose_both_matrices():
+    def draw(c):
+        c.beginForm("inner")
+        c.line(0, 0, 10, 0)
+        c.endForm()
+        c.beginForm("outer")
+        c.saveState()
+        c.translate(5, 5)
+        c.scale(2, 2)
+        c.doForm("inner")
+        c.restoreState()
+        c.endForm()
+        c.saveState()
+        c.translate(100, 400)
+        c.scale(3, 3)
+        c.doForm("outer")
+        c.restoreState()
+
+    assert rules_of(draw) == [Rule("h", 427.0, 115.0, 175.0)]
+
+
+def test_stroked_and_filled_rectangle_gives_stroke_and_fill_sides():
+    """그리고 채운 넓은 사각형은 같은 네 변을 stroke와 fill로 둘 다 낸다(표 검출이 같은 선으로 합친다)."""
+    def draw(c):
+        c.setFillColorRGB(0.85, 0.85, 0.85)
+        c.rect(100, 400, 200, 50, stroke=1, fill=1)
+
+    sides = [("h", 392.0, 100.0, 300.0), ("h", 442.0, 100.0, 300.0), ("v", 100.0, 392.0, 442.0),
+             ("v", 300.0, 392.0, 442.0)]
+    assert sorted(rules_of(draw), key=lambda r: (r.kind, r.axis, r.pos)) == (
+        [Rule(*s, "fill") for s in sides] + [Rule(*s) for s in sides])

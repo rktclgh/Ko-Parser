@@ -518,8 +518,9 @@ def _edge_rule(p: Point, q: Point) -> Rule | None:
 
 
 def _fill_rules(sub: _Subpath) -> list[Rule]:
-    """채운 사각형(곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL): 두 변이 모두 THIN보다 길면 네 변(fill),
-    아니면 짧은 쪽이 THIN 이하인 방향의 가운데 선(stroke. 작은 네모 점은 가로·세로 둘 다: 점선 조각). 아니면 없음."""
+    """채운 사각형(곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL, 네 모서리가 모두 있다): 두 변이 모두 THIN보다
+    길면 네 변(fill), 아니면 짧은 쪽이 THIN 이하인 방향의 가운데 선(stroke. 두 변 차가 AXIS_TOL 이하인 네모 점은 가로·세로
+    둘 다: 점선 조각). 넓이 0(보이지 않는다)이거나 사각형이 아니면 없음."""
     if sub.curved or len(sub.points) < 4:
         return []
     xs, ys = [p[0] for p in sub.points], [p[1] for p in sub.points]
@@ -527,25 +528,31 @@ def _fill_rules(sub: _Subpath) -> list[Rule]:
     if any(min(abs(x - left), abs(x - right)) > AXIS_TOL or min(abs(y - top), abs(y - bottom)) > AXIS_TOL
            for x, y in sub.points):
         return []
+    if not all(any(abs(x - cx) <= AXIS_TOL and abs(y - cy) <= AXIS_TOL for x, y in sub.points)
+               for cx in (left, right) for cy in (top, bottom)):  # 예: 채운 직각삼각형
+        return []
     w, h = right - left, bottom - top
+    if min(w, h) < 1e-6:  # 넓이 0인 채움은 그려지지 않는다
+        return []
     if min(w, h) > THIN:
         return [Rule("h", top, left, right, "fill"), Rule("h", bottom, left, right, "fill"),
                 Rule("v", left, top, bottom, "fill"), Rule("v", right, top, bottom, "fill")]
     out = []
-    if h <= THIN and w >= max(DASH, h):
+    # 두 변의 비교는 AXIS_TOL 여유를 둔다(좌표 변환의 부동소수 오차로 네모 점이 한 방향만 내지 않게)
+    if h <= THIN and w >= max(DASH, h - AXIS_TOL):
         out.append(Rule("h", (top + bottom) / 2, left, right))
-    if w <= THIN and h >= max(DASH, w):
+    if w <= THIN and h >= max(DASH, w - AXIS_TOL):
         out.append(Rule("v", (left + right) / 2, top, bottom))
     return out
 
 
 def _join_dashes(dashes: list[Rule]) -> Iterator[Rule]:
-    """점선 조각(MIN_RULE보다 짧은 선분)을 같은 축·같은 위치(± AXIS_TOL)에서 사이 ≤ DASH_GAP이면 이어 한 선(stroke)으로.
+    """점선 조각(MIN_RULE보다 짧은 선분)을 같은 축·같은 위치(위치 순으로 이웃 조각과 ± AXIS_TOL)에서 사이 ≤ DASH_GAP이면 이어 한 선(stroke)으로.
     조각 둘 이상을 이어 MIN_RULE 이상이 된 것만 낸다(글자 모양 조각·눈금 하나는 버린다)."""
     for axis in ("h", "v"):
         groups: list[list[Rule]] = []
         for dash in sorted((d for d in dashes if d.axis == axis), key=lambda d: d.pos):
-            if groups and dash.pos - groups[-1][0].pos <= AXIS_TOL:
+            if groups and dash.pos - groups[-1][-1].pos <= AXIS_TOL:  # 바로 앞 조각과 비교(천천히 흐르는 점선)
                 groups[-1].append(dash)
             else:
                 groups.append([dash])
@@ -578,7 +585,8 @@ def _clipped(rule: Rule, width: float, height: float) -> Rule | None:
 def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: float) -> Iterator[Rule]:
     """path 객체(폼 XObject 안 포함)의 가로·세로 선분. 그은 path의 직선 변은 stroke, 채운 사각형은 _fill_rules.
     하얀색·투명 선과 채움, 사선·곡선, 이어도 MIN_RULE보다 짧은 선분, 쪽 밖은 버린다. 좌표는 글자와 같은 보이는
-    쪽 틀(회전 보정, 원점 왼쪽 위)의 pt. 순서는 그린 순서, 점선은 끝에."""
+    쪽 틀(회전 보정, 원점 왼쪽 위)의 pt. 순서는 그린 순서, 점선은 끝에. 그리고 채운 path는 stroke와 fill을 둘 다 낸다.
+    알려진 한계: 클리핑 경로는 보지 않는다(잘려 안 보이는 선도 낸다)."""
     fill_mode, stroke = ctypes.c_int(), ctypes.c_int()
     dashes: list[Rule] = []
     for obj, matrix in _path_objects(page.raw, False, _IDENTITY):
