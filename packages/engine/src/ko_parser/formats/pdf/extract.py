@@ -5,7 +5,7 @@ PDFium은 스레드 안전하지 않다. 문서가 달라도 동시에 부르면
 글자 상자는 글꼴 사전의 너비(/W)·ascent·descent와 글자 원점으로 계산한다. PDFium의 글리프 상자는
 미임베드 글꼴이면 OS의 대체 글꼴에 따라 달라지므로 그 정보가 없을 때만 쓴다.
 미임베드 글꼴은 PDFium이 시스템 글꼴로 대신 그린다. 한글 글꼴이 없는 컴퓨터(글꼴 없는 Linux 등)에서는 한 글자짜리
-글자 객체가 텍스트에서 통째로 빠지므로 조용히 버리지 않고 ParseError로 알린다(_check_dropped_text).
+글자 객체가 텍스트에서 통째로 빠지므로 조용히 버리지 않고 ParseError로 알린다(_HangulCheck).
 """
 
 import ctypes
@@ -14,7 +14,7 @@ import re
 import threading
 import warnings
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 with warnings.catch_warnings():  # pypdfium2_raw는 import할 때 버전 파일을 인코딩 없이 연다(EncodingWarning)
     warnings.simplefilter("ignore", EncodingWarning)
@@ -31,6 +31,13 @@ PDFIUM_LOCK = threading.Lock()  # PDFium 호출 전체를 줄 세운다(문서�
 
 _BOLD_NAME = re.compile(r"bold|black|heavy", re.IGNORECASE)
 _BOLD_WEIGHT = 600
+# 한국어 글꼴로 보이는 BaseFont 이름(부분집합 접두어 ABCDEF+ 허용, 대소문자 무시. HY·HCR만 대문자 그대로).
+# 대체 글꼴 이름(FPDFFont_GetFamilyName)은 컴퓨터마다 달라 쓰지 않는다. CMap 이름이 붙은 Type0 이름(…-UniKS-UCS2-H)도 잡는다
+_KOREAN_FONT = re.compile(
+    r"(?:^|\+)(?-i:HY|HCR)|batang|gulim|dotum|gungs(?:uh|eo)|malgun|nanum|hamchorom|myeongjo|myungjo|kopub|spoqa"
+    r"|pretendard|applesd|noto\s*-?\s*(?:sans|serif)\s*-?\s*(?:cjk\s*-?\s*)?kr|source\s*han\s*(?:sans|serif)\s*-?\s*k"
+    r"|uniks|\bksc|korea1|함초롬|한컴|바탕|굴림|돋움|궁서|맑은|명조|고딕", re.IGNORECASE)
+_HANGUL = re.compile("[\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\uac00-\ud7a3\ud7b0-\ud7ff]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,12 +86,14 @@ def extract_pages(data: bytes, name: str) -> tuple[PageText, ...]:
             if len(pdf) == 0:
                 raise ParseError("PDF has no pages", name)
             pages = []
+            check = _HangulCheck()
             for index in range(len(pdf)):
                 location = f"{name}:{index + 1}"
                 try:
-                    pages.append(_page(pdf, index, location))
+                    pages.append(_page(pdf, index, location, check))
                 except pdfium.PdfiumError as exc:
                     raise ParseError(f"invalid PDF page: {exc}", location) from None
+            check.raise_if_lost()
             return tuple(pages)
         finally:
             pdf.close()
@@ -150,7 +159,7 @@ def _address(handle: object) -> int:
     return ctypes.cast(handle, ctypes.c_void_p).value or 0
 
 
-def _page(pdf: pdfium.PdfDocument, index: int, location: str) -> PageText:
+def _page(pdf: pdfium.PdfDocument, index: int, location: str, check: "_HangulCheck") -> PageText:
     page = pdf[index]
     try:
         width, height = page.get_size()
@@ -161,11 +170,12 @@ def _page(pdf: pdfium.PdfDocument, index: int, location: str) -> PageText:
             raise ParseError("PDF page has an empty box", location)
         textpage = page.get_textpage()
         seen: set[int] = set()
+        hangul_fonts: dict[int, object] = {}
         try:
-            chars = tuple(_chars(textpage, box, rotation, seen))
+            chars = tuple(_chars(textpage, box, rotation, seen, hangul_fonts))
         finally:
             textpage.close()
-        _check_dropped_text(pdf, page, seen, location)
+        check.add_page(pdf, page, seen, hangul_fonts, location)
         return PageText(page=index + 1, width_pt=width, height_pt=height, rotation=rotation, chars=chars,
                         image_coverage=tuple(_image_coverage(page, box)))
     finally:
@@ -191,24 +201,57 @@ class _Fonts:
         return self._cache[key]
 
 
-def _check_dropped_text(pdf: pdfium.PdfDocument, page: pdfium.PdfPage, seen: set[int], location: str) -> None:
+def _base_font_name(font: object) -> str:
+    length = pdfium_c.FPDFFont_GetBaseFontName(font, None, 0)
+    name = ctypes.create_string_buffer(max(length, 1))
+    pdfium_c.FPDFFont_GetBaseFontName(font, name, length)
+    for encoding in ("utf-8", "cp949"):  # 한글 이름은 UTF-8이나 EUC-KR(#B9#D9…) 바이트로 온다
+        try:
+            return name.value.decode(encoding)
+        except UnicodeDecodeError:
+            pass
+    return name.value.decode("latin-1")
+
+
+@dataclass(slots=True)
+class _HangulCheck:
     """PDFium의 텍스트 쪽은 상자 너비가 0에 가까운 글자 객체를 건너뛴다. 객체 상자는 글리프 외곽으로 재므로 미임베드
     글꼴의 글리프를 이 컴퓨터의 어떤 글꼴에서도 찾지 못하면 한 글자짜리 객체가 글자째 빠진다(실측: 한글 글꼴 없는
-    Linux). 공백 한 칸짜리 객체도 같은 이유로 모든 OS에서 빠지므로, 텍스트 쪽이 건너뛴 객체의 미임베드 글꼴이
-    이 컴퓨터에서 한글을 그리지 못할 때만 ParseError(seen은 텍스트 쪽에 글자가 있는 객체 주소)."""
-    draws: dict[int, bool] = {}
-    for obj in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_TEXT]):
-        if _address(obj.raw) in seen:
-            continue
-        font = pdfium_c.FPDFTextObj_GetFont(obj.raw)
-        if not font or pdfium_c.FPDFFont_GetIsEmbedded(font) == 1:
-            continue
-        key = _address(font)
-        if key not in draws:
-            draws[key] = _draws_hangul(pdf, font)
-        if not draws[key]:
-            raise ParseError("PDF text uses a non-embedded font that has no Hangul glyphs on this system; "
-                             "install a Korean font (e.g. fonts-noto-cjk)", location)
+    Linux). 공백 한 칸 객체도 모든 OS에서 빠지고 빠진 객체의 내용은 알 수 없으므로 문서 전체를 보고 판단한다.
+    빠진 객체의 미임베드 글꼴이 이 컴퓨터에서 '가'를 그리지 못하고, 그 글꼴 이름이 한국어 글꼴이거나 문서에서 나온
+    한글을 그린 글꼴 중 '가'를 그리는 것이 하나도 없으면(이 컴퓨터에 한글 글꼴이 없다) ParseError. 라틴 문서의
+    공백 객체나, 한글이 제대로 그려지는 컴퓨터에서 한글을 담을 수 없는 중국·일본 글꼴의 공백 객체는 통과한다."""
+
+    hangul: bool = False  # 한글 글자가 나왔다
+    rendered: bool = False  # 그 한글을 낸 글꼴 중 하나가 이 컴퓨터에서 '가'를 그린다
+    dropped: list[tuple[str, bool]] = field(default_factory=list)  # (쪽 위치, 글꼴 이름이 한국어인지)
+
+    def add_page(self, pdf: pdfium.PdfDocument, page: pdfium.PdfPage, seen: set[int],
+                 hangul_fonts: dict[int, object], location: str) -> None:
+        """seen은 텍스트 쪽에 글자가 있는 객체 주소, hangul_fonts는 한글 글자를 낸 글꼴(주소 → 핸들).
+        글꼴 핸들은 쪽을 닫으면 풀릴 수 있어 쪽마다 시험한다."""
+        draws: dict[int, bool] = {}
+
+        def can_draw(font: object) -> bool:
+            key = _address(font)
+            if key not in draws:
+                draws[key] = _draws_hangul(pdf, font)
+            return draws[key]
+
+        self.hangul = self.hangul or bool(hangul_fonts)
+        self.rendered = self.rendered or any(can_draw(font) for font in hangul_fonts.values())
+        for obj in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_TEXT]):
+            if _address(obj.raw) in seen:
+                continue
+            font = pdfium_c.FPDFTextObj_GetFont(obj.raw)
+            if font and pdfium_c.FPDFFont_GetIsEmbedded(font) != 1 and not can_draw(font):
+                self.dropped.append((location, bool(_KOREAN_FONT.search(_base_font_name(font)))))
+
+    def raise_if_lost(self) -> None:
+        for location, korean_name in self.dropped:
+            if korean_name or (self.hangul and not self.rendered):
+                raise ParseError("PDF text uses a non-embedded font that has no Hangul glyphs on this system; "
+                                 "install a Korean font (e.g. fonts-noto-cjk)", location)
 
 
 def _draws_hangul(pdf: pdfium.PdfDocument, font: object) -> bool:
@@ -226,7 +269,8 @@ def _draws_hangul(pdf: pdfium.PdfDocument, font: object) -> bool:
         pdfium_c.FPDFPageObj_Destroy(obj)
 
 
-def _chars(textpage: pdfium.PdfTextPage, box: Box, rotation: int, seen: set[int]) -> Iterator[Char]:
+def _chars(textpage: pdfium.PdfTextPage, box: Box, rotation: int, seen: set[int],
+           hangul_fonts: dict[int, object]) -> Iterator[Char]:
     fonts = _Fonts()
     modes: dict[int, int] = {}
     count = textpage.count_chars()
@@ -252,6 +296,8 @@ def _chars(textpage: pdfium.PdfTextPage, box: Box, rotation: int, seen: set[int]
         if key not in modes:
             modes[key] = pdfium_c.FPDFTextObj_GetTextRenderMode(obj)
         font = pdfium_c.FPDFTextObj_GetFont(obj)
+        if _HANGUL.match(text):
+            hangul_fonts[_address(font)] = font
         ascent, descent, bold_name = fonts.get(font)
         font_size = pdfium_c.FPDFText_GetFontSize(textpage, i)
         m = pdfium_c.FS_MATRIX()

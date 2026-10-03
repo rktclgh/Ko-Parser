@@ -15,6 +15,8 @@ from ko_parser.formats.pdf.extract import PageText, decode_unicode, extract_page
 
 FONT = "HYGothic-Medium"  # reportlab 내장 CID 글꼴: ascent 752, descent -142, 한글 너비 1000
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
+OTHER_CID_FONT = "STSong-Light"  # 이름이 한국어 글꼴이 아닌 미임베드 CID 글꼴
+pdfmetrics.registerFont(UnicodeCIDFont(OTHER_CID_FONT))
 GRAY_JPEG = bytes.fromhex(  # 8×8 회색 JPEG
     "ffd8ffe000104a46494600010100000100010000ffdb004300100b0c0e0c0a100e0d0e1211101318281a181616183123251d283a333d"
     "3c3933383740485c4e404457453738506d51575f626768673e4d71797064785c656763ffc0000b080008000801011100ffc40014000100"
@@ -30,10 +32,10 @@ def make_pdf(draw, size=(595.0, 842.0), **kw) -> bytes:
     return buf.getvalue()
 
 
-def put(c, x, y, size, s, mode=0):
+def put(c, x, y, size, s, mode=0, font=FONT):
     c.saveState()
     t = c.beginText(x, y)
-    t.setFont(FONT, size)
+    t.setFont(font, size)
     t.setTextRenderMode(mode)
     t.textOut(s)
     c.drawText(t)
@@ -248,14 +250,67 @@ def test_negative_font_size_gives_positive_size(monkeypatch):
         assert c.baseline == pytest.approx(400 / 842)  # 줄 아래 방향(보이는 −y) 축의 원점 위치
 
 
-def test_text_dropped_for_lack_of_hangul_glyphs_is_an_error(monkeypatch):
-    """PDFium은 글리프 외곽 상자 너비가 0인 글자 객체를 텍스트에서 뺀다. 공백 한 칸 객체는 모든 OS에서 빠지고
-    문제없지만, 한글 글꼴 없는 컴퓨터에서는 미임베드 한글 한 글자 객체도 그렇게 사라진다: 조용히 버리지 않는다."""
-    data = make_pdf(lambda c: (put(c, 72, 770, 11, "가나"), put(c, 72, 750, 11, " ")))
-    assert [c.text for c in only_page(data).chars] == ["가", "나"]
-    monkeypatch.setattr(extract, "_draws_hangul", lambda pdf, font: False)  # 한글 글꼴 없는 컴퓨터
+def host(monkeypatch, draws_hangul):
+    """컴퓨터 흉내: draws_hangul(BaseFont 이름)이 참인 미임베드 글꼴만 '가'를 그린다(거짓이면 한글 글꼴 없는 Linux)."""
+    monkeypatch.setattr(extract, "_draws_hangul", lambda pdf, font: draws_hangul(extract._base_font_name(font)))
+
+
+def test_dropped_space_in_latin_font_is_not_an_error_without_hangul_font(monkeypatch):
+    """공백 한 칸 객체는 모든 OS에서 텍스트 쪽에서 빠진다. 한글이 없는 문서의 라틴 글꼴이면 한글 글꼴이 없어도 정상."""
+    data = make_pdf(lambda c: (put(c, 72, 770, 11, "AB", font="Helvetica"), put(c, 72, 750, 11, " ", font="Helvetica")))
+    host(monkeypatch, lambda name: False)
+    assert [c.text for c in only_page(data).chars] == ["A", "B"]
+
+
+def test_dropped_object_in_korean_named_font_is_an_error_even_without_hangul(monkeypatch):
+    """한글이 하나도 안 나와도 빠진 객체의 글꼴 이름이 한국어 글꼴(HY…)이면 실패: 한글 한 글자 객체였을 수 있고,
+    문서가 한국어 글꼴을 쓰므로 한글 글꼴을 설치하는 것이 맞는 해결이다(의도한 동작으로 고정)."""
+    data = make_pdf(lambda c: (put(c, 72, 770, 11, "AB"), put(c, 72, 750, 11, " ")))
+    host(monkeypatch, lambda name: True)
+    assert [c.text for c in only_page(data).chars] == ["A", "B"]  # 한글을 그리는 컴퓨터: 빠진 공백은 문제없다
+    host(monkeypatch, lambda name: False)
     with pytest.raises(ParseError, match="no Hangul glyphs"):
         extract_pages(data, "t.pdf")
+
+
+def test_per_glyph_korean_document_without_hangul_font_is_an_error(monkeypatch):
+    """글자마다 객체를 따로 쓰는 한국어 문서: 한글 글꼴이 없으면 PDFium 텍스트 쪽이 통째로 비어(실측, 아래는 그 흉내)
+    한글이 하나도 나오지 않는다. 글꼴 이름이 한국어라 빈 쪽을 조용히 내지 않는다."""
+    data = make_pdf(lambda c: [put(c, 72 + 11 * i, 770, 11, s) for i, s in enumerate("가나다")])
+    host(monkeypatch, lambda name: False)
+    monkeypatch.setattr(pdfium_c, "FPDFText_CountChars", lambda textpage: 0)
+    with pytest.raises(ParseError, match="no Hangul glyphs"):
+        extract_pages(data, "t.pdf")
+
+
+def mixed_korean_document(c):  # 여러 글자 한글 줄은 살아남고, 이름이 한국어가 아닌 CID 글꼴의 한 글자 객체는 빠진다
+    put(c, 72, 770, 11, "가나")
+    put(c, 72, 750, 11, " ", font=OTHER_CID_FONT)
+
+
+def test_dropped_object_in_other_font_is_an_error_when_hangul_is_not_drawable(monkeypatch):
+    """한글이 나왔는데 그 한글을 낸 글꼴도 '가'를 못 그리면 이 컴퓨터에 한글 글꼴이 없다: 이름이 한국어가 아닌
+    글꼴의 빠진 객체도 한글이었을 수 있다."""
+    host(monkeypatch, lambda name: False)
+    with pytest.raises(ParseError, match="no Hangul glyphs"):
+        extract_pages(make_pdf(mixed_korean_document), "t.pdf")
+
+
+def test_dropped_object_in_font_without_hangul_is_fine_where_hangul_is_drawable(monkeypatch):
+    """한글을 그리는 컴퓨터(macOS 실측)에서도 중국·일본 CID 글꼴은 한글을 담지 못해 '가'를 못 그린다. 그 글꼴의
+    빠진 공백 객체 때문에 한국어 문서가 실패하지 않는다."""
+    host(monkeypatch, lambda name: name != OTHER_CID_FONT)
+    assert [c.text for c in only_page(make_pdf(mixed_korean_document)).chars] == ["가", "나"]
+
+
+@pytest.mark.parametrize("name,korean", [
+    ("HYGothic-Medium", True), ("ABCDEF+HYSMyeongJo-Medium", True), ("Batang-UniKS-UCS2-H", True), ("KoPubDotumMedium", True),
+    ("HCRDotum", True), ("함초롬바탕", True), ("NotoSansCJKkr-Regular", True), ("NotoSansKR-Bold", True), ("MalgunGothic", True),
+    ("Pretendard-Regular", True), ("SpoqaHanSansNeo", True), ("나눔고딕", True),
+    ("Helvetica", False), ("STSong-Light", False), ("Hypatia", False), ("TimesNewRomanPSMT", False),
+    ("MS-Mincho", False), ("ArialMT", False)])
+def test_korean_font_name(name, korean):
+    assert bool(extract._KOREAN_FONT.search(name)) is korean
 
 
 def test_chars_outside_page_are_dropped():
