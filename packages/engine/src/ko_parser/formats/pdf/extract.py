@@ -40,6 +40,7 @@ DASH = 0.2  # 점선 조각: 길이 DASH 이상 MIN_RULE 미만인 가로·세�
 # 잇지 않으면 공공누리 정답 표 채점에서 찾은 표 37→36, 완벽 30→28)
 DASH_GAP = 2.0  # 같은 위치의 점선 조각 사이가 ≤ 2pt면 한 선으로 잇는다
 DASH_DRIFT = 0.05  # 이은 점선의 위치 흐름이 AXIS_TOL보다 크면 길이 1pt마다 0.05pt까지만(천천히 흐르는 점선은 선, 사선 점선은 아니다)
+_INDEX_CAP = 64  # _fill_roles 격자 색인: 사각형 하나가 이보다 많은 칸을 덮으면 색인 밖 목록에 둔다(성능용, 결과는 같다)
 WHITE = 250  # 빨강·초록·파랑이 모두 이 이상이면 하얀색(배경과 같은 색)으로 보고 버린다(98% 이상 밝은 회색 칠도 버린다)
 
 _BOLD_NAME = re.compile(r"bold|black|heavy", re.IGNORECASE)
@@ -540,18 +541,49 @@ def _signed_area(sub: _Subpath) -> float:
     return sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1], strict=True)) / 2
 
 
-def _is_frame(subs: list[_Subpath], winding: bool) -> bool:
-    """채운 path가 사각형 부분 경로 정확히 둘이고 하나가 다른 하나를 품으면 안쪽이 비는 틀(even-odd 채움, 또는 nonzero
-    채움에서 두 사각형을 감는 방향이 반대). 그 밖의 부분 경로 수(셋 이상 겹친 사각형 포함)는 사각형마다 채움."""
-    if len(subs) != 2:
-        return False
-    a, b = _rect(subs[0]), _rect(subs[1])
-    if a is None or b is None or a == b:
-        return False
-    if not (a[0] <= b[0] and a[1] <= b[1] and a[2] >= b[2] and a[3] >= b[3]
-            or b[0] <= a[0] and b[1] <= a[1] and b[2] >= a[2] and b[3] >= a[3]):
-        return False
-    return not winding or _signed_area(subs[0]) * _signed_area(subs[1]) < 0
+def _fill_roles(subs: list[_Subpath], winding: bool) -> list[str]:
+    """채운 path의 부분 경로마다 "fill"(_fill_rules), "border"(변을 stroke로) 또는 "hole"(아무것도 내지 않음).
+    부분 경로가 모두 사각형이면 사각형마다 그 안쪽 가장자리가 칠해지는지 정한다: even-odd는 자기를 품은 다른
+    사각형 수가 짝수, nonzero는 자기와 품은 사각형들의 감는 방향 합 ≠ 0. 칠해진 사각형이 칠해지지 않은 사각형(구멍)을
+    바로 품으면 둘 다 테두리(속이 빈 틀), 그 밖의 칠해진 사각형은 채움. 사각형이 아닌 부분 경로가 있으면 모두 채움.
+    품은 사각형은 넓이 큰 순으로 넣는 격자 색인(칸 크기 = 사각형 긴 변의 중앙값, 칸을 _INDEX_CAP개 넘게 덮으면 따로
+    둔다)에서 찾는다: 짝지어 모두 비교하지 않는다."""
+    rects = [_rect(sub) for sub in subs]
+    if len(subs) < 2 or any(r is None for r in rects):
+        return ["fill"] * len(subs)
+    boxes = [r for r in rects if r is not None]
+    signs = [(area > 0) - (area < 0) for area in map(_signed_area, subs)]
+    sides = sorted(max(x1 - x0, y1 - y0) for x0, y0, x1, y1 in boxes)
+    cell = max(sides[len(sides) // 2], 1.0)
+    buckets: dict[tuple[int, int], list[int]] = {}
+    big: list[int] = []
+    parent = [-1] * len(boxes)
+    painted = [False] * len(boxes)
+
+    def area(i: int) -> float:
+        x0, y0, x1, y1 = boxes[i]
+        return (x1 - x0) * (y1 - y0)
+
+    for i in sorted(range(len(boxes)), key=lambda i: -area(i)):
+        x0, y0, x1, y1 = b = boxes[i]
+        key = (int((x0 + x1) / 2 // cell), int((y0 + y1) / 2 // cell))
+        outer = [j for j in (*big, *buckets.get(key, ())) if boxes[j] != b and boxes[j][0] <= x0
+                 and boxes[j][1] <= y0 and boxes[j][2] >= x1 and boxes[j][3] >= y1]
+        painted[i] = signs[i] + sum(signs[j] for j in outer) != 0 if winding else len(outer) % 2 == 0
+        if outer:
+            parent[i] = min(outer, key=area)
+        cols, rows = range(int(x0 // cell), int(x1 // cell) + 1), range(int(y0 // cell), int(y1 // cell) + 1)
+        if len(cols) * len(rows) > _INDEX_CAP:
+            big.append(i)
+        else:
+            for c in cols:
+                for r in rows:
+                    buckets.setdefault((c, r), []).append(i)
+    roles = ["fill" if p else "hole" for p in painted]
+    for i, j in enumerate(parent):
+        if not painted[i] and j >= 0 and painted[j]:
+            roles[i] = roles[j] = "border"
+    return roles
 
 
 def _fill_rules(sub: _Subpath) -> list[Rule]:
@@ -637,12 +669,11 @@ def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: 
         if not (stroked or filled):
             continue
         subs = _subpaths(obj, matrix, box, rotation, width, height)
-        # 속이 빈 틀(사각형 안에 사각형)은 채운 배경이 아니라 테두리: 두 사각형의 변을 stroke로
-        winding = fill_mode.value == pdfium_c.FPDF_FILLMODE_WINDING
-        frame = filled and _is_frame(subs, winding)
-        for sub in subs:
-            found = [_edge_rule(p, q) for p, q in sub.edges] if stroked or frame else []
-            for rule in found + (_fill_rules(sub) if filled and not frame else []):
+        # 속이 빈 틀(칠한 사각형이 구멍 사각형을 품음)은 채운 배경이 아니라 테두리: 두 사각형의 변을 stroke로
+        roles = _fill_roles(subs, fill_mode.value == pdfium_c.FPDF_FILLMODE_WINDING) if filled else ["stroke"] * len(subs)
+        for sub, role in zip(subs, roles, strict=True):
+            found = [_edge_rule(p, q) for p, q in sub.edges] if stroked or role == "border" else []
+            for rule in found + (_fill_rules(sub) if role == "fill" else []):
                 if rule is None:
                     continue
                 if rule.end - rule.start < MIN_RULE - LEN_EPS:

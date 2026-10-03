@@ -621,29 +621,55 @@ def test_large_non_rectangular_merge_stays_fast():
     assert [(c.row, c.col, c.rowspan, c.colspan) for c in spec.table.cells] == [(0, 0, 1, 1), (0, 1, 2, 1), (1, 0, 1, 1)]
 
 
-@pytest.mark.parametrize("fill_mode,insets,header", [(0, (1,), "none"), (1, (1,), "column"), (0, (0.5, 1), "column")],
-                         ids=["even-odd", "nonzero", "even-odd-triple"])
-def test_hollow_filled_frame_cells_are_borders_not_a_header_background(fill_mode, insets, header):
-    """맨 윗행 칸을 '바깥 사각형 + 안쪽 사각형'을 한 path로 채웠다. 사각형 둘이고 even-odd면 속이 빈 틀: 칸
-    테두리이지 배경이 아니다. nonzero(두 사각형이 같은 방향)면 속까지 칠한 배경. 셋을 겹친 even-odd(가운데가 다시
-    칠해진다)는 틀로 보지 않고 예전처럼 사각형마다 채움(맨 안쪽을 따로 칠한 것과 같은 배경)."""
-    def draw(p):
-        xs, ys = [100, 200, 300], [100, 150, 200]
-        for k in range(2):
-            path = p.c.beginPath()
-            x, y = xs[k], p.height - ys[1]
-            path.rect(x, y, 100, 50)
-            for d in insets:
-                path.rect(x + d, y + d, 100 - 2 * d, 50 - 2 * d)
-            p.c.drawPath(path, stroke=0, fill=1, fillMode=fill_mode)
-        grid(p, xs, ys[1:])
-        for r in range(2):
-            for k in range(2):
-                p.text(xs[k] + 10, ys[r] + 30, TEXTS[r][k])
+def framed_header_table(p, fill_mode=0, insets=(1,), reverse=False, one_path=False):
+    """3 × 3 표의 맨 윗행 칸을 '바깥 사각형 + 안쪽 사각형(insets만큼 들임)'으로 채워 그린다. one_path면 세 칸을 한
+    path로, reverse면 안쪽 사각형을 반대 방향으로 감는다. 나머지 선은 그은 선."""
+    def rect(path, x, y, w, h, backwards):
+        corners = [(x, y), (x, y + h), (x + w, y + h), (x + w, y)] if backwards else \
+            [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
+        path.moveTo(*corners[0])
+        for corner in corners[1:]:
+            path.lineTo(*corner)
+        path.close()
 
-    (spec,) = find_tables(page_of(draw))
-    assert cells(spec) == [(r, k, 1, 1, TEXTS[r][k]) for r in range(2) for k in range(2)]
-    assert [c.header for c in spec.table.cells] == [header, header, "none", "none"]
+    path = p.c.beginPath()
+    for k in range(3):
+        x, y = XS[k], p.height - YS[1]
+        rect(path, x, y, 100, 30, False)
+        for d in insets:
+            rect(path, x + d, y + d, 100 - 2 * d, 30 - 2 * d, reverse)
+        if not one_path or k == 2:
+            p.c.drawPath(path, stroke=0, fill=1, fillMode=fill_mode)
+            path = p.c.beginPath()
+    grid(p, XS, YS[1:])
+    fill_texts(p)
+
+
+@pytest.mark.parametrize("kwargs,header", [
+    ({}, "none"), ({"one_path": True}, "none"),
+    ({"fill_mode": 1}, "column"), ({"fill_mode": 1, "reverse": True}, "none"),
+    ({"fill_mode": 1, "reverse": True, "one_path": True}, "none"),
+    ({"insets": (0.5, 1)}, "column"), ({"insets": (0.5, 1), "one_path": True}, "column")],
+    ids=["even-odd", "even-odd-one-path", "nonzero-same", "nonzero-opposite", "nonzero-opposite-one-path",
+         "even-odd-triple", "even-odd-triple-one-path"])
+def test_hollow_filled_frame_cells_are_borders_not_a_header_background(kwargs, header):
+    """채운 path 안의 사각형 테두리: even-odd에서 바깥·안쪽 사각형 한 쌍이면 속이 빈 틀(칸 테두리이지 배경이
+    아니다). nonzero는 감는 방향이 같으면 속까지 칠한 배경, 반대면 틀. 셋을 겹친 even-odd는 가운데가 다시 칠해져
+    배경. 칸마다 따로 그리든 한 path로 그리든 같다."""
+    (spec,) = find_tables(page_of(lambda p: framed_header_table(p, **kwargs)))
+    assert cells(spec) == [(r, k, 1, 1, TEXTS[r][k]) for r in range(3) for k in range(3)]
+    assert [c.header for c in spec.table.cells if c.row == 0] == [header] * 3
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"fill_mode": 1, "reverse": True}, {"insets": (0.5, 1)}],
+                         ids=["even-odd", "nonzero-opposite", "even-odd-triple"])
+def test_frames_in_one_path_give_the_same_rules_as_separate_paths(kwargs):
+    separate = page_of(lambda p: framed_header_table(p, **kwargs))
+    merged = page_of(lambda p: framed_header_table(p, one_path=True, **kwargs))
+    def key(rule):
+        return rule.axis, rule.pos, rule.start, rule.end, rule.kind
+
+    assert sorted(merged.rules, key=key) == sorted(separate.rules, key=key)
 
 
 def test_shaded_rows_under_a_tall_top_left_cell_are_not_a_column_header():
