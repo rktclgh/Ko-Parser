@@ -1,5 +1,6 @@
 import gc
 import io
+import math
 import threading
 
 import pypdfium2 as pdfium
@@ -11,6 +12,7 @@ from reportlab.pdfgen.canvas import Canvas
 from ko_parser.errors import ParseError
 from ko_parser.formats.pdf.extract import PDFIUM_LOCK
 from ko_parser.viewer import DEFAULT_DPI, render_page_images
+from ko_parser.viewer.images import _MAX_PIXELS
 
 
 def make_pdf(pages: int = 2, **kw) -> bytes:
@@ -73,3 +75,34 @@ def test_encrypted_or_corrupt_is_parse_error():
         render_page_images(b"%PDF-1.4\n", "깨짐.pdf")
     with pytest.raises(ValueError):
         render_page_images(make_pdf(1), "a.pdf", dpi=0)
+
+
+def _fail(*args, **kwargs):
+    raise pdfium.PdfiumError("boom")
+
+
+@pytest.mark.parametrize("target", [(pdfium.PdfDocument, "__getitem__"), (pdfium.PdfPage, "render")])
+def test_page_failure_is_parse_error_and_releases_everything(monkeypatch, target):
+    data = make_pdf(1)
+    gc.collect()
+    before = live_pdfium_objects()
+    monkeypatch.setattr(*target, _fail)
+    with pytest.raises(ParseError, match="invalid PDF page: boom") as info:
+        render_page_images(data, "a.pdf", dpi=36)
+    assert info.value.location == "a.pdf:1"
+    assert PDFIUM_LOCK.acquire(blocking=False)  # 잠금을 놓았다
+    PDFIUM_LOCK.release()
+    assert live_pdfium_objects() == before
+
+
+def test_huge_page_is_capped_at_max_pixels():
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(14400.0, 7200.0), invariant=1, pageCompression=0)
+    c.rect(72, 72, 200, 100, fill=1)
+    c.showPage()
+    c.save()
+    image = Image.open(io.BytesIO(render_page_images(buf.getvalue(), "big.pdf")[1]))
+    width, height = image.size
+    assert width * height <= _MAX_PIXELS
+    assert width * height > _MAX_PIXELS * 0.99  # 필요한 만큼만 줄였다
+    assert math.isclose(width, height * 2, abs_tol=2)  # 가로세로 비율 유지(±1px씩)
