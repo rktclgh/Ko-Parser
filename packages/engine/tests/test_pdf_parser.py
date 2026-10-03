@@ -197,6 +197,24 @@ def test_scanned_page_drops_only_invisible_ocr_text():
     assert mixed.pages[0].text_layer == "scanned" and kinds_texts(mixed) == [("paragraph", "보이는 글자.")]
 
 
+@pytest.mark.parametrize("mode,lost", [(3, False), (0, True)])
+def test_single_glyph_invisible_ocr_text_is_not_lost_text_without_hangul_font(monkeypatch, mode, lost):
+    """한글 글꼴 없는 컴퓨터(아래는 그 흉내: '가'를 못 그리고 PDFium 텍스트 쪽이 한 글자 객체를 뺀다)의 스캔 쪽.
+    숨은 OCR 글자(렌더 모드 3)는 어차피 버리므로 빠져도 잃은 글자가 아니다. 보이는 글자가 빠지면 여전히 실패."""
+    def draw(c):
+        c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 0, 0, width=595, height=842)
+        put(c, 72, 770, 11, "가", mode=mode)
+
+    monkeypatch.setattr(extract, "_draws_hangul", lambda pdf, font: False)
+    monkeypatch.setattr(extract.pdfium_c, "FPDFText_CountChars", lambda textpage: 0)
+    if lost:
+        with pytest.raises(ParseError, match="no Hangul glyphs"):
+            PdfParser().parse(draw_pdf(draw), "scan.pdf")
+    else:
+        parsed = PdfParser().parse(draw_pdf(draw), "scan.pdf")
+        assert parsed.pages[0].text_layer == "scanned" and parsed.blocks == ()
+
+
 def two_lines(c):
     """공백 글자 없이 4pt 띄운 두 낱말 + 아랫줄(11pt). reportlab은 90·270도면 MediaBox를 가로로 눕히므로 아래쪽에 쓴다."""
     put(c, 72, 500, 11, "회전")

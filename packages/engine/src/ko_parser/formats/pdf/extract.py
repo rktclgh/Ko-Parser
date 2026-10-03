@@ -243,6 +243,8 @@ class _HangulCheck:
         for obj in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_TEXT]):
             if _address(obj.raw) in seen:
                 continue
+            if pdfium_c.FPDFTextObj_GetTextRenderMode(obj.raw) == pdfium_c.FPDF_TEXTRENDERMODE_INVISIBLE:
+                continue  # 숨은 글자(스캔 쪽 OCR 글자층)는 Char.invisible로 어차피 버린다: 빠져도 잃은 글자가 아니다
             font = pdfium_c.FPDFTextObj_GetFont(obj.raw)
             if font and pdfium_c.FPDFFont_GetIsEmbedded(font) != 1 and not can_draw(font):
                 self.dropped.append((location, bool(_KOREAN_FONT.search(_base_font_name(font)))))
