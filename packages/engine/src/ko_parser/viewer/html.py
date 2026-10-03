@@ -82,7 +82,8 @@ def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None
 def render_html(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None,
                 previous: DocumentTree | None = None) -> str:
     """page_images: 쪽 번호 → JPEG(또는 PNG) 바이트. 쪽이 없는 문서(MD)는 블록 목록만 보인다."""
-    data = json.dumps(view_data(tree, page_images, previous), ensure_ascii=False, separators=(",", ":"))
+    data = json.dumps(view_data(tree, page_images, previous), ensure_ascii=False, separators=(",", ":"),
+                      allow_nan=False)
     title = html.escape(f"{tree.source.name} — ko-parser 뷰어")
     return _BEFORE_TITLE + title + _BEFORE_DATA + data.replace("<", "\\u003c") + _AFTER_DATA
 

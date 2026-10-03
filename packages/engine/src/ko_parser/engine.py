@@ -28,8 +28,11 @@ class LocalEngine:
     def ingest(self, path: str, document_id: str | None = None, force: bool = False) -> DocRef:
         """document_id가 없으면 doc_ + 원본 sha256 앞 24자리(D1). 원본이 같으면 force가 아닌 한 그대로(D2)."""
         file = Path(path)
-        name = unicodedata.normalize("NFC", file.name)  # 전체 경로는 저장하지 않는다
-        data = file.read_bytes()
+        return self.ingest_bytes(file.read_bytes(), file.name, document_id, force)  # 전체 경로는 저장하지 않는다
+
+    def ingest_bytes(self, data: bytes, name: str, document_id: str | None = None, force: bool = False) -> DocRef:
+        """ingest와 같되 원본 바이트와 파일 이름을 직접 받는다(이름은 NFC로 저장)."""
+        name = unicodedata.normalize("NFC", name)
         digest = hashlib.sha256(data).hexdigest()
         doc_id = "doc_" + digest[:24] if document_id is None else document_id
         if not doc_id:

@@ -1,10 +1,11 @@
 """ko-parser 명령줄. main(argv)는 종료 코드를 돌려준다."""
 
 import argparse
-import hashlib
 import json
 import os
+import stat
 import sys
+import tempfile
 import unicodedata
 from collections.abc import Sequence
 from pathlib import Path
@@ -136,27 +137,38 @@ def view_path(file: str, out: str | None) -> Path:
 
 
 def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
-    ref = engine.ingest(args.file, document_id=args.document_id)
+    data = Path(args.file).read_bytes()  # 한 번만 읽어 수집과 쪽 그림에 같은 바이트를 쓴다
+    ref = engine.ingest_bytes(data, Path(args.file).name, document_id=args.document_id)
     tree = engine.get_tree(ref.document_id, ref.version)
     previous = engine.get_tree(ref.document_id, ref.version - 1) if ref.version > 1 else None
     images = None
     if tree.source.mime == PDF_MIME:
-        data = Path(args.file).read_bytes()
-        # 수집 뒤 파일이 바뀌었으면 다른 원본의 쪽 그림 위에 블록이 깔린다(해시 형식은 engine.ingest와 같다)
-        if "sha256:" + hashlib.sha256(data).hexdigest() != tree.source.content_hash:
-            raise RuntimeError(f"file changed during view: {tree.source.name}")
         images = render_page_images(data, tree.source.name, args.dpi)
     out = view_path(args.file, args.out)
     html = render_html(tree, images, previous)
     out.parent.mkdir(parents=True, exist_ok=True)
-    # 옆 임시 파일에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 HTML이 반쯤 덮이지 않는다
-    tmp = out.with_name(out.name + ".tmp")
+    # 같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 HTML이 반쯤 덮이지 않는다
+    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.", suffix=".tmp")
     try:
         # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
-        tmp.write_text(html, encoding="utf-8", errors="replace", newline="\n")
+        with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as f:
+            f.write(html)
+        if out.exists():
+            mode = stat.S_IMODE(out.stat().st_mode)
+        else:
+            umask = os.umask(0)  # umask는 읽으려면 바꿔야 한다(CLI는 한 스레드라 바로 되돌린다)
+            os.umask(umask)
+            mode = 0o666 & ~umask
+        try:  # mkstemp는 0600으로 만든다: 이미 있던 HTML의 권한 또는 umask 기본 권한으로
+            os.chmod(tmp, mode)
+        except OSError:
+            pass
         os.replace(tmp, out)
     except BaseException:
-        tmp.unlink(missing_ok=True)
+        try:
+            os.unlink(tmp)
+        except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
+            pass
         raise
     _write(f"{out}\n", None)
 

@@ -1,7 +1,10 @@
 import base64
 import io
 import json
+import os
 import re
+import stat
+import sys
 
 import pytest
 from PIL import Image
@@ -123,23 +126,42 @@ def test_view_out_directory_fails_before_store(capsys, db, tmp_path):
     assert not db.exists()
 
 
-def test_view_fails_when_file_changes_between_ingest_and_render(capsys, db, tmp_path, monkeypatch):
-    """수집한 원본과 렌더할 원본이 다르면 다른 문서의 쪽 그림 위에 블록 상자가 깔린다: 쓰지 않고 실패한다."""
+def test_view_reuses_version_for_byte_different_pdf_with_same_tree(capsys, db, tmp_path):
+    """바이트만 다르고 트리가 같은 PDF(%%EOF 뒤 주석)는 버전 1을 그대로 쓰고 새 바이트로 쪽 그림을 만든다."""
+    pdf = write(tmp_path / "a.pdf", make_pdf("본문"))
+    assert run(capsys, "view", pdf, "--db", db, "--id", "d1", "--out", tmp_path / "v1.html")[0] == 0
+    write(pdf, pdf.read_bytes() + b"% comment\n")
+    out = tmp_path / "v2.html"
+    assert run(capsys, "view", pdf, "--db", db, "--id", "d1", "--out", out) == (0, f"{out}\n", "")
+    assert view_data(out)["pages"][0]["image"].startswith("data:image/jpeg;base64,")
+    assert json.loads(run(capsys, "documents", "--db", db)[1]) == [
+        {"document_id": "d1", "version": 1, "layer_state": "det"}]
+
+
+def test_view_renders_exactly_the_ingested_bytes(capsys, db, tmp_path, monkeypatch):
+    """수집 뒤 파일이 바뀌어도 수집한 바이트 그대로 쪽 그림을 만든다(파일은 한 번만 읽는다)."""
+    import ko_parser.cli
     from ko_parser.engine import LocalEngine
 
     pdf = write(tmp_path / "a.pdf", make_pdf("본문"))
-    ingest = LocalEngine.ingest
+    seen = {}
+    ingest_bytes, render = LocalEngine.ingest_bytes, ko_parser.cli.render_page_images
 
-    def ingest_then_change(self, *args, **kwargs):
-        ref = ingest(self, *args, **kwargs)
+    def ingest_then_change(self, data, *args, **kwargs):
+        seen["ingested"] = data
+        ref = ingest_bytes(self, data, *args, **kwargs)
         write(pdf, make_pdf("바뀐 본문"))
         return ref
 
-    monkeypatch.setattr(LocalEngine, "ingest", ingest_then_change)
+    def record_render(data, *args, **kwargs):
+        seen["rendered"] = data
+        return render(data, *args, **kwargs)
+
+    monkeypatch.setattr(LocalEngine, "ingest_bytes", ingest_then_change)
+    monkeypatch.setattr(ko_parser.cli, "render_page_images", record_render)
     out = tmp_path / "a.html"
-    code, stdout, err = run(capsys, "view", pdf, "--db", db, "--out", out)
-    assert (code, stdout) == (1, "") and "file changed during view" in err and "Traceback" not in err
-    assert not out.exists()
+    assert run(capsys, "view", pdf, "--db", db, "--out", out)[0] == 0
+    assert seen["rendered"] is seen["ingested"] and [b["text"] for b in view_data(out)["blocks"]] == ["본문"]
 
 
 def test_view_writes_lone_surrogate_text_as_replacement(capsys, db, tmp_path, monkeypatch):
@@ -174,27 +196,70 @@ def test_view_default_output_directory_fails_before_store(capsys, db, tmp_path, 
 def test_view_failure_keeps_existing_html_and_leaves_no_temp(capsys, db, tmp_path, monkeypatch):
     """실패하면 이전 HTML은 바이트 그대로, 임시 파일은 남지 않는다."""
     import ko_parser.cli
-    from ko_parser.engine import LocalEngine
 
     out_dir = tmp_path / "결과"
     out = write(out_dir / "a.html", b"old html\n")
     pdf = write(tmp_path / "a.pdf", make_pdf("본문"))
-    ingest = LocalEngine.ingest
 
-    def ingest_then_change(self, *args, **kwargs):
-        ref = ingest(self, *args, **kwargs)
-        write(pdf, make_pdf("바뀐 본문"))
-        return ref
+    def fail_render(*args, **kwargs):
+        raise RuntimeError("render failed")
 
     with monkeypatch.context() as m:
-        m.setattr(LocalEngine, "ingest", ingest_then_change)
-        assert run(capsys, "view", pdf, "--db", db, "--out", out)[0] == 1
+        m.setattr(ko_parser.cli, "render_html", fail_render)
+        code, stdout, err = run(capsys, "view", pdf, "--db", db, "--out", out)
+    assert (code, stdout) == (1, "") and "render failed" in err
     assert out.read_bytes() == b"old html\n" and sorted(out_dir.iterdir()) == [out]
 
-    def fail_replace(*args, **kwargs):
-        raise OSError("replace failed")
+    replace = os.replace
 
-    monkeypatch.setattr(ko_parser.cli.os, "replace", fail_replace)
+    def fail_for_temp(src, dst, *args, **kwargs):  # 임시 파일 → out 바꿔 끼우기만 실패시킨다
+        if os.path.dirname(src) == str(out_dir) and str(src).endswith(".tmp"):
+            raise OSError("replace failed")
+        return replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(ko_parser.cli.os, "replace", fail_for_temp)
     code, stdout, err = run(capsys, "view", pdf, "--db", db, "--out", out)
     assert (code, stdout) == (1, "") and "replace failed" in err
     assert out.read_bytes() == b"old html\n" and sorted(out_dir.iterdir()) == [out]
+
+
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_view_temp_file_never_touches_existing_tmp_path(capsys, db, tmp_path, kind):
+    """임시 파일은 새로 만든 고유 이름: 이미 있는 <out>.tmp 파일·심볼릭 링크(가리키는 파일 포함)는 그대로."""
+    out_dir = tmp_path / "결과"
+    out = out_dir / "a.html"
+    tmp = out_dir / "a.html.tmp"
+    unrelated = write(tmp_path / "다른.txt", b"unrelated\n")
+    if kind == "file":
+        write(tmp, b"keep me\n")
+    else:
+        out_dir.mkdir()
+        try:
+            tmp.symlink_to(unrelated)
+        except OSError:  # Windows에서 권한이 없으면 심볼릭 링크를 만들 수 없다
+            pytest.skip("symlinks are not available")
+    pdf = write(tmp_path / "a.pdf", make_pdf("본문"))
+    assert run(capsys, "view", pdf, "--db", db, "--out", out)[0] == 0
+    assert view_data(out)["blocks"][0]["text"] == "본문"
+    assert unrelated.read_bytes() == b"unrelated\n"
+    if kind == "file":
+        assert tmp.read_bytes() == b"keep me\n"
+    else:
+        assert tmp.is_symlink() and tmp.resolve() == unrelated.resolve()
+    assert sorted(p.name for p in out_dir.iterdir()) == ["a.html", "a.html.tmp"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_view_html_gets_normal_permissions(capsys, db, tmp_path):
+    """임시 파일(0600)을 바꿔 끼워도 새 HTML은 umask 기본 권한, 이미 있던 HTML은 원래 권한."""
+    md = write(tmp_path / "메모.md", "가\n".encode())
+    fresh, existing = tmp_path / "새.html", write(tmp_path / "있던.html", b"old\n")
+    existing.chmod(0o640)
+    old_umask = os.umask(0o022)
+    try:
+        assert run(capsys, "view", md, "--db", db, "--out", fresh)[0] == 0
+        assert run(capsys, "view", md, "--db", db, "--out", existing)[0] == 0
+    finally:
+        os.umask(old_umask)
+    assert stat.S_IMODE(fresh.stat().st_mode) == 0o644
+    assert stat.S_IMODE(existing.stat().st_mode) == 0o640 and b"old" not in existing.read_bytes()

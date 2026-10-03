@@ -26,6 +26,7 @@ def make_pdf(pages: int = 2, **kw) -> bytes:
 
 
 def live_pdfium_objects() -> int:
+    # ObjectTracker는 pypdfium2 비공개 API: pyproject의 pypdfium2>=5.8,<6 범위에 기댄다
     return sum(len(refs) for refs in pdfium_i.ObjectTracker.values())
 
 
