@@ -13,10 +13,11 @@ from ..formats.pdf.extract import PDFIUM_LOCK, open_pdf, pdfium
 DEFAULT_DPI = 110
 _JPEG_QUALITY = 80
 _MAX_PIXELS = 25_000_000  # 쪽 그림 하나의 화소 상한(약 5000×5000). 넘는 쪽은 배율을 낮춘다
+_MAX_SIDE = 16384  # 쪽 그림 한 변의 화소 상한(아주 길쭉한 쪽). 넘는 쪽은 배율을 낮춘다
 
 
 def render_page_images(data: bytes, name: str, dpi: int = DEFAULT_DPI) -> dict[int, bytes]:
-    """{쪽 번호: JPEG 바이트}. 쪽 회전(/Rotate)은 렌더에 반영되고 _MAX_PIXELS를 넘는 쪽은 비율을 지켜 줄인다.
+    """{쪽 번호: JPEG 바이트}. 쪽 회전(/Rotate)은 렌더에 반영되고 _MAX_PIXELS·_MAX_SIDE를 넘는 쪽은 비율을 지켜 줄인다.
     쪽이 없거나 암호화·손상 PDF는 ParseError."""
     if dpi < 1:
         raise ValueError("dpi must be >= 1")
@@ -35,8 +36,11 @@ def render_page_images(data: bytes, name: str, dpi: int = DEFAULT_DPI) -> dict[i
                     scale = dpi / 72
                     if math.ceil(width * scale) * math.ceil(height * scale) > _MAX_PIXELS:
                         scale = math.sqrt(_MAX_PIXELS / (width * height))
-                        while math.ceil(width * scale) * math.ceil(height * scale) > _MAX_PIXELS:
-                            scale *= 0.999  # pypdfium2가 화소 수를 올림하므로 넘치면 조금 더 줄인다
+                    if max(math.ceil(width * scale), math.ceil(height * scale)) > _MAX_SIDE:
+                        scale = _MAX_SIDE / max(width, height)
+                    while (math.ceil(width * scale) * math.ceil(height * scale) > _MAX_PIXELS
+                           or max(math.ceil(width * scale), math.ceil(height * scale)) > _MAX_SIDE):
+                        scale *= 0.999  # pypdfium2가 화소 수를 올림하므로 넘치면 조금 더 줄인다
                     bitmap = page.render(scale=scale)
                     image = bitmap.to_pil().convert("RGB")  # 복사본: 비트맵을 닫아도 남는다
                     buf = io.BytesIO()

@@ -12,7 +12,7 @@ from reportlab.pdfgen.canvas import Canvas
 from ko_parser.errors import ParseError
 from ko_parser.formats.pdf.extract import PDFIUM_LOCK
 from ko_parser.viewer import DEFAULT_DPI, render_page_images
-from ko_parser.viewer.images import _MAX_PIXELS
+from ko_parser.viewer.images import _MAX_PIXELS, _MAX_SIDE
 
 
 def make_pdf(pages: int = 2, **kw) -> bytes:
@@ -106,3 +106,16 @@ def test_huge_page_is_capped_at_max_pixels():
     assert width * height <= _MAX_PIXELS
     assert width * height > _MAX_PIXELS * 0.99  # 필요한 만큼만 줄였다
     assert math.isclose(width, height * 2, abs_tol=2)  # 가로세로 비율 유지(±1px씩)
+
+
+def test_tall_page_is_capped_at_max_side():
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(72.0, 14400.0), invariant=1, pageCompression=0)
+    c.rect(10, 72, 50, 100, fill=1)
+    c.showPage()
+    c.save()
+    image = Image.open(io.BytesIO(render_page_images(buf.getvalue(), "tall.pdf", dpi=600)[1]))
+    width, height = image.size
+    assert max(width, height) <= _MAX_SIDE
+    assert height > _MAX_SIDE * 0.99  # 필요한 만큼만 줄였다
+    assert math.isclose(width, height / 200, abs_tol=2)  # 가로세로 비율 유지
