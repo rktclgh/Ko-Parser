@@ -105,7 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
     view = sub.add_parser("view", parents=[common], help="파싱 결과를 HTML 한 장으로 만든다(원본이 같으면 저장된 버전)")
     view.add_argument("file")
     view.add_argument("--id", dest="document_id", type=_non_empty, help="문서 ID (기본: doc_ + 원본 sha256 앞 24자리)")
-    view.add_argument("--out", help="HTML 경로 (기본: 현재 폴더/<파일 이름>.view.html)")
+    view.add_argument("--out", type=_non_empty, help="HTML 경로 (기본: 현재 폴더/<파일 이름(확장자 제외)>.view.html)")
     view.add_argument("--dpi", type=_dpi, default=DEFAULT_DPI, help=f"쪽 이미지 해상도 (기본 {DEFAULT_DPI})")
     return parser
 
@@ -114,14 +114,14 @@ def _json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 
-def _write(text: str, out: str | None, errors: str = "strict") -> None:
+def _write(text: str, out: str | None) -> None:
     if out is None:
         sys.stdout.write(text)
         sys.stdout.flush()
         return
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", errors=errors, newline="\n")
+    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def _emit_tree(tree: DocumentTree, args: argparse.Namespace) -> None:
@@ -147,8 +147,17 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
             raise RuntimeError(f"file changed during view: {tree.source.name}")
         images = render_page_images(data, tree.source.name, args.dpi)
     out = view_path(args.file, args.out)
-    # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
-    _write(render_html(tree, images, previous), str(out), errors="replace")
+    html = render_html(tree, images, previous)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # 옆 임시 파일에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 HTML이 반쯤 덮이지 않는다
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
+        tmp.write_text(html, encoding="utf-8", errors="replace", newline="\n")
+        os.replace(tmp, out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     _write(f"{out}\n", None)
 
 
@@ -176,8 +185,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:  # argparse: 사용법 오류 2, --help 0
         return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     try:
-        if args.command in ("parse", "view") and args.out and Path(args.out).is_dir():  # 저장소를 건드리기 전에 막는다
-            raise IsADirectoryError(f"--out is a directory: {args.out}")
+        out = view_path(args.file, args.out) if args.command == "view" else args.out if args.command == "parse" else None
+        if out and Path(out).is_dir():  # 저장소를 건드리기 전에 막는다(view는 기본 출력 경로도)
+            raise IsADirectoryError(f"output path is a directory: {out}")
         with SqliteStore(resolve_db(args.db)) as store:
             _run(args, LocalEngine(store))
     except KoParserError as exc:

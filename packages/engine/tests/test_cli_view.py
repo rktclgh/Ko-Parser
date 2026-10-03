@@ -97,7 +97,8 @@ def test_view_marks_changes_against_previous_version(capsys, db, tmp_path):
 
 
 @pytest.mark.parametrize("argv", [["view"], ["view", "a.pdf", "--dpi", "0"], ["view", "a.pdf", "--dpi", "601"],
-                                  ["view", "a.pdf", "--dpi", "x"], ["view", "a.pdf", "--id", ""]])
+                                  ["view", "a.pdf", "--dpi", "x"], ["view", "a.pdf", "--id", ""],
+                                  ["view", "a.pdf", "--out", ""]])
 def test_view_usage_errors_exit_2(capsys, tmp_path, monkeypatch, argv):
     state = tmp_path / "state.db"
     monkeypatch.setenv("KO_PARSER_DB", str(state))
@@ -158,3 +159,42 @@ def test_view_writes_lone_surrogate_text_as_replacement(capsys, db, tmp_path, mo
     code, stdout, err = run(capsys, "view", md, "--db", db, "--out", out)
     assert (code, stdout) == (0, f"{out}\n") and err == ""
     assert [b["text"] for b in view_data(out)["blocks"]] == ["가?"]
+
+
+def test_view_default_output_directory_fails_before_store(capsys, db, tmp_path, monkeypatch):
+    pdf = write(tmp_path / "입력" / "보고서.pdf", make_pdf("본문"))
+    work = tmp_path / "작업"
+    (work / "보고서.view.html").mkdir(parents=True)
+    monkeypatch.chdir(work)
+    code, out, err = run(capsys, "view", pdf, "--db", db)
+    assert (code, out) == (1, "") and "Traceback" not in err
+    assert not db.exists()
+
+
+def test_view_failure_keeps_existing_html_and_leaves_no_temp(capsys, db, tmp_path, monkeypatch):
+    """실패하면 이전 HTML은 바이트 그대로, 임시 파일은 남지 않는다."""
+    import ko_parser.cli
+    from ko_parser.engine import LocalEngine
+
+    out_dir = tmp_path / "결과"
+    out = write(out_dir / "a.html", b"old html\n")
+    pdf = write(tmp_path / "a.pdf", make_pdf("본문"))
+    ingest = LocalEngine.ingest
+
+    def ingest_then_change(self, *args, **kwargs):
+        ref = ingest(self, *args, **kwargs)
+        write(pdf, make_pdf("바뀐 본문"))
+        return ref
+
+    with monkeypatch.context() as m:
+        m.setattr(LocalEngine, "ingest", ingest_then_change)
+        assert run(capsys, "view", pdf, "--db", db, "--out", out)[0] == 1
+    assert out.read_bytes() == b"old html\n" and sorted(out_dir.iterdir()) == [out]
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(ko_parser.cli.os, "replace", fail_replace)
+    code, stdout, err = run(capsys, "view", pdf, "--db", db, "--out", out)
+    assert (code, stdout) == (1, "") and "replace failed" in err
+    assert out.read_bytes() == b"old html\n" and sorted(out_dir.iterdir()) == [out]
