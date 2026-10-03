@@ -621,17 +621,20 @@ def test_large_non_rectangular_merge_stays_fast():
     assert [(c.row, c.col, c.rowspan, c.colspan) for c in spec.table.cells] == [(0, 0, 1, 1), (0, 1, 2, 1), (1, 0, 1, 1)]
 
 
-@pytest.mark.parametrize("fill_mode,header", [(0, "none"), (1, "column")], ids=["even-odd", "nonzero"])
-def test_hollow_filled_frame_cells_are_borders_not_a_header_background(fill_mode, header):
-    """맨 윗행 칸을 '바깥 사각형 + 1pt 안쪽 사각형'을 한 path로 채웠다. even-odd면 속이 빈 틀: 칸 테두리이지 배경이
-    아니다. nonzero(두 사각형이 같은 방향)면 속까지 칠한 배경."""
+@pytest.mark.parametrize("fill_mode,insets,header", [(0, (1,), "none"), (1, (1,), "column"), (0, (0.5, 1), "column")],
+                         ids=["even-odd", "nonzero", "even-odd-triple"])
+def test_hollow_filled_frame_cells_are_borders_not_a_header_background(fill_mode, insets, header):
+    """맨 윗행 칸을 '바깥 사각형 + 안쪽 사각형'을 한 path로 채웠다. 사각형 둘이고 even-odd면 속이 빈 틀: 칸
+    테두리이지 배경이 아니다. nonzero(두 사각형이 같은 방향)면 속까지 칠한 배경. 셋을 겹친 even-odd(가운데가 다시
+    칠해진다)는 틀로 보지 않고 예전처럼 사각형마다 채움(맨 안쪽을 따로 칠한 것과 같은 배경)."""
     def draw(p):
         xs, ys = [100, 200, 300], [100, 150, 200]
         for k in range(2):
             path = p.c.beginPath()
             x, y = xs[k], p.height - ys[1]
             path.rect(x, y, 100, 50)
-            path.rect(x + 1, y + 1, 98, 48)
+            for d in insets:
+                path.rect(x + d, y + d, 100 - 2 * d, 50 - 2 * d)
             p.c.drawPath(path, stroke=0, fill=1, fillMode=fill_mode)
         grid(p, xs, ys[1:])
         for r in range(2):
@@ -660,3 +663,22 @@ def test_shaded_rows_under_a_tall_top_left_cell_are_not_a_column_header():
     (spec,) = find_tables(page_of(draw))
     assert cells(spec)[0] == (0, 0, 2, 1, "구분")
     assert {c.header for c in spec.table.cells} == {"none"}
+
+
+def test_large_ruled_table_with_a_paragraph_cell_is_a_table():
+    """쪽의 75%를 덮는 4 × 4 선 격자에 6줄 문단 칸이 있어도 표다(쪽 꾸밈 선 거르기는 3 × 3 이하 선 격자에만)."""
+    xs = [40 + 128.75 * k for k in range(5)]
+    ys = [60 + 182.5 * r for r in range(5)]
+
+    def draw(p):
+        grid(p, xs, ys)
+        for r in range(4):
+            for k in range(4):
+                if (r, k) != (1, 1):
+                    p.text(xs[k] + 10, ys[r] + 30, f"칸{r}{k}")
+        for i in range(6):
+            p.text(xs[1] + 10, ys[1] + 30 + 14 * i, f"문단 {i}줄")
+
+    (spec,) = find_tables(page_of(draw))
+    assert (spec.table.n_rows, spec.table.n_cols) == (4, 4)
+    assert [c.text.count("\n") for c in spec.table.cells if (c.row, c.col) == (1, 1)] == [5]

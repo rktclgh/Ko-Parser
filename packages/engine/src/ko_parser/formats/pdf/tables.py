@@ -36,8 +36,9 @@ CORE = 0.25  # 글자 정렬 행 경계는 글자 상자 가운데(위아래 25%
 # 촘촘한 줄. 0.1·0.4 같음, 0이면 37·4·29·0.935)
 CROSS_EPS = 0.1  # 글자 상자가 경계를 이만큼(pt) 넘어야 가로지른 것(0~1.0 같음)
 
-# 쪽 꾸밈 선(쪽 테두리 상자·제목 밑줄·단 나눔 선·꼬리말 선)이 만든 격자는 표가 아니다: 표 상자가 쪽 넓이의
-# LAYOUT_AREA를 넘게 덮고 선 격자 칸 하나에 본문 LAYOUT_LINES줄 이상. 넣기 전·후 채점 같음(37·4·30·0.936). 정답 표
+# 쪽 꾸밈 선(쪽 테두리 상자·제목 밑줄·단 나눔 선·꼬리말 선)이 만든 격자는 표가 아니다: 선 격자가 3 × 3 이하이고
+# 표 상자가 쪽 넓이의 LAYOUT_AREA를 넘게 덮고 선 격자 칸 하나에 본문 LAYOUT_LINES줄 이상. 일부러 맞바꾼 것: 쪽을
+# 거의 덮는 2 × 2·3 × 3 선 격자에 문단 칸이 있으면 진짜 표여도 쪽 꾸밈으로 본다(모양으로는 가릴 수 없다). 넣기 전·후 채점 같음(37·4·30·0.936). 정답 표
 # 상자는 쪽의 0.60 이하이고 그중 9~12줄 칸이 있다: 0.6 같음, 0.55면 33·4·26·0.928, 0.5면 33·3·26·0.928
 LAYOUT_AREA = 0.65
 LAYOUT_LINES = 6  # (넓이 0.5에서 3이면 32·3·25, 10이면 35·3·28, 13이면 같음)
@@ -545,8 +546,9 @@ def _build(page: PageText, region: list[_Seg], chars: Sequence[tuple[int, Char, 
     sizes = Counter(step(c.size) for c, _ in ink)
     size = max(sizes, key=lambda s: (sizes[s], -s))
     boxes = [b for _, b in ink]
-    if (right - left) * (bottom - top) > LAYOUT_AREA * page.width_pt * page.height_pt and any(
-            len(_lines(cell, size)) >= LAYOUT_LINES for row in _buckets(*grid, boxes) for cell in row if cell):
+    if (len(grid[0]) <= 4 and len(grid[1]) <= 4  # 선 격자 3 × 3 이하
+            and (right - left) * (bottom - top) > LAYOUT_AREA * page.width_pt * page.height_pt
+            and any(len(_lines(cell, size)) >= LAYOUT_LINES for row in _buckets(*grid, boxes) for cell in row if cell)):
         return None
     lines = _Lines(region)
     lay = _layout(lines, grid, boxes, size, [b for _, c, b in inside if c.text.isspace()])

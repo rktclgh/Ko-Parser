@@ -540,17 +540,18 @@ def _signed_area(sub: _Subpath) -> float:
     return sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1], strict=True)) / 2
 
 
-def _frame_parts(subs: list[_Subpath], winding: bool) -> set[int]:
-    """한 채운 path에서 다른 사각형 부분 경로를 품거나 그 안에 든 사각형 부분 경로의 순번: 안쪽이 비는 틀(even-odd
-    채움, 또는 nonzero 채움에서 두 사각형을 감는 방향이 반대)."""
-    rects = [(i, rect, _signed_area(sub)) for i, sub in enumerate(subs) if (rect := _rect(sub)) is not None]
-    out: set[int] = set()
-    for i, a, area_a in rects:
-        for j, b, area_b in rects:
-            if (i != j and a != b and a[0] <= b[0] and a[1] <= b[1] and a[2] >= b[2] and a[3] >= b[3]
-                    and (not winding or area_a * area_b < 0)):
-                out |= {i, j}
-    return out
+def _is_frame(subs: list[_Subpath], winding: bool) -> bool:
+    """채운 path가 사각형 부분 경로 정확히 둘이고 하나가 다른 하나를 품으면 안쪽이 비는 틀(even-odd 채움, 또는 nonzero
+    채움에서 두 사각형을 감는 방향이 반대). 그 밖의 부분 경로 수(셋 이상 겹친 사각형 포함)는 사각형마다 채움."""
+    if len(subs) != 2:
+        return False
+    a, b = _rect(subs[0]), _rect(subs[1])
+    if a is None or b is None or a == b:
+        return False
+    if not (a[0] <= b[0] and a[1] <= b[1] and a[2] >= b[2] and a[3] >= b[3]
+            or b[0] <= a[0] and b[1] <= a[1] and b[2] >= a[2] and b[3] >= a[3]):
+        return False
+    return not winding or _signed_area(subs[0]) * _signed_area(subs[1]) < 0
 
 
 def _fill_rules(sub: _Subpath) -> list[Rule]:
@@ -638,10 +639,10 @@ def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: 
         subs = _subpaths(obj, matrix, box, rotation, width, height)
         # 속이 빈 틀(사각형 안에 사각형)은 채운 배경이 아니라 테두리: 두 사각형의 변을 stroke로
         winding = fill_mode.value == pdfium_c.FPDF_FILLMODE_WINDING
-        frames = _frame_parts(subs, winding) if filled and len(subs) > 1 else set()
-        for i, sub in enumerate(subs):
-            found = [_edge_rule(p, q) for p, q in sub.edges] if stroked or i in frames else []
-            for rule in found + (_fill_rules(sub) if filled and i not in frames else []):
+        frame = filled and _is_frame(subs, winding)
+        for sub in subs:
+            found = [_edge_rule(p, q) for p, q in sub.edges] if stroked or frame else []
+            for rule in found + (_fill_rules(sub) if filled and not frame else []):
                 if rule is None:
                     continue
                 if rule.end - rule.start < MIN_RULE - LEN_EPS:

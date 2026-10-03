@@ -255,3 +255,24 @@ def test_rule_of_exactly_min_length_survives_float_error(x, length, kept):
         c.line(200, x, 200, x + length)
 
     assert [r.axis for r in rules_of(draw)] == (["h", "v"] if kept else [])
+
+
+def test_one_fill_path_of_many_squares_is_fast():
+    """채운 path 하나에 작은 네모 10,000개: 부분 경로끼리 짝지어 비교하지 않는다(CPU 시간 세 번 중 가장 짧은 것)."""
+    from time import process_time
+
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(W, H), invariant=1, pageCompression=0)
+    path = c.beginPath()
+    for i in range(10_000):
+        path.rect(20 + 5 * (i % 100), 20 + 8 * (i // 100), 3, 3)
+    c.drawPath(path, stroke=0, fill=1)
+    c.showPage()
+    c.save()
+    data = buf.getvalue()
+    times = []
+    for _ in range(3):
+        start = process_time()
+        extract_pages(data, "t.pdf")
+        times.append(process_time() - start)
+    assert min(times) < 0.5
