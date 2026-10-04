@@ -5,6 +5,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
+from ko_parser.formats.pdf import extract
 from ko_parser.formats.pdf.extract import MIN_RULE, PageText, Rule, extract_pages
 
 FONT = "HYGothic-Medium"
@@ -363,3 +364,23 @@ def test_filled_rect_of_either_winding_is_a_rect(backwards):
     assert sorted((r.axis, r.pos, r.start, r.end, r.kind) for r in found) == [
         ("h", 292.0, 100.0, 200.0, "fill"), ("h", 342.0, 100.0, 200.0, "fill"),
         ("v", 100.0, 292.0, 342.0, "fill"), ("v", 200.0, 292.0, 342.0, "fill")]
+
+
+def draw_budget_page(c):
+    """path 구간 52개(작은 네모 10개 × 5 + 선 1개 × 2), 점선 조각 60개(네모마다 그은 변 4 + 가운데 선 2)와 글자 하나."""
+    for i in range(10):
+        c.rect(100 + 20 * i, 500, 0.48, 0.48, stroke=1, fill=1)
+    c.line(100, 300, 300, 300)
+    t = c.beginText(100, 200)
+    t.setFont(FONT, 10)
+    t.textOut("가")
+    c.drawText(t)
+
+
+@pytest.mark.parametrize("budget,has_rules", [(51, False), (55, False), (60, True), (1000, True)])
+def test_rule_collection_stops_when_the_page_exceeds_the_segment_budget(monkeypatch, budget, has_rules):
+    """쪽의 path 구간(51 < 52) 또는 점선 조각(55 < 60)이 MAX_RULE_SEGMENTS를 넘으면 그 쪽 선은 () — 글자는 그대로."""
+    monkeypatch.setattr(extract, "MAX_RULE_SEGMENTS", budget)
+    page = page_of(draw_budget_page)
+    assert page.rules == ((Rule("h", 542.0, 100.0, 300.0),) if has_rules else ())
+    assert [ch.text for ch in page.chars] == ["가"]

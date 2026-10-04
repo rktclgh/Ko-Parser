@@ -41,6 +41,8 @@ DASH = 0.2  # 점선 조각: 길이 DASH 이상 MIN_RULE 미만인 가로·세�
 DASH_GAP = 2.0  # 같은 위치의 점선 조각 사이가 ≤ 2pt면 한 선으로 잇는다
 DASH_DRIFT = 0.05  # 이은 점선의 위치 흐름이 AXIS_TOL보다 크면 길이 1pt마다 0.05pt까지만(천천히 흐르는 점선은 선, 사선 점선은 아니다)
 WHITE = 250  # 빨강·초록·파랑이 모두 이 이상이면 하얀색(배경과 같은 색)으로 보고 버린다(98% 이상 밝은 회색 칠도 버린다)
+MAX_RULE_SEGMENTS = 200_000  # 쪽마다 훑는 path 구간(점선 조각도) 상한. 넘으면 그 쪽 선은 없다(악성 PDF가 잠금·메모리를
+# 오래 쥐지 않게). 공공누리 정답 표 문서 8개의 쪽 최대는 15,560(path 객체 7,777)으로 약 13배 여유
 
 _BOLD_NAME = re.compile(r"bold|black|heavy", re.IGNORECASE)
 _BOLD_WEIGHT = 600
@@ -210,7 +212,7 @@ def _page(pdf: pdfium.PdfDocument, index: int, location: str, check: "_HangulChe
         check.add_page(pdf, page, seen, hangul_fonts, location)
         return PageText(page=index + 1, width_pt=width, height_pt=height, rotation=rotation, chars=chars,
                         image_coverage=tuple(_image_coverage(page, box)),
-                        rules=tuple(_rules(page, box, rotation, width, height)))
+                        rules=_rules(page, box, rotation, width, height))
     finally:
         page.close()
 
@@ -613,14 +615,20 @@ def _clipped(rule: Rule, width: float, height: float) -> Rule | None:
     return Rule(rule.axis, round(rule.pos, 3), round(start, 3), round(end, 3), rule.kind)
 
 
-def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: float) -> Iterator[Rule]:
+def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: float) -> tuple[Rule, ...]:
     """path 객체(폼 XObject 안 포함)의 가로·세로 선분. 그은 path의 직선 변은 stroke, 채운 사각형은 _fill_rules.
     하얀색·투명 선과 채움, 사선·곡선, 이어도 MIN_RULE보다 짧은 선분, 쪽 밖은 버린다. 좌표는 글자와 같은 보이는
     쪽 틀(회전 보정, 원점 왼쪽 위)의 pt. 순서는 그린 순서, 점선은 끝에. 그리고 채운 path는 stroke와 fill을 둘 다 낸다.
-    알려진 한계: 클리핑 경로는 보지 않는다(잘려 안 보이는 선도 낸다)."""
+    알려진 한계: 클리핑 경로는 보지 않는다(잘려 안 보이는 선도 낸다).
+    훑은 path 구간이나 점선 조각이 MAX_RULE_SEGMENTS개를 넘으면 그 쪽은 ()(표 검출을 건너뛴다. 글자는 그대로)."""
     fill_mode, stroke = ctypes.c_int(), ctypes.c_int()
+    out: list[Rule] = []
     dashes: list[Rule] = []
+    budget = MAX_RULE_SEGMENTS
     for obj, matrix in _path_objects(page.raw, False, _IDENTITY):
+        budget -= max(pdfium_c.FPDFPath_CountSegments(obj), 1)  # 점을 읽기 전에 센다(넘으면 바로 멈춘다)
+        if budget < 0:
+            return ()
         if not pdfium_c.FPDFPath_GetDrawMode(obj, fill_mode, stroke):
             continue
         stroked = bool(stroke.value) and _visible_color(pdfium_c.FPDFPageObj_GetStrokeColor, obj)
@@ -645,7 +653,8 @@ def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: 
                 if rule.end - rule.start < MIN_RULE - LEN_EPS:
                     dashes.append(rule)
                 elif (clipped := _clipped(rule, width, height)) is not None:
-                    yield clipped
-    for rule in _join_dashes(dashes):
-        if (clipped := _clipped(rule, width, height)) is not None:
-            yield clipped
+                    out.append(clipped)
+        if len(dashes) > MAX_RULE_SEGMENTS:
+            return ()
+    out.extend(clipped for rule in _join_dashes(dashes) if (clipped := _clipped(rule, width, height)) is not None)
+    return tuple(out)
