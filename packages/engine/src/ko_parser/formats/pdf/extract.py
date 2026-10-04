@@ -521,7 +521,8 @@ def _edge_rule(p: Point, q: Point) -> Rule | None:
 
 def _rect(sub: _Subpath) -> tuple[float, float, float, float] | None:
     """곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL, 네 모서리가 모두 있고 이웃 꼭짓점 사이(닫는 변 포함)가
-    모두 가로·세로(± AXIS_TOL)인 사각형이면 (left, top, right, bottom), 아니면 None(대각선으로 도는 나비 모양 등)."""
+    모두 가로·세로(± AXIS_TOL)이며 둘러싼 넓이가 외접 상자 넓이인 사각형이면 (left, top, right, bottom), 아니면
+    None(대각선으로 도는 나비 모양, 되짚어 가는 길 등)."""
     if sub.curved or len(sub.points) < 4:
         return None
     if any(min(abs(x1 - x0), abs(y1 - y0)) > AXIS_TOL
@@ -534,6 +535,13 @@ def _rect(sub: _Subpath) -> tuple[float, float, float, float] | None:
         return None
     if not all(any(abs(x - cx) <= AXIS_TOL and abs(y - cy) <= AXIS_TOL for x, y in sub.points)
                for cx in (left, right) for cy in (top, bottom)):  # 예: 채운 직각삼각형
+        return None
+    # 둘러싼 넓이(신발끈 공식, 겹친 점은 더해지지 않는다)가 외접 상자 넓이와 같아야 한다: 되짚어 가는 길·나비 모양은
+    # 넓이가 0이나 그보다 작다. 여유는 1% 또는 꼭짓점이 AXIS_TOL만큼 어긋날 때의 넓이 차
+    w, h = right - left, bottom - top
+    pts = sub.points
+    area = abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1], strict=True))) / 2
+    if abs(area - w * h) > max(0.01 * w * h, AXIS_TOL * (w + h)):
         return None
     return left, top, right, bottom
 

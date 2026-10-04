@@ -337,3 +337,29 @@ def test_bowtie_through_the_four_corners_is_not_a_rect():
         c.drawPath(path, stroke=0, fill=1)
 
     assert rules_of(draw) == []
+
+
+def walk(c, points):
+    """points를 차례로 이은 닫힌 path 하나를 채운다(PDF 좌표)."""
+    path = c.beginPath()
+    path.moveTo(*points[0])
+    for point in points[1:]:
+        path.lineTo(*point)
+    path.close()
+    c.setFillColorRGB(0.85, 0.85, 0.85)
+    c.drawPath(path, stroke=0, fill=1)
+
+
+def test_retracing_walk_over_rect_corners_is_not_a_rect():
+    """A→B→C→D→C→B→A: 꼭짓점·변은 모두 사각형 둘레 위지만 넓이가 0이다(없는 왼쪽 변을 내지 않는다)."""
+    a, b, cc, d = (100, 500), (200, 500), (200, 550), (100, 550)
+    assert rules_of(lambda c: walk(c, [a, b, cc, d, cc, b, a])) == []
+
+
+@pytest.mark.parametrize("backwards", [False, True])
+def test_filled_rect_of_either_winding_is_a_rect(backwards):
+    corners = [(100, 500), (200, 500), (200, 550), (100, 550)]
+    found = rules_of(lambda c: walk(c, corners[::-1] if backwards else corners))
+    assert sorted((r.axis, r.pos, r.start, r.end, r.kind) for r in found) == [
+        ("h", 292.0, 100.0, 200.0, "fill"), ("h", 342.0, 100.0, 200.0, "fill"),
+        ("v", 100.0, 292.0, 342.0, "fill"), ("v", 200.0, 292.0, 342.0, "fill")]
