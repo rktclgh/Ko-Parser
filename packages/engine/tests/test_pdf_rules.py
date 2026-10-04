@@ -384,3 +384,30 @@ def test_rule_collection_stops_when_the_page_exceeds_the_segment_budget(monkeypa
     page = page_of(draw_budget_page)
     assert page.rules == ((Rule("h", 542.0, 100.0, 300.0),) if has_rules else ())
     assert [ch.text for ch in page.chars] == ["가"]
+
+
+def test_path_segment_cap_stops_before_reading_the_over_budget_path(monkeypatch):
+    """점선 조각 없이 path 구간만 상한을 넘는 쪽: 긴 선 5개(구간 2개씩) 중 상한 7에서 넷째 선이 넘으므로 그 선부터는
+    점을 읽지 않고(앞 세 선의 6구간만 읽는다) 쪽 선은 (), 글자는 그대로."""
+    monkeypatch.setattr(extract, "MAX_RULE_SEGMENTS", 7)
+    real = extract.pdfium_c.FPDFPath_GetPathSegment
+    calls = []
+
+    def counting(obj, index):
+        calls.append(index)
+        return real(obj, index)
+
+    monkeypatch.setattr(extract.pdfium_c, "FPDFPath_GetPathSegment", counting)
+
+    def draw(c):
+        for i in range(5):
+            c.line(100, 700 - 50 * i, 300, 700 - 50 * i)
+        t = c.beginText(100, 200)
+        t.setFont(FONT, 10)
+        t.textOut("가")
+        c.drawText(t)
+
+    page = page_of(draw)
+    assert page.rules == ()
+    assert len(calls) == 6
+    assert [ch.text for ch in page.chars] == ["가"]
