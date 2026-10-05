@@ -4,6 +4,7 @@ import pytest
 
 from ko_parser.formats.pdf.extract import Char, PageText
 from ko_parser.formats.pdf.group import LIST_MARKER, body_size, build_specs, fragments
+from ko_parser.formats.pdf.scan import OcrParagraph
 from ko_parser_contracts import build_blocks
 
 W, H = 595.0, 842.0
@@ -180,6 +181,15 @@ def test_scanned_pages_keep_visible_text_unreliable_pages_make_no_blocks():
     assert [(s["text"], s["locator"]["page"]) for s in result] == [("보이는 쪽", 1), ("스캔 쪽 쪽 번호", 2)]
     assert [s["locator"]["page"] for s in specs(p1, p2, states=["unreliable", "scanned"])] == [2]
     assert specs(p1, p2, states=["unreliable", "unreliable"]) == []
+
+
+def test_blank_ocr_paragraph_makes_no_block():
+    """글자가 공백뿐인 OCR 문단은 텍스트 레이어 조각처럼 블록이 되지 않는다(읽개가 빈 줄을 버리지만 한 겹 더)."""
+    p = page(line("스캔 쪽 쪽 번호", 72, 130))
+    paras = [OcrParagraph(text=" \n ", bbox=(0.1, 0.05, 0.5, 0.08), confidence=0.45),
+             OcrParagraph(text="그림 속 글자", bbox=(0.1, 0.2, 0.5, 0.25), confidence=0.45)]
+    result = build_specs([p], ["scanned"], None, [paras])
+    assert [(s["text_source"], s["text"]) for s in result] == [("text_layer", "스캔 쪽 쪽 번호"), ("ocr", "그림 속 글자")]
 
 
 def test_text_is_nfc_and_block_fields():

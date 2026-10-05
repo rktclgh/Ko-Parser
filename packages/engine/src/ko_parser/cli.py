@@ -18,6 +18,7 @@ from ko_parser_contracts import DocumentTree
 from .engine import LocalEngine
 from .errors import DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
 from .export import to_markdown
+from .formats.detect import default_parsers
 from .formats.pdf.parser import MIME as PDF_MIME
 from .store.sqlite import SqliteStore
 from .viewer import DEFAULT_DPI, render_html, render_page_images
@@ -26,6 +27,7 @@ APP_NAME = "ko-parser"
 DB_ENV = "KO_PARSER_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
+OCR_HELP = "스캔 쪽 OCR을 끈다 (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)"
 _EXIT_CODES: tuple[tuple[type[KoParserError], int], ...] = (
     (UnsupportedFormat, EXIT_UNSUPPORTED), (ParseError, EXIT_PARSE),
     (DocumentNotFound, EXIT_NOT_FOUND), (VersionNotFound, EXIT_NOT_FOUND),
@@ -93,6 +95,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parse.add_argument("file")
     parse.add_argument("--id", dest="document_id", type=_non_empty, help="문서 ID (기본: doc_ + 원본 sha256 앞 24자리)")
     parse.add_argument("--force", action="store_true", help="원본이 같아도 다시 파싱")
+    parse.add_argument("--no-ocr", action="store_true", help=OCR_HELP)
     export = sub.add_parser("export", parents=[common, output], help="저장된 문서 트리를 출력")
     export.add_argument("document_id")
     export.add_argument("--version", type=_positive)
@@ -108,6 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     view.add_argument("--id", dest="document_id", type=_non_empty, help="문서 ID (기본: doc_ + 원본 sha256 앞 24자리)")
     view.add_argument("--out", type=_non_empty, help="HTML 경로 (기본: 현재 폴더/<파일 이름(확장자 제외)>.view.html)")
     view.add_argument("--dpi", type=_dpi, default=DEFAULT_DPI, help=f"쪽 이미지 해상도 (기본 {DEFAULT_DPI})")
+    view.add_argument("--no-ocr", action="store_true", help=OCR_HELP)
     return parser
 
 
@@ -201,7 +205,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if out and Path(out).is_dir():  # 저장소를 건드리기 전에 막는다(view는 기본 출력 경로도)
             raise IsADirectoryError(f"output path is a directory: {out}")
         with SqliteStore(resolve_db(args.db)) as store:
-            _run(args, LocalEngine(store))
+            parsers = default_parsers(ocr=False) if getattr(args, "no_ocr", False) else None
+            _run(args, LocalEngine(store, parsers))
     except KoParserError as exc:
         print(f"{APP_NAME}: {exc}", file=sys.stderr)
         return next((code for kind, code in _EXIT_CODES if isinstance(exc, kind)), EXIT_ERROR)

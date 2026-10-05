@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from ko_parser import LocalEngine, MemoryStore
+from ko_parser.formats.detect import default_parsers
 from ko_parser_contracts import DocumentTree
 
 HERE = Path(__file__).resolve().parent
@@ -39,7 +40,7 @@ def test_fixtures_are_up_to_date():
 
 @pytest.mark.parametrize("name", NAMES)
 def test_engine_ingest_matches_golden(name):
-    engine = LocalEngine(MemoryStore())
+    engine = LocalEngine(MemoryStore(), default_parsers(ocr=False))
     ref = engine.ingest(str(ROOT / "inputs" / name), document_id=BUILDER.document_id(name))
     assert engine.get_tree(ref.document_id) == _expected(name)
 

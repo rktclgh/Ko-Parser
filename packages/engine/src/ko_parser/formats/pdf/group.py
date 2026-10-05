@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from ko_parser_contracts import TextLayerState
 
 from .extract import UPRIGHT, Axes, Char, PageText
+from .scan import OcrParagraph
 
 if TYPE_CHECKING:  # tables.py가 이 모듈을 import하므로 실행 중에는 가져오지 않는다
     from .tables import TableSpec
@@ -243,15 +244,40 @@ def _table_corner(table: "TableSpec", page: PageText, axes: Axes) -> tuple[float
     return top * h, left * w
 
 
+def _top(item: "list[Fragment] | TableSpec | OcrParagraph", page: PageText) -> float:
+    """블록의 보이는 쪽 윗변(0~1)."""
+    if isinstance(item, list):
+        return _box(item, page)["y0"]
+    return item.bbox[1]
+
+
+def _merge_ocr(page_items: list[tuple[PageText, str | None, Any]], paras: Sequence[OcrParagraph],
+               page: PageText) -> list[tuple[PageText, str | None, Any]]:
+    """같은 쪽의 텍스트 레이어 블록(읽기 순서)과 OCR 문단(XY 분할 순서)을 윗변 기준으로 합친다. 두 목록 안의
+    순서는 그대로 두고, 윗변이 같으면 텍스트 레이어 블록이 먼저다."""
+    queue = deque(paras)
+    out: list[tuple[PageText, str | None, Any]] = []
+    for item in page_items:
+        top = _top(item[2], page)
+        while queue and queue[0].bbox[1] < top:
+            out.append((page, None, queue.popleft()))
+        out.append(item)
+    return out + [(page, None, para) for para in queue]
+
+
 def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
-                tables: Sequence[Sequence["TableSpec"]] | None = None) -> list[dict[str, Any]]:
+                tables: Sequence[Sequence["TableSpec"]] | None = None,
+                ocr: Sequence[Sequence[OcrParagraph]] | None = None) -> list[dict[str, Any]]:
     """블록 명세(계약 build_blocks 입력). digital·scanned 쪽은 보이는 글자로 블록을 만들고(숨은 글자는 fragments가
     버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
     빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
     않는다). 표는 같은 읽기 방향(TableSpec.axes) 조각 사이에, 그 방향 조각이 없으면 쪽의 첫 방향 조각 사이에
     그 방향 읽기 좌표의 윗변으로 끼운다(조각이 없는 쪽은 표 자신의 방향). 윗변이 같으면 그 좌표의 왼쪽 표가
-    먼저다. 그 방향 조각보다 아래인 표는 그 방향 조각 끝(다음 방향 조각 앞)에 둔다. 순서: 쪽 → 위→아래 → 왼→오."""
+    먼저다. 그 방향 조각보다 아래인 표는 그 방향 조각 끝(다음 방향 조각 앞)에 둔다. 순서: 쪽 → 위→아래 → 왼→오.
+    ocr는 쪽마다 OCR 문단(scan.ocr_pages): 문단 블록(text_source="ocr")으로 그 쪽 블록 사이에 윗변 기준으로 끼우고,
+    section_path는 앞 블록을 따른다. 제목·목록·머리말 판정과 본문 크기에는 쓰지 않는다."""
     found = list(tables) if tables is not None else [[] for _ in pages]
+    read = list(ocr) if ocr is not None else [[] for _ in pages]
     frags: list[list[Fragment]] = []
     for page, state, page_tables in zip(pages, states, found, strict=True):
         taken = {i for t in page_tables for i in t.char_ids}
@@ -259,8 +285,11 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
         frags.append(fragments(rest) if state != "unreliable" else [])
     body = body_size(frags)
     margins = repeated_margins(pages, frags)
-    items: list[tuple[PageText, str | None, list[Fragment] | TableSpec]] = []  # (쪽, 머리말·꼬리말 종류, 조각 또는 표)
-    for p, (page, page_frags, page_tables, state) in enumerate(zip(pages, frags, found, states)):
+    # (쪽, 머리말·꼬리말 종류, 조각 묶음 또는 표 또는 OCR 문단)
+    items: list[tuple[PageText, str | None, list[Fragment] | TableSpec | OcrParagraph]] = []
+    for p, (page, page_frags, page_tables, state, paras) in enumerate(
+            zip(pages, frags, found, states, read, strict=True)):
+        start = len(items)
         present = {f.axes for f in page_frags}
         fallback = page_frags[0].axes if page_frags else UPRIGHT
         placed: dict[Axes, list[tuple[tuple[float, float], TableSpec]]] = defaultdict(list)  # 방향 → ((윗변, 왼변), 표)
@@ -282,6 +311,8 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
             else:
                 items.append((page, margin, [f]))
         items += [(page, None, t) for queue in queues.values() for _, t in queue]
+        if paras and state != "unreliable":
+            items[start:] = _merge_ocr(items[start:], paras, page)
 
     def is_heading(group: Sequence[Fragment]) -> bool:
         return body is not None and _is_heading_size(group[0], body) and len(group) <= HEADING_MAX_LINES
@@ -292,6 +323,17 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     stack: list[tuple[int, str]] = []  # (단계, 제목 글자)
     for page, margin, group in items:
         extra: dict[str, Any] = {}
+        if isinstance(group, OcrParagraph):
+            text = unicodedata.normalize("NFC", group.text)
+            if not text.strip():  # 텍스트 레이어 조각과 같이 빈 글자는 블록으로 만들지 않는다
+                continue
+            (x0, x1), (y0, y1) = _widen(group.bbox[0], group.bbox[2]), _widen(group.bbox[1], group.bbox[3])
+            specs.append({"kind": "paragraph", "text": text,
+                          "section_path": tuple(t for _, t in stack), "confidence": group.confidence,
+                          "state": "det", "text_source": "ocr",
+                          "locator": {"kind": "page", "page": page.page,
+                                      "bbox": {"x0": x0, "y0": y0, "x1": x1, "y1": y1}}})
+            continue
         if not isinstance(group, list):
             (x0, x1), (y0, y1) = _widen(group.bbox[0], group.bbox[2]), _widen(group.bbox[1], group.bbox[3])
             specs.append({"kind": "table", "table": group.table, "text": group.table.plain_text(),
