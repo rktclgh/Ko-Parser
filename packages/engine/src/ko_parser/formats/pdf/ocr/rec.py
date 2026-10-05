@@ -1,4 +1,4 @@
-"""PP-OCRv5 한국어 줄 인식: 줄 그림을 높이 48로 맞추고(너비 비율이 비슷한 것끼리 6개씩) CTC 탐욕 디코드.
+"""PP-OCRv5 한국어 줄 인식: 줄 그림을 높이 48로 맞추고(너비 비율이 비슷한 것끼리 6개 이하, 너비 예산 안) CTC 탐욕 디코드.
 점수는 고른 글자 확률의 평균(소수 다섯째 자리, RapidOCR 3.9.2와 같다)."""
 
 from collections.abc import Sequence
@@ -10,7 +10,25 @@ from .pixels import resize_linear
 
 HEIGHT = 48
 MIN_RATIO = 320 / 48  # 묶음 입력 너비 하한(너비/높이)
-BATCH = 6
+REC_BATCH = 6  # 한 번에 읽는 줄 수 상한(RapidOCR rec_batch_num)
+REC_WIDTH_BUDGET = 6 * 3200  # 묶음 줄 수 × 입력 너비 상한: 작은 글자의 긴 줄이 모여도 출력 텐서가 수백 MB로 크지 않게
+
+
+def _width(ratio: float) -> int:
+    return int(HEIGHT * max(MIN_RATIO, ratio))
+
+
+def _batches(order: np.ndarray, ratios: np.ndarray) -> list[list[int]]:
+    """너비 순으로 늘어놓은 줄을 묶는다: REC_BATCH개 이하이고 줄 수 × 입력 너비(가장 넓은 줄) ≤ REC_WIDTH_BUDGET.
+    예산보다 넓은 줄은 줄이지 않고 혼자 읽는다(줄이면 글자가 바뀐다)."""
+    batches: list[list[int]] = []
+    for i in order.tolist():
+        last = batches[-1] if batches else None
+        if last is not None and len(last) < REC_BATCH and (len(last) + 1) * _width(ratios[i]) <= REC_WIDTH_BUDGET:
+            last.append(i)
+        else:
+            batches.append([i])
+    return batches
 
 
 def recognize(session: Any, symbols: Sequence[str], crops: Sequence[np.ndarray]) -> list[tuple[str, float]]:
@@ -19,9 +37,8 @@ def recognize(session: Any, symbols: Sequence[str], crops: Sequence[np.ndarray])
     order = np.argsort(ratios)
     out: list[tuple[str, float]] = [("", 0.0)] * len(crops)
     name = session.get_inputs()[0].name
-    for start in range(0, len(crops), BATCH):
-        idx = order[start:start + BATCH]
-        width = int(HEIGHT * max(MIN_RATIO, max(ratios[i] for i in idx)))
+    for idx in _batches(order, ratios):
+        width = _width(max(ratios[i] for i in idx))
         x = np.zeros((len(idx), 3, HEIGHT, width), np.float32)
         for k, i in enumerate(idx):
             rw = min(width, int(np.ceil(HEIGHT * ratios[i])))

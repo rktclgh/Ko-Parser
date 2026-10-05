@@ -14,13 +14,14 @@ import pytest
 
 ort = pytest.importorskip("onnxruntime")
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 import ko_parser_fonts
 import ko_parser_ocr_models
 from ko_parser.errors import KoParserError, OcrUnavailable
 from ko_parser.formats.pdf import ocr
-from ko_parser.formats.pdf.ocr import reader
+from ko_parser.formats.pdf.ocr import reader, rec
 
 LINES = ["스캔한 쪽의 글자를 읽는다.", "공공누리 2026년 10월 5일", "사업 계획 보고서"]
 
@@ -290,3 +291,41 @@ def test_out_of_memory_during_dependency_import_is_not_reported_as_missing(monke
     with pytest.raises(MemoryError):
         ocr.get_reader()
     assert ocr._reader is None
+
+
+class FakeRecSession:
+    """인식 모델 대신: 입력 모양을 적어 두고 빈칸만 고른 확률을 돌려준다."""
+
+    def __init__(self):
+        self.shapes = []
+
+    def get_inputs(self):
+        return [SimpleNamespace(name="x")]
+
+    def run(self, _, feed):
+        x = feed["x"]
+        self.shapes.append(x.shape)
+        return [np.zeros((x.shape[0], x.shape[3] // 8, 3), np.float32)]
+
+
+def test_recognition_batches_stay_within_the_width_budget():
+    """작은 글자의 긴 줄 여섯(2000×66 그림에서 나오는 높이 11·너비 1990 줄)도 한 번에 넣는 묶음 수 × 너비가
+    예산 안이다(출력 텐서가 수백 MB로 커지지 않게)."""
+    session = FakeRecSession()
+    assert len(rec.recognize(session, ["blank", "가", " "], [np.zeros((11, 1990, 3), np.uint8)] * 6)) == 6
+    assert sum(n for n, *_ in session.shapes) == 6
+    assert all(n * w <= rec.REC_WIDTH_BUDGET for n, _, _, w in session.shapes)
+
+
+def test_short_lines_are_still_read_six_at_a_time():
+    session = FakeRecSession()
+    rec.recognize(session, ["blank", "가", " "], [np.zeros((40, 400, 3), np.uint8)] * 7)
+    assert session.shapes == [(6, 3, 48, 480), (1, 3, 48, 480)]
+
+
+def test_a_line_wider_than_the_budget_is_read_alone_at_full_width():
+    """예산보다 넓은 줄 하나는 줄이지 않고 혼자 읽는다(줄이면 글자가 바뀐다)."""
+    session = FakeRecSession()
+    crops = [np.zeros((10, 5000, 3), np.uint8), np.zeros((40, 400, 3), np.uint8)]
+    assert len(rec.recognize(session, ["blank", "가", " "], crops)) == 2
+    assert session.shapes == [(1, 3, 48, 480), (1, 3, 48, 24000)]
