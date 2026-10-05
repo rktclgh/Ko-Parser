@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sqlite3
+import stat
 import sys
 
 import pytest
@@ -343,3 +344,27 @@ def test_export_out_colliding_with_an_asset_file_exit_1_and_writes_nothing(capsy
                               "--assets", tmp_path / "a")
     assert (code, out_text) == (1, "") and "output path is also an asset file" in err
     assert not (tmp_path / "a").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_export_assets_keep_the_mode_of_an_existing_png(capsys, db, tmp_path):
+    asset, png = seed_figure(db)
+    target = write(tmp_path / "a" / (asset.removeprefix("sha256:")[:16] + ".png"), "old")
+    target.chmod(0o600)
+    assert run(capsys, "export", "fig", "--db", db, "--assets", tmp_path / "a")[0] == 0
+    assert target.read_bytes() == png and stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_export_out_symlink_is_replaced_not_followed(capsys, db, tmp_path):
+    seed_figure(db)
+    outside = write(tmp_path / "outside.txt", "keep me")
+    out = tmp_path / "docs" / "x.md"
+    out.parent.mkdir()
+    try:
+        os.symlink(outside, out)
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out)
+    assert code == 0 and outside.read_text(encoding="utf-8") == "keep me"
+    assert not out.is_symlink() and out.read_text(encoding="utf-8") == "그림 1. 현황\n"
+    assert sorted(p.name for p in out.parent.iterdir()) == ["x.md"]

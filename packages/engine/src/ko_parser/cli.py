@@ -129,7 +129,7 @@ def _write(text: str, out: str | None) -> None:
         return
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    _replace_file(path, text.encode("utf-8"))
 
 
 def _emit_tree(tree: DocumentTree, args: argparse.Namespace, assets_dir: str | None = None) -> None:
@@ -178,24 +178,34 @@ def _write_assets(engine: LocalEngine, paths: dict[str, Path], folder: Path) -> 
     """그림 이미지를 쓴다. 없는 이미지는 AssetNotFound. 같은 폴더의 임시 파일에 쓴 뒤 바꿔 끼운다: 그 이름이
     심볼릭 링크여도 링크가 가리키는 파일을 덮지 않고 링크 자리를 PNG로 바꾼다."""
     folder.mkdir(parents=True, exist_ok=True)
-    mode = _new_file_mode()
     for asset, path in paths.items():
-        data = engine.get_asset(asset)
-        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".ko-parser-asset.", suffix=".tmp")
+        _replace_file(path, engine.get_asset(asset))
+
+
+def _replace_file(path: Path, data: bytes) -> None:
+    """같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 파일이 반쯤 덮이지
+    않고, 그 이름이 심볼릭 링크면 가리키는 파일을 덮지 않고 링크 자리를 바꾼다. 이미 있던 보통 파일의 권한은 지키고
+    새 파일·심볼릭 링크 자리는 umask 기본 권한(mkstemp는 0600으로 만든다)."""
+    try:
+        st = os.lstat(path)
+        mode = stat.S_IMODE(st.st_mode) if stat.S_ISREG(st.st_mode) else _new_file_mode()
+    except FileNotFoundError:
+        mode = _new_file_mode()
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".ko-parser.", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
         try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-            try:
-                os.chmod(tmp, mode)
-            except OSError:
-                pass
-            os.replace(tmp, path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
-                pass
-            raise
+            os.chmod(tmp, mode)
+        except OSError:
+            pass
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
+            pass
+        raise
 
 
 def view_path(file: str, out: str | None) -> Path:
@@ -216,24 +226,8 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
     out = view_path(args.file, args.out)
     html = render_html(tree, images, previous)
     out.parent.mkdir(parents=True, exist_ok=True)
-    # 같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 HTML이 반쯤 덮이지 않는다
-    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=".ko-parser-view.", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
-    try:
-        # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
-        with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as f:
-            f.write(html)
-        mode = stat.S_IMODE(out.stat().st_mode) if out.exists() else _new_file_mode()
-        try:  # mkstemp는 0600으로 만든다: 이미 있던 HTML의 권한 또는 umask 기본 권한으로
-            os.chmod(tmp, mode)
-        except OSError:
-            pass
-        os.replace(tmp, out)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
-            pass
-        raise
+    # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
+    _replace_file(out, html.encode("utf-8", errors="replace"))
     _write(f"{out}\n", None)
 
 
