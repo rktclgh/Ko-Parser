@@ -272,3 +272,21 @@ def test_dict_is_checked_against_model_metadata_when_classes_are_symbolic(monkey
     else:
         with pytest.raises(ValueError, match="dict.txt"):
             reader.OcrReader(tmp_path, "det", "rec", "dict.txt")
+
+
+def test_out_of_memory_during_dependency_import_is_not_reported_as_missing(monkeypatch):
+    """의존성 import 중 메모리 부족은 '설치 없음'으로 바꾸지 않고 그대로 낸다."""
+    real = builtins.__import__
+
+    def oom(name, *args, **kwargs):
+        if name == "numpy":
+            raise MemoryError
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", oom)
+    monkeypatch.setattr(ocr, "_reader", None)
+    with pytest.raises(MemoryError):
+        ocr.available()
+    with pytest.raises(MemoryError):
+        ocr.get_reader()
+    assert ocr._reader is None

@@ -39,6 +39,8 @@ def _missing() -> str | None:
     for module in ("numpy", "onnxruntime", "pyclipper", "ko_parser_ocr_models"):
         try:
             __import__(module)
+        except MemoryError:  # 메모리 부족은 설치 문제가 아니다
+            raise
         except Exception:  # ImportError 밖의 import 오류도 '설치 없음'으로 알린다
             return module
     import ko_parser_ocr_models as models
