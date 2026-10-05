@@ -4,6 +4,8 @@
 
 - `packages/contracts` — 엔진·VLM 레이어·소비자가 주고받는 데이터 계약 (`ko-parser-contracts`)
 - `packages/engine` — 결정론 엔진과 `ko-parser` 명령 (`ko-parser-engine`)
+- `packages/fonts` — 리눅스용 한글 대체 글꼴 (`ko-parser-fonts`, `ko-parser-engine[fonts]`)
+- `packages/ocr-models` — 스캔 쪽 OCR 모델 (`ko-parser-ocr-models`, `ko-parser-engine[ocr]`). 개발용 `uv sync`는 OCR까지 설치한다
 
 ## 빠른 시작
 

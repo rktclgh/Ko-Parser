@@ -47,8 +47,13 @@ def _table(block: Block) -> dict[str, Any] | None:
                        "header": c.header} for c in cells]}
 
 
-# 쪽 상태별 안내. scanned는 보이는 글자만 블록이 되고, unreliable은 블록이 없다(스펙 2026-10-03 보정)
+# 쪽 상태별 안내. scanned는 보이는 글자만 블록이 되고(OCR 블록이 있으면 OCR로 읽음), unreliable은 블록이 없다
 _NOTICE = {"scanned": "그림 속 글자는 OCR 필요(보이는 글자만 블록)", "unreliable": "글자가 깨져 블록을 만들지 않았다"}
+_NOTICE_OCR = "그림 속 글자는 OCR로 읽음(검증 전)"
+
+
+def _notice(state: str, page: int, ocr_pages: set[int]) -> str | None:
+    return _NOTICE_OCR if state == "scanned" and page in ocr_pages else _NOTICE.get(state)
 
 
 def _block(block: Block, change: str | None) -> dict[str, Any]:
@@ -73,13 +78,14 @@ def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None
     removed = set(change.removed) if change else set()
     images = page_images or {}
     states = Counter(p.text_layer for p in tree.pages)
+    ocr_pages = {b.locator.page for b in tree.blocks if b.text_source == "ocr" and isinstance(b.locator, PageLocator)}
     return {
         "document": {"name": tree.source.name, "document_id": tree.document_id, "version": tree.version,
                      "layer_state": tree.layer_state, "mime": tree.source.mime,
                      "previous_version": previous.version if previous is not None else None,
                      "page_states": dict(sorted(states.items()))},
         "pages": [{"page": p.page, "width": p.width_pt, "height": p.height_pt, "state": p.text_layer,
-                   "notice": _NOTICE.get(p.text_layer),
+                   "notice": _notice(p.text_layer, p.page, ocr_pages),
                    "stats": p.text_stats.model_dump() if p.text_stats is not None else None,
                    "image": _image_uri(images[p.page]) if p.page in images else None} for p in tree.pages],
         "blocks": [_block(b, "added" if b.block_id in added else "updated" if b.block_id in updated else None)
