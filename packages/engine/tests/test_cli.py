@@ -157,11 +157,12 @@ def test_db_not_sqlite_exit_1(capsys, tmp_path):
     assert err.count("\n") == 1 and "Traceback" not in err
 
 
-def test_db_from_contracts_0_1_exit_1(capsys, db):
+@pytest.mark.parametrize("old", ["1", "2"])  # 계약 0.1·0.2 시절 상태 파일
+def test_db_from_older_contracts_exit_1(capsys, db, old):
     assert run(capsys, "documents", "--db", db)[0] == 0
     conn = sqlite3.connect(db)
     with conn:
-        conn.execute("UPDATE meta SET value = '1' WHERE key = 'format'")  # 계약 0.1 시절 상태 파일
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'format'", (old,))
     conn.close()
     code, out, err = run(capsys, "documents", "--db", db)
     assert (code, out) == (1, "") and err.startswith("ko-parser: ") and "ingest again" in err

@@ -8,7 +8,7 @@ def test_render_has_all_roots_with_version_const():
     rendered = schema.render_schemas()
     assert set(rendered) == {f"{name}.schema.json" for name in schema.ROOT_MODELS}
     doc = json.loads(rendered["document_tree.schema.json"])
-    assert doc["properties"]["schema_version"]["const"] == "0.2"
+    assert doc["properties"]["schema_version"]["const"] == "0.3"
 
 
 def test_export_and_check_roundtrip(tmp_path):
@@ -34,7 +34,8 @@ def test_public_api_exports():
     for name in ("DocumentTree", "Block", "Table", "Cell", "BBox", "Locator", "ChangeBatch", "ProcessingHistory",
                  "VlmRequest", "VlmResult", "VlmDriver", "VlmError", "Engine", "build_blocks",
                  "compute_content_hash", "compute_block_id", "SCHEMA_VERSION", "NORMALIZATION_VERSION",
-                 "TextLayerState", "TextLayerStats",
+                 "TextLayerState", "TextLayerStats", "FigureImage", "FigureCategory", "MAX_FIGURE_SIDE",
+                 "MAX_DOCUMENT_ASSET_BYTES",
                  "MAX_TABLE_CELLS", "MAX_TABLE_EXPANDED_CHARS", "MAX_IMAGE_BYTES", "MAX_IMAGE_PIXELS",
                  "ALLOWED_BLOCK_STATES", "ATTEMPT_LAYER"):
         assert name in kpc.__all__ and hasattr(kpc, name), name

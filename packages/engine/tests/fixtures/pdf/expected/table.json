@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "document_id": "fx-pdf-table",
   "version": 1,
   "layer_state": "det",
@@ -34,6 +34,7 @@
       "kind": "heading",
       "text": "1. 추진 실적",
       "table": null,
+      "figure": null,
       "level": 1,
       "section_path": [],
       "locator": {
@@ -58,6 +59,7 @@
       "kind": "paragraph",
       "text": "분기별 실적은 아래 표와 같다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "1. 추진 실적"
@@ -215,6 +217,7 @@
           }
         ]
       },
+      "figure": null,
       "level": null,
       "section_path": [
         "1. 추진 실적"
@@ -241,6 +244,7 @@
       "kind": "paragraph",
       "text": "실적은 분기마다 갱신한다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "1. 추진 실적"

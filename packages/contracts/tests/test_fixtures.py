@@ -33,7 +33,8 @@ def test_expected_fixture_files_exist():
     names = {p.relative_to(ROOT).as_posix() for p, _ in CASES}
     assert {
         "documents/docx_flow.json", "documents/pdf_table_page.json", "documents/pptx_slide.json",
-        "documents/empty.json", "lifecycle/v1_det.json", "lifecycle/v2_unverified.json", "lifecycle/v3_vlm.json",
+        "documents/empty.json", "documents/pdf_figure_page.json", "lifecycle/v1_det.json",
+        "lifecycle/v2_unverified.json", "lifecycle/v3_vlm.json",
         "lifecycle/changes.json", "changes/split_merge.json", "changes/resync.json",
         "history/gate_fail_fallback.json", "history/lifecycle_vlm_success.json", "vlm/request_table.json", "vlm/result_table.json",
         "recordings/table_simple.json",
@@ -119,3 +120,11 @@ def test_split_merge_ids_follow_block_id_rule():
     edges = [i for e in change.lineage for i in (e.old_id, e.new_id)]
     assert all(pattern.match(i) for i in [*change.added, *change.removed, *edges])
     assert all(e.old_id in change.removed and e.new_id in change.added for e in change.lineage)
+
+
+def test_figure_example_links_its_caption():
+    doc = _load("documents/pdf_figure_page.json", DocumentTree)
+    figure, caption = doc.blocks[2], doc.blocks[3]
+    assert (figure.kind, caption.kind) == ("figure", "caption")
+    assert figure.figure.caption_block_id == caption.block_id and figure.figure.category == "chart"
+    assert all(b.figure is None for b in doc.blocks if b.kind != "figure")

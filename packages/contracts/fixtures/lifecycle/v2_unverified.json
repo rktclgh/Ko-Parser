@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "document_id": "fx-life",
   "version": 2,
   "layer_state": "vlm_running",
@@ -28,6 +28,7 @@
       "kind": "heading",
       "text": "분기 실적",
       "table": null,
+      "figure": null,
       "level": 1,
       "section_path": [],
       "locator": {
@@ -52,6 +53,7 @@
       "kind": "paragraph",
       "text": "3분기 영업이익은 365,900원이다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -117,6 +119,7 @@
           }
         ]
       },
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {

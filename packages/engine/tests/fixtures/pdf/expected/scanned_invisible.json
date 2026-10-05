@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "document_id": "fx-pdf-scanned_invisible",
   "version": 1,
   "layer_state": "det",
@@ -34,6 +34,7 @@
       "kind": "list_item",
       "text": "- 1 -",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {

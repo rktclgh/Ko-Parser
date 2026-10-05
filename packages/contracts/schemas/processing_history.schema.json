@@ -576,8 +576,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "0.2",
-      "default": "0.2",
+      "const": "0.3",
+      "default": "0.3",
       "title": "Schema Version",
       "type": "string"
     },

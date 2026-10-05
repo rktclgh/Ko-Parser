@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from ko_parser_contracts import (
-    Attempt, BBox, Cell, ChangeBatch, CorrectionSummary, DocumentChange, DocumentTree, GateCheck, GateResult,
+    Attempt, BBox, Block, Cell, ChangeBatch, CorrectionSummary, DocumentChange, DocumentTree, GateCheck, GateResult,
     ImagePayload, LineageEdge, PageInfo, PageRef, ProcessingHistory, RegionRecord, SourceInfo, Table, Usage,
     VlmBlock, VlmRequest, VlmResult, build_blocks, compute_block_id, compute_content_hash,
 )
@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 A4 = PageInfo(page=1, width_pt=595.0, height_pt=842.0, rotation=0, render_dpi=144)
+# 예제용 그림 해시(이미지 바이트는 계약 밖, 저장소 자산이다)
+FIGURE_ASSET = "sha256:" + hashlib.sha256(b"ko-parser figure example").hexdigest()
 
 # lab/glm-ocr-smoke 합성 샘플 table_simple.png에 dots.mocr-8bit(oMLX)가 실제로 낸 출력
 DOTS_TABLE_SIMPLE_RAW = """<table>
@@ -135,7 +137,29 @@ def documents() -> dict[str, DocumentTree]:
                              native("list_item", "증감률 23.2%", {"kind": "slide", "slide": 1, "shape_index": 2}),
                          ]))
     empty = DocumentTree(document_id="fx-empty", version=1, layer_state="det", source=source("빈문서.docx", DOCX, None))
-    return {"docx_flow": docx, "pdf_table_page": pdf, "pptx_slide": slide, "empty": empty}
+    return {"docx_flow": docx, "pdf_table_page": pdf, "pptx_slide": slide, "empty": empty,
+            "pdf_figure_page": figure_page()}
+
+
+def figure_page() -> DocumentTree:
+    """계약 0.3: 차트 그림(이미지 참조) + 바로 아래 캡션 짝."""
+    blocks = build_blocks("fx-figure", [
+        dict(native("heading", "추진 현황", page(0.06, 0.09), level=1), text_source="text_layer"),
+        dict(native("paragraph", "분기별 처리 건수는 아래 그림과 같다.", page(0.11, 0.13)), text_source="text_layer",
+             section_path=("추진 현황",)),
+        {"kind": "figure", "text": "1분기\n2분기\n3분기\n32\n55\n41", "locator": page(0.15, 0.45), "confidence": 0.7,
+         "state": "det", "text_source": "text_layer", "section_path": ("추진 현황",),
+         "figure": {"asset": FIGURE_ASSET, "mime": "image/png", "width_px": 1322, "height_px": 702, "dpi": 200,
+                    "category": "chart"}},
+        dict(native("caption", "그림 1. 분기별 처리 건수(단위: 건)", page(0.46, 0.48)), text_source="text_layer",
+             section_path=("추진 현황",)),
+    ])
+    fig = blocks[2]
+    linked = Block.model_validate({**fig.model_dump(),
+                                   "figure": {**fig.figure.model_dump(), "caption_block_id": blocks[3].block_id}})
+    return DocumentTree(document_id="fx-figure", version=1, layer_state="det",
+                        source=source("현황.pdf", "application/pdf", 1), pages=(A4,),
+                        blocks=(*blocks[:2], linked, blocks[3]))
 
 
 def lifecycle() -> tuple[DocumentTree, DocumentTree, DocumentTree, ChangeBatch]:

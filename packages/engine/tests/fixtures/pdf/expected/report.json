@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "document_id": "fx-pdf-report",
   "version": 1,
   "layer_state": "det",
@@ -49,6 +49,7 @@
       "kind": "heading",
       "text": "2026년 사업 계획 (초안)",
       "table": null,
+      "figure": null,
       "level": 1,
       "section_path": [],
       "locator": {
@@ -73,6 +74,7 @@
       "kind": "heading",
       "text": "1. 추진 배경",
       "table": null,
+      "figure": null,
       "level": 2,
       "section_path": [
         "2026년 사업 계획 (초안)"
@@ -99,6 +101,7 @@
       "kind": "paragraph",
       "text": "본 계획은 2026년 지역 디지털 전환 사업의 추진 방향과\n세부 일정을 정리한 것으로, 참여 기관 모집부터 성과 점검까지\n단계별 과제를 담는다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -126,6 +129,7 @@
       "kind": "heading",
       "text": "가. 세부 목표",
       "table": null,
+      "figure": null,
       "level": 3,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -153,6 +157,7 @@
       "kind": "list_item",
       "text": "□ 첫째, 참여 기관을 모집한다.\n모집 공고는 1분기에 낸다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -181,6 +186,7 @@
       "kind": "list_item",
       "text": "○ 둘째, 선정 결과를 통보한다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -209,6 +215,7 @@
       "kind": "list_item",
       "text": "- 셋째, 협약을 체결한다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -237,6 +244,7 @@
       "kind": "paragraph",
       "text": "본 계획의 세부 내용은 사업 여건에 따라\n변경될 수 있다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -265,6 +273,7 @@
       "kind": "heading",
       "text": "2. 예산",
       "table": null,
+      "figure": null,
       "level": 2,
       "section_path": [
         "2026년 사업 계획 (초안)"
@@ -291,6 +300,7 @@
       "kind": "heading",
       "text": "핵심 지표",
       "table": null,
+      "figure": null,
       "level": 4,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -318,6 +328,7 @@
       "kind": "paragraph",
       "text": "총사업비는 4,250,000원이다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -346,6 +357,7 @@
       "kind": "paragraph",
       "text": "큰 글자로 쓴 강조 문단은\n세 줄 이상 이어지면\n제목이 아니라 문단이다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -374,6 +386,7 @@
       "kind": "paragraph",
       "text": "구분",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -402,6 +415,7 @@
       "kind": "paragraph",
       "text": "금액(원)",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -430,6 +444,7 @@
       "kind": "paragraph",
       "text": "인건비",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
@@ -458,6 +473,7 @@
       "kind": "paragraph",
       "text": "4,250,000",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "2026년 사업 계획 (초안)",
