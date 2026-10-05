@@ -33,8 +33,18 @@ def _where(block: Block) -> str:
 
 
 def _text(block: Block) -> str:
-    """보이는 글자. 표 블록은 마크다운 표(살아 있는 블록과 사라진 블록 모두)."""
+    """보이는 글자. 표 블록은 마크다운 표(살아 있는 블록과 사라진 블록 모두. 화면에는 격자로 그린다)."""
     return block.table.to_markdown() if block.table is not None else block.text
+
+
+def _table(block: Block) -> dict[str, Any] | None:
+    """표 격자(행·열 순서의 칸). 화면은 이것으로 <table>을 DOM으로 만든다(글자는 textContent)."""
+    if block.table is None:
+        return None
+    cells = sorted(block.table.cells, key=lambda c: (c.row, c.col))
+    return {"n_rows": block.table.n_rows, "n_cols": block.table.n_cols,
+            "cells": [{"row": c.row, "col": c.col, "rowspan": c.rowspan, "colspan": c.colspan, "text": c.text,
+                       "header": c.header} for c in cells]}
 
 
 # 쪽 상태별 안내. scanned는 보이는 글자만 블록이 되고, unreliable은 블록이 없다(스펙 2026-10-03 보정)
@@ -46,7 +56,7 @@ def _block(block: Block, change: str | None) -> dict[str, Any]:
     page = isinstance(loc, PageLocator)
     return {
         "id": block.block_id, "order": block.order, "kind": block.kind, "level": block.level,
-        "text": _text(block),
+        "text": _text(block), "table": _table(block),
         "section_path": list(block.section_path), "text_source": block.text_source, "state": block.state,
         "confidence": block.confidence, "where": _where(block), "change": change,
         "page": loc.page if page else None,
@@ -74,7 +84,7 @@ def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None
                    "image": _image_uri(images[p.page]) if p.page in images else None} for p in tree.pages],
         "blocks": [_block(b, "added" if b.block_id in added else "updated" if b.block_id in updated else None)
                    for b in tree.blocks],
-        "removed": [{"id": b.block_id, "kind": b.kind, "text": _text(b), "where": _where(b)}
+        "removed": [{"id": b.block_id, "kind": b.kind, "text": _text(b), "table": _table(b), "where": _where(b)}
                     for b in (previous.blocks if previous is not None else ()) if b.block_id in removed],
     }
 
@@ -121,6 +131,10 @@ main.no-pages { grid-template-columns: minmax(0, 1fr); }
 .badge.kind { background: var(--c); color: #fff; }
 .badge.added { background: #2f9e44; color: #fff; }
 .badge.updated { background: #e8590c; color: #fff; }
+.grid { border-collapse: collapse; margin-top: 4px; font-size: 12px; }
+.grid td, .grid th { border: 1px solid var(--line); padding: 2px 6px; white-space: pre-wrap; word-break: break-word;
+                     vertical-align: top; text-align: left; }
+.grid th { background: #eef0f3; font-weight: 600; }
 .removed { margin-top: 16px; }
 .removed .item { --c: #adb5bd; text-decoration: line-through; color: var(--muted); cursor: default; }
 .hidden { display: none !important; }
@@ -161,6 +175,21 @@ const states = Object.entries(doc.page_states).map(([k, n]) => (STATE_LABEL[k] |
  ["레이어", doc.layer_state], ["형식", doc.mime], ["쪽", DATA.pages.length ? DATA.pages.length + "쪽 (" + states + ")" : "없음"],
  ["블록", DATA.blocks.length]].forEach(([k, v]) => meta.appendChild(el("span", "", k + ": " + v)));
 
+// 표 블록: 칸 목록으로 <table>을 DOM으로 만든다. 글자는 textContent(줄바꿈은 CSS pre-wrap), 머리 칸은 <th>
+function grid(t) {
+  const table = el("table", "grid");
+  const body = el("tbody");
+  const rows = [];
+  for (let r = 0; r < t.n_rows; r++) rows.push(body.appendChild(el("tr")));
+  for (const c of t.cells) {
+    const cell = el(c.header === "none" ? "td" : "th", "", c.text);
+    if (c.rowspan > 1) cell.rowSpan = c.rowspan;
+    if (c.colspan > 1) cell.colSpan = c.colspan;
+    rows[c.row].appendChild(cell);
+  }
+  table.appendChild(body);
+  return table;
+}
 const boxes = new Map();
 const items = new Map();
 function select(id, from) {
@@ -216,7 +245,7 @@ for (const b of DATA.blocks) {
   head.appendChild(el("span", "badge", "#" + b.order + " · " + b.where));
   item.appendChild(head);
   if (b.section_path.length) item.appendChild(el("div", "meta", b.section_path.join(" › ")));
-  item.appendChild(el("div", "text", b.text));
+  item.appendChild(b.table ? grid(b.table) : el("div", "text", b.text));
   item.addEventListener("click", () => select(b.id, "item"));
   items.set(b.id, item);
   list.appendChild(item);
@@ -245,7 +274,7 @@ if (DATA.removed.length) {
   for (const r of DATA.removed) {
     const item = el("div", "item");
     item.appendChild(el("span", "badge", r.kind + " · " + r.where));
-    item.appendChild(el("div", "text", r.text));
+    item.appendChild(r.table ? grid(r.table) : el("div", "text", r.text));
     removed.appendChild(item);
   }
 }
