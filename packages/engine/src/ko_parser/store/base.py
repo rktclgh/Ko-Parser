@@ -1,13 +1,17 @@
 """저장 포트. 엔진은 무엇을 저장할지만 알고, 어디에 어떻게는 구현이 정한다(D3)."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
+from types import MappingProxyType
 from typing import Protocol
 
 from ko_parser_contracts import ChangeBatch, DocRef, DocumentChange, DocumentTree, ProcessingHistory
 
+from ..core.assets import asset_key
 from ..errors import StoreConflict
 
-__all__ = ["Store", "StoreConflict", "check_commit", "check_query", "make_batch"]
+__all__ = ["NO_ASSETS", "Store", "StoreConflict", "check_commit", "check_query", "make_batch"]
+
+NO_ASSETS: Mapping[str, bytes] = MappingProxyType({})
 
 
 class Store(Protocol):
@@ -21,11 +25,18 @@ class Store(Protocol):
         """문서마다 최신 버전. document_id 순."""
         ...
 
-    def commit(self, tree: DocumentTree, change: DocumentChange, history: ProcessingHistory) -> int:
-        """새 버전·변경 로그 한 건·처리 이력을 원자적으로 넣고 커서 번호(1부터 전역 단조 증가)를 돌려준다.
+    def commit(self, tree: DocumentTree, change: DocumentChange, history: ProcessingHistory,
+               assets: Mapping[str, bytes] = NO_ASSETS) -> int:
+        """새 버전·변경 로그 한 건·처리 이력·그림 이미지를 원자적으로 넣고 커서 번호(1부터 전역 단조 증가)를 돌려준다.
 
-        tree.version이 저장된 최신 버전 + 1(첫 버전은 1)이 아니면 StoreConflict.
+        tree.version이 저장된 최신 버전 + 1(첫 버전은 1)이 아니면 StoreConflict. assets(sha256 → PNG)는 트리의 그림이
+        가리키는 것만 받고, 가리키는데 주지 않은 이미지는 이미 저장돼 있어야 한다(아니면 ValueError). 해시가 같은
+        이미지는 한 번만 저장한다(문서끼리도). 이미지는 지우지 않는다(참조 수로 정리하는 것은 저장 레이어 몫).
         """
+        ...
+
+    def get_asset(self, asset: str) -> bytes:
+        """저장된 그림 이미지 바이트. 없으면 AssetNotFound."""
         ...
 
     def changes_after(self, cursor: int | None, limit: int) -> ChangeBatch: ...
@@ -33,9 +44,11 @@ class Store(Protocol):
     def history(self, document_id: str, version: int | None = None) -> ProcessingHistory: ...
 
 
-def check_commit(tree: DocumentTree, change: DocumentChange, history: ProcessingHistory,
-                 current: int | None) -> None:
-    """두 구현이 같이 쓰는 커밋 전 검사. current는 저장된 최신 버전(없으면 None)."""
+def check_commit(tree: DocumentTree, change: DocumentChange, history: ProcessingHistory, current: int | None,
+                 assets: Mapping[str, bytes] = NO_ASSETS,
+                 stored: Callable[[str], bool] = lambda asset: False) -> dict[str, str]:
+    """두 구현이 같이 쓰는 커밋 전 검사. current는 저장된 최신 버전(없으면 None), stored는 이미 저장된 이미지인지.
+    반환: 이 트리의 그림이 가리키는 이미지 → mime."""
     expected = 1 if current is None else current + 1
     if tree.version != expected:
         raise StoreConflict(f"{tree.document_id}: expected version {expected}, got {tree.version}")
@@ -45,6 +58,16 @@ def check_commit(tree: DocumentTree, change: DocumentChange, history: Processing
         raise ValueError("history does not match tree")
     if change.previous_version != current:
         raise ValueError("change.previous_version must equal the stored latest version")
+    referenced = {b.figure.asset: b.figure.mime for b in tree.blocks if b.figure is not None}
+    for key, data in assets.items():
+        if key not in referenced:
+            raise ValueError(f"asset {key} is not referenced by the tree")
+        if key != asset_key(data):
+            raise ValueError(f"asset {key} does not match its bytes")
+    missing = sorted(a for a in referenced if a not in assets and not stored(a))
+    if missing:
+        raise ValueError(f"figure asset {missing[0]} is neither given nor stored")
+    return referenced
 
 
 def check_query(cursor: int | None, limit: int) -> None:

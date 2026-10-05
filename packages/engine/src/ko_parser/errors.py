@@ -36,3 +36,7 @@ class VlmUnavailable(KoParserError):
 
 class OcrUnavailable(KoParserError):
     """OCR을 켜라고 했는데 OCR 추가 설치(ko-parser-engine[ocr])가 없거나 깨졌다. 설정 오류(종료 코드 1)."""
+
+
+class AssetNotFound(KoParserError):
+    """저장소에 없는 그림 자산(sha256)."""

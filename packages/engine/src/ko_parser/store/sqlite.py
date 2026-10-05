@@ -1,7 +1,7 @@
 """SQLite 상태 파일 저장소(CLI 기본). 버전 스냅숏을 검증된 계약 JSON으로 통째 저장한다(D4)."""
 
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from types import TracebackType
@@ -9,8 +9,8 @@ from typing import Self
 
 from ko_parser_contracts import ChangeBatch, DocRef, DocumentChange, DocumentTree, ProcessingHistory
 
-from ..errors import DocumentNotFound, KoParserError, VersionNotFound
-from .base import check_commit, check_query, make_batch
+from ..errors import AssetNotFound, DocumentNotFound, KoParserError, VersionNotFound
+from .base import NO_ASSETS, check_commit, check_query, make_batch
 
 FORMAT_VERSION = "3"  # 3 = 계약 0.3 스키마(그림 참조)와 그림 자산 표. 다른 형식은 다시 수집해야 한다
 _TABLES = (
@@ -23,6 +23,7 @@ _TABLES = (
     " version INTEGER NOT NULL, change_json TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS histories (document_id TEXT NOT NULL, version INTEGER NOT NULL,"
     " history_json TEXT NOT NULL, PRIMARY KEY (document_id, version))",
+    "CREATE TABLE IF NOT EXISTS assets (sha TEXT PRIMARY KEY, mime TEXT NOT NULL, bytes BLOB NOT NULL)",
 )
 
 
@@ -90,11 +91,16 @@ class SqliteStore:
             "SELECT document_id, current_version, layer_state FROM documents ORDER BY document_id").fetchall()
         return tuple(DocRef(document_id=d, version=v, layer_state=s) for d, v, s in rows)
 
-    def commit(self, tree: DocumentTree, change: DocumentChange, history: ProcessingHistory) -> int:
+    def commit(self, tree: DocumentTree, change: DocumentChange, history: ProcessingHistory,
+               assets: Mapping[str, bytes] = NO_ASSETS) -> int:
         with self._tx("BEGIN IMMEDIATE") as conn:
             row = conn.execute("SELECT current_version FROM documents WHERE document_id = ?",
                                (tree.document_id,)).fetchone()
-            check_commit(tree, change, history, None if row is None else row[0])
+            mimes = check_commit(tree, change, history, None if row is None else row[0], assets,
+                                 lambda asset: conn.execute("SELECT 1 FROM assets WHERE sha = ?",
+                                                            (asset,)).fetchone() is not None)
+            conn.executemany("INSERT OR IGNORE INTO assets (sha, mime, bytes) VALUES (?, ?, ?)",
+                             [(key, mimes[key], sqlite3.Binary(data)) for key, data in assets.items()])
             conn.execute("INSERT INTO versions (document_id, version, tree_json) VALUES (?, ?, ?)",
                          (tree.document_id, tree.version, tree.model_dump_json()))
             seq = conn.execute("INSERT INTO change_log (document_id, version, change_json) VALUES (?, ?, ?)",
@@ -108,6 +114,12 @@ class SqliteStore:
                 (tree.document_id, tree.version, tree.layer_state))
         assert seq is not None
         return seq
+
+    def get_asset(self, asset: str) -> bytes:
+        row = self._conn.execute("SELECT bytes FROM assets WHERE sha = ?", (asset,)).fetchone()
+        if row is None:
+            raise AssetNotFound(asset)
+        return bytes(row[0])
 
     def changes_after(self, cursor: int | None, limit: int) -> ChangeBatch:
         check_query(cursor, limit)

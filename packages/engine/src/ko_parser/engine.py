@@ -9,7 +9,7 @@ from ko_parser_contracts import (
     ChangeBatch, DocFilter, DocRef, DocumentTree, JobRef, JobStatus, ProcessingHistory, SourceInfo,
 )
 
-from .core import build_tree, diff_trees
+from .core import build_tree, check_assets, diff_trees
 from .errors import StoreConflict, VlmUnavailable
 from .formats.base import Parser
 from .formats.detect import default_parsers, detect_parser
@@ -50,12 +50,21 @@ class LocalEngine:
         source = SourceInfo(name=name, mime=parsed.mime, content_hash=content_hash,
                             page_count=len(parsed.pages) or None)
         tree = build_tree(parsed, doc_id, 1 if latest is None else latest.version + 1, source)
+        check_assets(tree, parsed.assets)  # 그림 참조와 이미지가 어긋나면(파서 버그) 저장하지 않는다
         change = diff_trees(latest, tree)
         if change is None:  # 원본은 달라도 블록과 쪽 정보가 같다
             assert latest is not None
             return _ref(latest)
-        self._store.commit(tree, change, ProcessingHistory(document_id=doc_id, version=tree.version))
+        history = ProcessingHistory(document_id=doc_id, version=tree.version, regions=parsed.regions)
+        if parsed.assets:
+            self._store.commit(tree, change, history, parsed.assets)
+        else:  # 이미지가 없으면 0.2와 같은 모양으로 부른다(이미지를 모르는 저장소 구현도 글자 문서는 받는다)
+            self._store.commit(tree, change, history)
         return _ref(tree)
+
+    def get_asset(self, asset: str) -> bytes:
+        """그림 블록 figure.asset의 이미지 바이트(PNG). 없으면 AssetNotFound."""
+        return self._store.get_asset(asset)
 
     def documents(self) -> tuple[DocRef, ...]:
         return self._store.documents()
