@@ -157,8 +157,9 @@ def document_id(name: str) -> str:
 
 
 def golden_tree(name: str, data: bytes) -> DocumentTree:
-    """엔진 ingest와 같은 SourceInfo(page_count = 쪽 수)."""
-    parsed = PdfParser().parse(data, name)
+    """엔진 ingest와 같은 SourceInfo(page_count = 쪽 수). OCR은 끈다: OCR 결과는 CPU마다 조금씩 달라 바이트 비교 대상이
+    아니다(OCR은 test_pdf_ocr.py가 허용 오차로 본다)."""
+    parsed = PdfParser(ocr=False).parse(data, name)
     source = SourceInfo(name=name, mime=parsed.mime, content_hash="sha256:" + hashlib.sha256(data).hexdigest(),
                         page_count=len(parsed.pages) or None)
     return build_tree(parsed, document_id(name), 1, source)
