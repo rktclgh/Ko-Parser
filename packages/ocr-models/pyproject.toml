@@ -1,0 +1,16 @@
+[project]
+name = "ko-parser-ocr-models"
+version = "0.1.0"
+description = "PP-OCRv5 detection and Korean recognition ONNX models bundled for ko-parser scanned-page OCR"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "src/ko_parser_ocr_models/models/LICENSE"]
+dependencies = []
+
+[build-system]
+requires = ["hatchling>=1.27"]  # PEP 639 license·license-files
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ko_parser_ocr_models"]
