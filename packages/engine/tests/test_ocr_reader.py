@@ -148,7 +148,8 @@ def test_missing_ocr_install_is_unavailable(monkeypatch, module):
 
 
 def test_broken_native_install_is_unavailable(monkeypatch):
-    """import가 ImportError 밖의 오류(깨진 공유 라이브러리 등)를 내도 available()은 False, get_reader()는 OcrUnavailable."""
+    """설치는 됐는데 import가 ImportError 밖의 오류(깨진 공유 라이브러리 등)를 내면 available()은 참(설치는 있다),
+    get_reader()는 모듈 이름과 오류를 담은 OcrUnavailable(조용히 물러나지 않게)."""
     real = builtins.__import__
 
     def broken(name, *args, **kwargs):
@@ -158,9 +159,10 @@ def test_broken_native_install_is_unavailable(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", broken)
     monkeypatch.setattr(ocr, "_reader", None)
-    assert ocr.available() is False
-    with pytest.raises(OcrUnavailable, match=r"missing onnxruntime"):
+    assert ocr.available() is True
+    with pytest.raises(OcrUnavailable, match=r"onnxruntime .*OSError: cannot load shared library.* or run with --no-ocr"):
         ocr.get_reader()
+    assert ocr._reader is None
 
 
 def test_missing_model_file_is_unavailable(monkeypatch, tmp_path):
@@ -279,7 +281,7 @@ def test_dict_is_checked_against_model_metadata_when_classes_are_symbolic(monkey
 
 
 def test_out_of_memory_during_dependency_import_is_not_reported_as_missing(monkeypatch):
-    """의존성 import 중 메모리 부족은 '설치 없음'으로 바꾸지 않고 그대로 낸다."""
+    """의존성 import 중 메모리 부족은 '설치 없음'·'깨진 설치'로 바꾸지 않고 그대로 낸다(available()은 import하지 않는다)."""
     real = builtins.__import__
 
     def oom(name, *args, **kwargs):
@@ -289,8 +291,7 @@ def test_out_of_memory_during_dependency_import_is_not_reported_as_missing(monke
 
     monkeypatch.setattr(builtins, "__import__", oom)
     monkeypatch.setattr(ocr, "_reader", None)
-    with pytest.raises(MemoryError):
-        ocr.available()
+    assert ocr.available() is True
     with pytest.raises(MemoryError):
         ocr.get_reader()
     assert ocr._reader is None

@@ -21,8 +21,9 @@ class PdfParser:
     extensions: tuple[str, ...] = (".pdf",)
 
     def __init__(self, ocr: bool | None = None) -> None:
-        """ocr: None이면 OCR 추가 설치가 있을 때 scanned 쪽을 OCR로 읽고, False면 읽지 않는다. True인데 추가 설치가
-        없거나 깨졌으면 여기서 OcrUnavailable(문서 파싱 실패가 아니라 설정 오류)."""
+        """ocr: None이면 OCR 추가 설치가 있을 때 scanned 쪽을 OCR로 읽고(깔렸는데 깨졌으면 scanned 쪽을 만날 때
+        OcrUnavailable), False면 읽지 않는다. True인데 추가 설치가 없거나 깨졌으면 여기서 OcrUnavailable(문서 파싱
+        실패가 아니라 설정 오류)."""
         if ocr:
             ocr_runtime.get_reader()
         self.ocr = ocr

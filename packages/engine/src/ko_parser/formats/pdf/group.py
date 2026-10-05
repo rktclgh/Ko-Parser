@@ -324,8 +324,11 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     for page, margin, group in items:
         extra: dict[str, Any] = {}
         if isinstance(group, OcrParagraph):
+            text = unicodedata.normalize("NFC", group.text)
+            if not text.strip():  # 텍스트 레이어 조각과 같이 빈 글자는 블록으로 만들지 않는다
+                continue
             (x0, x1), (y0, y1) = _widen(group.bbox[0], group.bbox[2]), _widen(group.bbox[1], group.bbox[3])
-            specs.append({"kind": "paragraph", "text": unicodedata.normalize("NFC", group.text),
+            specs.append({"kind": "paragraph", "text": text,
                           "section_path": tuple(t for _, t in stack), "confidence": group.confidence,
                           "state": "det", "text_source": "ocr",
                           "locator": {"kind": "page", "page": page.page,

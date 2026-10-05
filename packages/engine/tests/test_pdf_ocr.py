@@ -2,6 +2,7 @@
 그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴(Pillow)로 그려 reportlab PDF에 넣는다."""
 
 import io
+import subprocess
 import sys
 from pathlib import Path
 
@@ -128,6 +129,65 @@ def test_auto_mode_with_a_broken_install_raises_instead_of_falling_back(monkeypa
     assert [p.text_layer for p in PdfParser(ocr=False).parse(data, name).pages] == ["scanned"]
     with pytest.raises(OcrUnavailable, match="--no-ocr"):
         PdfParser().parse(data, name)
+
+
+def broken_module(monkeypatch, tmp_path, name: str = "onnxruntime") -> None:
+    """설치는 됐는데(찾을 수 있다) import하면 깨지는 모듈(공유 라이브러리를 못 여는 휠 흉내)을 sys.path 맨 앞에 둔다.
+    진짜 모듈은 sys.modules에서 잠깐 뺀다(끝나면 되돌린다). onnxruntime 없이 돈다."""
+    root = tmp_path / "broken"
+    (root / name).mkdir(parents=True)
+    (root / name / "__init__.py").write_text(
+        'raise ImportError("libstub.so.1: cannot open shared object file")\n', encoding="utf-8")
+    monkeypatch.syspath_prepend(str(root))
+    monkeypatch.delitem(sys.modules, name, raising=False)
+    monkeypatch.setattr(ocr, "_reader", None)
+
+
+def test_installed_but_broken_module_is_available_and_get_reader_names_it(monkeypatch, tmp_path):
+    """available()은 '설치됐는가'(찾기만, import하지 않음): 깨진 설치도 참이고, get_reader()가 모듈과 import 오류를
+    담은 OcrUnavailable을 낸다(조용히 텍스트 레이어로 물러나지 않게)."""
+    broken_module(monkeypatch, tmp_path)
+    assert ocr.available() is True
+    with pytest.raises(OcrUnavailable, match=r"onnxruntime .*libstub\.so\.1.*ko-parser-engine\[ocr\].* or run with --no-ocr"):
+        ocr.get_reader()
+    assert ocr._reader is None
+
+
+def test_module_that_cannot_be_found_is_not_installed(monkeypatch):
+    monkeypatch.setattr(ocr, "MODULES", ("no_such_ocr_module", *ocr.MODULES))  # find_spec가 None
+    monkeypatch.setattr(ocr, "_reader", None)
+    assert ocr.available() is False
+    with pytest.raises(OcrUnavailable, match=r"not installed \(missing no_such_ocr_module\)"):
+        ocr.get_reader()
+
+
+def test_module_whose_spec_lookup_fails_is_not_installed(monkeypatch):
+    """find_spec 자체가 오류(__spec__ 없는 모듈은 ValueError, 없는 상위 패키지는 ModuleNotFoundError)면 설치 없음."""
+    monkeypatch.setitem(sys.modules, "pyclipper", type(sys)("pyclipper"))  # __spec__ = None
+    monkeypatch.setattr(ocr, "MODULES", ("pyclipper",))
+    assert ocr.available() is False
+    monkeypatch.setattr(ocr, "MODULES", ("no_such_parent_pkg.child",))
+    assert ocr.available() is False
+
+
+def test_available_does_not_import_the_runtime():
+    """설치 확인은 numpy·onnxruntime·pyclipper를 import하지 않는다(하위 프로세스에서 본다)."""
+    code = ("import sys\n"
+            "from ko_parser.formats.pdf import ocr\n"
+            "ocr.available()\n"
+            "print(sorted(m for m in ('numpy', 'onnxruntime', 'pyclipper') if m in sys.modules))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
+
+
+@pytest.mark.parametrize("name", ["image_page.pdf", "scanned_invisible.pdf"])
+def test_auto_mode_with_a_broken_module_raises(monkeypatch, tmp_path, name):
+    """자동 모드 + 설치는 됐는데 import가 깨지는 onnxruntime: scanned 쪽이 있으면 텍스트 레이어로 조용히 물러나지
+    않고 OcrUnavailable(설정 오류)."""
+    broken_module(monkeypatch, tmp_path)
+    with pytest.raises(OcrUnavailable, match=r"onnxruntime .*libstub"):
+        PdfParser().parse((FIXTURES / name).read_bytes(), name)
 
 
 def test_visible_text_is_not_read_twice_and_blocks_merge_by_top():
