@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+import tracemalloc
 import unicodedata
 from types import SimpleNamespace
 
@@ -329,3 +330,61 @@ def test_a_line_wider_than_the_budget_is_read_alone_at_full_width():
     crops = [np.zeros((10, 5000, 3), np.uint8), np.zeros((40, 400, 3), np.uint8)]
     assert len(rec.recognize(session, ["blank", "가", " "], crops)) == 2
     assert session.shapes == [(1, 3, 48, 480), (1, 3, 48, 24000)]
+
+
+def test_huge_image_is_shrunk_with_pillow_first_and_boxes_stay_in_input_pixels(monkeypatch):
+    """긴 변이 PRE_SHRINK_SIDE(4000)를 넘는 그림은 numpy 배열로 바꾸기 전에 Pillow로 정수배 줄인다(원래 크기 배열을
+    만들지 않는다). 상자는 원래 그림 화소로 되돌린다."""
+    font = ImageFont.truetype(str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE), 220)
+    img = Image.new("RGB", (20000, 300), "white")
+    draw = ImageDraw.Draw(img)
+    starts = (500, 7500, 14500)
+    for x in starts:
+        draw.text((x, 20), "사업 계획", font=font, fill="black")
+    seen = []
+    real = reader.resize_linear
+
+    def spy(a, width, height):
+        seen.append(a.shape)
+        return real(a, width, height)
+
+    monkeypatch.setattr(reader, "resize_linear", spy)
+    tracemalloc.start()
+    try:
+        lines = ocr.read_lines(img)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert seen == [(60, 4000, 3)]  # 5배 줄인 그림(4000×60)을 다시 긴 변 2000으로
+    assert peak < 200 * 2**20, peak
+    assert [ln.text for ln in lines] == ["사업 계획"] * 3
+    for ln, x in zip(lines, starts):
+        assert abs(left_top(ln)[0] - x) <= 80
+        assert all(0 <= px <= 20000 and 0 <= py <= 300 for px, py in ln.box)
+
+
+def test_pre_shrink_keeps_normal_pages_on_the_same_path(monkeypatch):
+    """보통 쪽(긴 변 4000 이하, 1600만 화소 이하)은 예전 경로 그대로(상한을 없앤 것과 바이트까지 같다). 상한을 낮춰 미리 줄이게 해도
+    글자는 같고 상자는 원래 그림 화소(몇 화소 차)."""
+    image = page_image(scale=2)  # 2000×800
+    default = ocr.read_lines(image)
+    monkeypatch.setattr(reader, "PRE_SHRINK_SIDE", 10**9)
+    monkeypatch.setattr(reader, "PRE_SHRINK_PIXELS", 10**18)
+    assert ocr.read_lines(image) == default
+    monkeypatch.setattr(reader, "PRE_SHRINK_SIDE", 1000)  # 2배 줄여 1000×400으로 읽는다
+    shrunk = ocr.read_lines(image)
+    assert [ln.text for ln in shrunk] == [ln.text for ln in default] == LINES
+    for a, b in zip(default, shrunk):
+        assert all(abs(pa - pb) <= 12 for p, q in zip(a.box, b.box) for pa, pb in zip(p, q))
+
+
+def test_large_square_image_keeps_memory_bounded():
+    """8000×8000(6400만 화소)도 먼저 2배 줄여 4000×4000으로 읽는다: numpy 쪽 최대 할당이 250MB 아래."""
+    img = Image.new("RGB", (8000, 8000), "white")
+    tracemalloc.start()
+    try:
+        assert ocr.read_lines(img) == []
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 250 * 2**20, peak

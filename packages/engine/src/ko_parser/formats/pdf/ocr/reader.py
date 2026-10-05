@@ -1,5 +1,6 @@
 """모델 패키지의 ONNX 세션 둘(검출·인식)과 사전으로 그림 한 장을 읽는다. 방향 판정은 하지 않는다(스펙 O2)."""
 
+import math
 import unicodedata
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from .pixels import crop_quad, resize_linear
 from .rec import recognize
 
 MAX_SIDE = 2000  # 긴 변이 이보다 크면 줄여서 읽는다(RapidOCR max_side_len)
+PRE_SHRINK_SIDE = 2 * MAX_SIDE  # 긴 변이 이보다 크거나(A4·A3 200 DPI는 긴 변 2339·3307px라 해당 없음)
+PRE_SHRINK_PIXELS = 16_000_000  # 화소 수가 이보다 많은 그림은 numpy로 바꾸기 전에 Pillow로 정수배 줄인다(메모리)
 
 
 def _session(path: Path) -> ort.InferenceSession:
@@ -47,7 +50,19 @@ class OcrReader:
                 raise ValueError(f"{path} does not match the character list in the recognition model")
 
     def __call__(self, image: Image.Image) -> list[OcrLine]:
-        """줄마다 OcrLine(상자는 입력 그림 화소, 글자는 NFC·앞뒤 공백 없음). 글자가 빈 줄은 버린다. 점수로는 거르지 않는다."""
+        """줄마다 OcrLine(상자는 입력 그림 화소, 글자는 NFC·앞뒤 공백 없음). 글자가 빈 줄은 버린다. 점수로는 거르지 않는다.
+        아주 큰 그림은 먼저 Pillow로 정수배 줄여(Image.reduce, 칸 평균) 원래 크기의 배열을 만들지 않는다. 보통 쪽은 그대로."""
+        width, height = image.size
+        f = max(math.ceil(max(width, height) / PRE_SHRINK_SIDE), math.ceil(math.sqrt(width * height / PRE_SHRINK_PIXELS)))
+        if f <= 1:
+            return self._read(image)
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        lines = self._read(image.reduce(f))  # 줄인 화소 i는 원래 화소 [i·f, (i+1)·f)의 평균
+        return [OcrLine(box=tuple((min(x * f, width), min(y * f, height)) for x, y in ln.box), text=ln.text, score=ln.score)
+                for ln in lines]
+
+    def _read(self, image: Image.Image) -> list[OcrLine]:
         img = np.ascontiguousarray(np.asarray(image.convert("RGB"))[:, :, ::-1])  # RapidOCR처럼 BGR
         h, w = img.shape[:2]
         if not h or not w:

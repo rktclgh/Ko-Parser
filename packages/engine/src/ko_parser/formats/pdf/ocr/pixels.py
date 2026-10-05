@@ -6,6 +6,7 @@ import numpy as np
 
 _COEF = 2048  # OpenCV INTER_LINEAR 고정소수 계수(11비트)
 _CHUNK = 1 << 16  # crop_quad가 한 번에 보간하는 화소 수(큰 상자의 메모리 상한)
+_ROWS = 256  # resize_linear가 한 번에 만드는 출력 행 수(큰 그림의 메모리 상한)
 
 
 def _linear_axis(n_out: int, n_in: int, clamp_frac: bool) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -20,18 +21,24 @@ def _linear_axis(n_out: int, n_in: int, clamp_frac: bool) -> tuple[np.ndarray, n
 
 
 def resize_linear(img: np.ndarray, width: int, height: int) -> np.ndarray:
-    """cv2.resize(INTER_LINEAR)와 같은 값(일반 고정소수 경로). 크기가 같으면 복사하지 않고 입력 배열을 그대로 돌려준다."""
+    """cv2.resize(INTER_LINEAR)와 같은 값(일반 고정소수 경로). 크기가 같으면 복사하지 않고 입력 배열을 그대로 돌려준다.
+    출력 행을 _ROWS개씩 만들어 큰 그림도 int32 중간값이 그림 전체 크기로 커지지 않는다(정수 연산이라 값은 같다)."""
     h, w = img.shape[:2]
     if (h, w) == (height, width):
         return img
     x0, x1, a0, a1 = _linear_axis(width, w, True)
     y0, y1, b0, b1 = _linear_axis(height, h, False)
-    # 그림 전체를 int32로 바꾸지 않고 필요한 열만 모아서 바꾼다
-    rows = (img[:, x0].astype(np.int32) * a0[None, :, None].astype(np.int32)
-            + img[:, x1].astype(np.int32) * a1[None, :, None].astype(np.int32))
+    a0, a1 = a0.astype(np.int32)[None, :, None], a1.astype(np.int32)[None, :, None]
     b0, b1 = b0.astype(np.int32)[:, None, None], b1.astype(np.int32)[:, None, None]
-    out = (((b0 * (rows[y0] >> 4)) >> 16) + ((b1 * (rows[y1] >> 4)) >> 16) + 2) >> 2
-    return np.clip(out, 0, 255).astype(np.uint8)
+    out = np.empty((height, width, img.shape[2]), np.uint8)
+    for s in range(0, height, _ROWS):
+        e = min(s + _ROWS, height)
+        lo, hi = int(y0[s:e].min()), int(y1[s:e].max()) + 1
+        src = img[lo:hi]  # 이 출력 행들이 쓰는 입력 행만, 필요한 열만 모아 int32로
+        rows = src[:, x0].astype(np.int32) * a0 + src[:, x1].astype(np.int32) * a1
+        r0, r1 = rows[y0[s:e] - lo], rows[y1[s:e] - lo]
+        out[s:e] = np.clip((((b0[s:e] * (r0 >> 4)) >> 16) + ((b1[s:e] * (r1 >> 4)) >> 16) + 2) >> 2, 0, 255)
+    return out
 
 
 def _cubic_weights(t: np.ndarray) -> list[np.ndarray]:
