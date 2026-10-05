@@ -13,8 +13,9 @@ import math
 import re
 import threading
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from typing import Literal
 
 with warnings.catch_warnings():  # pypdfium2_raw는 import할 때 버전 파일을 인코딩 없이 연다(EncodingWarning)
     warnings.simplefilter("ignore", EncodingWarning)
@@ -29,6 +30,19 @@ Axes = tuple[int, int]  # (진행 방향, 줄 아래 방향). 보이는 쪽의 +
 UPRIGHT: Axes = (0, 1)
 
 PDFIUM_LOCK = threading.Lock()  # PDFium 호출 전체를 줄 세운다(문서가 달라도)
+
+# 선 모으기(표 검출 입력). 길이 단위는 pt
+AXIS_TOL = 0.5  # 선분의 다른 축 변화 ≤ 0.5pt면 가로·세로 선. 사선은 버린다
+THIN = 2.5  # 채운 사각형의 짧은 변 ≤ 2.5pt면 선(가운데 선을 stroke로)
+MIN_RULE = 2.0  # 이보다 짧은 선분은 버린다(점선의 점은 아래처럼 이어 붙인 뒤 잰다)
+LEN_EPS = 1e-3  # 길이를 MIN_RULE·DASH와 비교할 때의 여유(좌표 변환의 부동소수 오차로 정확히 2pt인 선이 빠지지 않게)
+DASH = 0.2  # 점선 조각: 길이 DASH 이상 MIN_RULE 미만인 가로·세로 선분(한글 프로그램 점선은 0.48pt 점이 1.2pt 간격.
+# 잇지 않으면 공공누리 정답 표 채점에서 찾은 표 37→36, 완벽 30→28)
+DASH_GAP = 2.0  # 같은 위치의 점선 조각 사이가 ≤ 2pt면 한 선으로 잇는다
+DASH_DRIFT = 0.05  # 이은 점선의 위치 흐름이 AXIS_TOL보다 크면 길이 1pt마다 0.05pt까지만(천천히 흐르는 점선은 선, 사선 점선은 아니다)
+WHITE = 250  # 빨강·초록·파랑이 모두 이 이상이면 하얀색(배경과 같은 색)으로 보고 버린다(98% 이상 밝은 회색 칠도 버린다)
+MAX_RULE_SEGMENTS = 200_000  # 쪽마다 훑는 path 구간(점선 조각도) 상한. 넘으면 그 쪽 선은 없다(악성 PDF가 잠금·메모리를
+# 오래 쥐지 않게). 공공누리 정답 표 문서 8개의 쪽 최대는 15,560(path 객체 7,777)으로 약 13배 여유
 
 _BOLD_NAME = re.compile(r"bold|black|heavy", re.IGNORECASE)
 _BOLD_WEIGHT = 600
@@ -59,6 +73,23 @@ class Char:
     axes: Axes = UPRIGHT  # 읽는 방향: 회전한 쪽·음수 Tf·거울 행렬이면 바로 선 글자와 다르다
 
 
+RuleAxis = Literal["h", "v"]
+RuleKind = Literal["stroke", "fill"]
+
+
+@dataclass(frozen=True, slots=True)
+class Rule:
+    """가로(h)·세로(v) 선분 하나. 좌표는 보이는 쪽 pt(회전 보정, 원점 왼쪽 위: 글자 상자 × 쪽 너비·높이와 같은 틀),
+    소수 셋째 자리. h면 pos = y, start·end = x 구간, v면 pos = x, start·end = y 구간(start < end).
+    kind: stroke = 그은 선·얇은 채운 사각형, fill = 넓은 채운 사각형(칸 배경)의 변."""
+
+    axis: RuleAxis
+    pos: float
+    start: float
+    end: float
+    kind: RuleKind = "stroke"
+
+
 @dataclass(frozen=True, slots=True)
 class PageText:
     page: int
@@ -67,6 +98,7 @@ class PageText:
     rotation: int
     chars: tuple[Char, ...]
     image_coverage: tuple[float, ...]  # 그림마다 쪽 면적 대비 비율
+    rules: tuple[Rule, ...] = ()  # 가로·세로 선분(표 검출 입력), 그린 순서
 
 
 def open_pdf(data: bytes, name: str) -> pdfium.PdfDocument:
@@ -179,7 +211,8 @@ def _page(pdf: pdfium.PdfDocument, index: int, location: str, check: "_HangulChe
             textpage.close()
         check.add_page(pdf, page, seen, hangul_fonts, location)
         return PageText(page=index + 1, width_pt=width, height_pt=height, rotation=rotation, chars=chars,
-                        image_coverage=tuple(_image_coverage(page, box)))
+                        image_coverage=tuple(_image_coverage(page, box)),
+                        rules=_rules(page, box, rotation, width, height))
     finally:
         page.close()
 
@@ -395,6 +428,233 @@ def _image_coverage(page: pdfium.PdfPage, box: Box) -> Iterator[float]:
     """그림마다 쪽 상자 안에 보이는 면적 / 쪽 면적."""
     left, bottom, right, top = box
     area = (right - left) * (top - bottom)
-    for l, b, r, t in _image_boxes(page):
-        overlap = max(0.0, min(r, right) - max(l, left)) * max(0.0, min(t, top) - max(b, bottom))
+    for x0, y0, x1, y1 in _image_boxes(page):
+        overlap = max(0.0, min(x1, right) - max(x0, left)) * max(0.0, min(y1, top) - max(y0, bottom))
         yield min(1.0, overlap / area)
+
+
+Matrix = tuple[float, float, float, float, float, float]  # a b c d e f: (x, y) → (ax + cy + e, bx + dy + f)
+Point = tuple[float, float]
+_IDENTITY: Matrix = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+
+def _then(inner: Matrix, outer: Matrix) -> Matrix:
+    """inner를 적용한 뒤 outer를 적용하는 행렬."""
+    a, b, c, d, e, f = inner
+    p, q, r, s, t, u = outer
+    return (a * p + b * r, a * q + b * s, c * p + d * r, c * q + d * s, e * p + f * r + t, e * q + f * s + u)
+
+
+def _object_matrix(obj: object) -> Matrix:
+    m = pdfium_c.FS_MATRIX()
+    if not pdfium_c.FPDFPageObj_GetMatrix(obj, m):
+        return _IDENTITY
+    return (m.a, m.b, m.c, m.d, m.e, m.f)
+
+
+def _path_objects(parent: object, form: bool, matrix: Matrix, depth: int = 0) -> Iterator[tuple[object, Matrix]]:
+    """(path 객체, path 좌표 → 쪽 좌표 행렬). path 점은 객체 행렬을 적용하기 전 좌표이고, 폼 안 객체의 행렬은
+    폼 좌표로 옮긴다(실측). 폼은 _MAX_FORM_DEPTH 단계까지 들어간다."""
+    count = (pdfium_c.FPDFFormObj_CountObjects if form else pdfium_c.FPDFPage_CountObjects)(parent)
+    get = pdfium_c.FPDFFormObj_GetObject if form else pdfium_c.FPDFPage_GetObject
+    for i in range(max(count, 0)):
+        obj = get(parent, i)
+        if not obj:
+            continue
+        kind = pdfium_c.FPDFPageObj_GetType(obj)
+        if kind == pdfium_c.FPDF_PAGEOBJ_PATH:
+            yield obj, _then(_object_matrix(obj), matrix)
+        elif kind == pdfium_c.FPDF_PAGEOBJ_FORM and depth < _MAX_FORM_DEPTH:
+            yield from _path_objects(obj, True, _then(_object_matrix(obj), matrix), depth + 1)
+
+
+def _visible_color(getter: Callable[..., int], obj: object) -> bool:
+    """하얀색(배경과 같은 색)·완전 투명이면 False. 색을 읽지 못하면(무늬 색 등) 보이는 것으로 본다."""
+    r, g, b, a = (ctypes.c_uint() for _ in range(4))
+    if not getter(obj, r, g, b, a):
+        return True
+    return a.value > 0 and min(r.value, g.value, b.value) < WHITE
+
+
+@dataclass(slots=True)
+class _Subpath:
+    points: list[Point]
+    edges: list[tuple[Point, Point]]  # 직선 변(닫는 변 포함)
+    curved: bool = False
+
+
+def _subpaths(obj: object, matrix: Matrix, box: Box, rotation: int, width: float, height: float) -> list[_Subpath]:
+    """보이는 쪽 pt 좌표(회전 보정, 원점 왼쪽 위)의 부분 경로들. 곡선(베지에) 구간은 변으로 넣지 않는다.
+    점을 읽지 못하면 빈 목록."""
+    a, b, c, d, e, f = matrix
+    out: list[_Subpath] = []
+    x, y = ctypes.c_float(), ctypes.c_float()
+    for k in range(max(pdfium_c.FPDFPath_CountSegments(obj), 0)):
+        segment = pdfium_c.FPDFPath_GetPathSegment(obj, k)
+        if not (segment and pdfium_c.FPDFPathSegment_GetPoint(segment, x, y)):
+            return []
+        u, v = normalize_point(a * x.value + c * y.value + e, b * x.value + d * y.value + f, box, rotation)
+        point = (u * width, v * height)
+        kind = pdfium_c.FPDFPathSegment_GetType(segment)
+        if kind == pdfium_c.FPDF_SEGMENT_MOVETO or not out:
+            out.append(_Subpath([point], []))
+        else:
+            sub = out[-1]
+            if kind == pdfium_c.FPDF_SEGMENT_LINETO:
+                sub.edges.append((sub.points[-1], point))
+            else:
+                sub.curved = True
+            sub.points.append(point)
+        if pdfium_c.FPDFPathSegment_GetClose(segment) and out[-1].points[-1] != out[-1].points[0]:
+            out[-1].edges.append((out[-1].points[-1], out[-1].points[0]))
+    return out
+
+
+def _edge_rule(p: Point, q: Point) -> Rule | None:
+    """가로·세로 직선 변이면 stroke Rule(길이 DASH 이상, MIN_RULE 미만이면 점선 조각), 사선이면 None."""
+    (x0, y0), (x1, y1) = p, q
+    dx, dy = abs(x1 - x0), abs(y1 - y0)
+    if dy <= AXIS_TOL and dx >= DASH - LEN_EPS and dy < dx:
+        return Rule("h", (y0 + y1) / 2, min(x0, x1), max(x0, x1))
+    if dx <= AXIS_TOL and dy >= DASH - LEN_EPS and dx < dy:
+        return Rule("v", (x0 + x1) / 2, min(y0, y1), max(y0, y1))
+    return None
+
+
+def _rect(sub: _Subpath) -> tuple[float, float, float, float] | None:
+    """곡선이 없고 꼭짓점이 모두 외접 상자의 모서리 ± AXIS_TOL, 네 모서리가 모두 있고 이웃 꼭짓점 사이(닫는 변 포함)가
+    모두 가로·세로(± AXIS_TOL)이며 둘러싼 넓이가 외접 상자 넓이인 사각형이면 (left, top, right, bottom), 아니면
+    None(대각선으로 도는 나비 모양, 되짚어 가는 길 등)."""
+    if sub.curved or len(sub.points) < 4:
+        return None
+    if any(min(abs(x1 - x0), abs(y1 - y0)) > AXIS_TOL
+           for (x0, y0), (x1, y1) in zip(sub.points, sub.points[1:] + sub.points[:1], strict=True)):
+        return None
+    xs, ys = [p[0] for p in sub.points], [p[1] for p in sub.points]
+    left, top, right, bottom = min(xs), min(ys), max(xs), max(ys)
+    if any(min(abs(x - left), abs(x - right)) > AXIS_TOL or min(abs(y - top), abs(y - bottom)) > AXIS_TOL
+           for x, y in sub.points):
+        return None
+    if not all(any(abs(x - cx) <= AXIS_TOL and abs(y - cy) <= AXIS_TOL for x, y in sub.points)
+               for cx in (left, right) for cy in (top, bottom)):  # 예: 채운 직각삼각형
+        return None
+    # 둘러싼 넓이(신발끈 공식, 겹친 점은 더해지지 않는다)가 외접 상자 넓이와 같아야 한다: 되짚어 가는 길·나비 모양은
+    # 넓이가 0이나 그보다 작다. 여유는 1% 또는 꼭짓점이 AXIS_TOL만큼 어긋날 때의 넓이 차
+    w, h = right - left, bottom - top
+    pts = sub.points
+    area = abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1], strict=True))) / 2
+    if abs(area - w * h) > max(0.01 * w * h, AXIS_TOL * (w + h)):
+        return None
+    return left, top, right, bottom
+
+
+def _fill_rules(sub: _Subpath) -> list[Rule]:
+    """채운 사각형(_rect): 두 변이 모두 THIN보다 길면 네 변(fill), 아니면 짧은 쪽이 THIN 이하인 방향의 가운데
+    선(stroke. 두 변 차가 AXIS_TOL 이하인 네모 점은 가로·세로 둘 다: 점선 조각). 넓이 0(보이지 않는다)이거나 사각형이
+    아니면 없음."""
+    rect = _rect(sub)
+    if rect is None:
+        return []
+    left, top, right, bottom = rect
+    w, h = right - left, bottom - top
+    if min(w, h) < 1e-6:  # 넓이 0인 채움은 그려지지 않는다
+        return []
+    if min(w, h) > THIN:
+        return [Rule("h", top, left, right, "fill"), Rule("h", bottom, left, right, "fill"),
+                Rule("v", left, top, bottom, "fill"), Rule("v", right, top, bottom, "fill")]
+    out = []
+    # 점선 조각(두 변 모두 MIN_RULE 미만)이면 두 변의 비교에 AXIS_TOL 여유를 둔다(좌표 변환의 부동소수 오차로 네모 점이
+    # 한 방향만 내지 않게). 그보다 큰 사각형은 그대로 비교해 긴 쪽 방향만
+    slack = AXIS_TOL if max(w, h) < MIN_RULE - LEN_EPS else 0.0
+    if h <= THIN and w >= max(DASH - LEN_EPS, h - slack):
+        out.append(Rule("h", (top + bottom) / 2, left, right))
+    if w <= THIN and h >= max(DASH - LEN_EPS, w - slack):
+        out.append(Rule("v", (left + right) / 2, top, bottom))
+    return out
+
+
+def _join_dashes(dashes: list[Rule]) -> Iterator[Rule]:
+    """점선 조각(MIN_RULE보다 짧은 선분)을 같은 축·같은 위치(위치 순으로 이웃 조각과 ± AXIS_TOL, 묶음 첫 조각과
+    2 × AXIS_TOL 안)에서 사이 ≤ DASH_GAP이면 이어 한 선(stroke)으로.
+    조각 둘 이상을 이어 MIN_RULE 이상이 된 것만 낸다(글자 모양 조각·눈금 하나는 버린다)."""
+    for axis in ("h", "v"):
+        groups: list[list[Rule]] = []
+        for dash in sorted((d for d in dashes if d.axis == axis), key=lambda d: d.pos):
+            # 바로 앞 조각과 비교(천천히 흐르는 점선)하되 묶음 첫 조각에서 2 × AXIS_TOL 안까지만
+            if groups and dash.pos - groups[-1][-1].pos <= AXIS_TOL and dash.pos - groups[-1][0].pos <= 2 * AXIS_TOL:
+                groups[-1].append(dash)
+            else:
+                groups.append([dash])
+        for group in groups:
+            chain: list[Rule] = []
+            end = 0.0
+            for dash in sorted(group, key=lambda d: d.start):
+                if chain and dash.start - end > DASH_GAP:
+                    yield from _chain(chain, end)
+                    chain = []
+                end = max(end, dash.end) if chain else dash.end
+                chain.append(dash)
+            yield from _chain(chain, end)
+
+
+def _chain(chain: list[Rule], end: float) -> Iterator[Rule]:
+    """조각 둘 이상, 길이 MIN_RULE 이상이고 곧은(위치 흐름 ≤ AXIS_TOL 또는 ≤ 길이 × DASH_DRIFT) 이음만 선."""
+    if len(chain) < 2 or end - chain[0].start < MIN_RULE - LEN_EPS:
+        return
+    drift = max(d.pos for d in chain) - min(d.pos for d in chain)
+    if drift <= AXIS_TOL or drift <= DASH_DRIFT * (end - chain[0].start):
+        yield Rule(chain[0].axis, sum(d.pos for d in chain) / len(chain), chain[0].start, end)
+
+
+def _clipped(rule: Rule, width: float, height: float) -> Rule | None:
+    """쪽 밖 부분을 잘라 낸다. 쪽 밖이거나 잘라서 MIN_RULE보다 짧아지면 None. 좌표는 소수 셋째 자리."""
+    span, depth = (width, height) if rule.axis == "h" else (height, width)
+    start, end = max(rule.start, 0.0), min(rule.end, span)
+    if not 0 <= rule.pos <= depth or end - start < MIN_RULE - LEN_EPS:
+        return None
+    return Rule(rule.axis, round(rule.pos, 3), round(start, 3), round(end, 3), rule.kind)
+
+
+def _rules(page: pdfium.PdfPage, box: Box, rotation: int, width: float, height: float) -> tuple[Rule, ...]:
+    """path 객체(폼 XObject 안 포함)의 가로·세로 선분. 그은 path의 직선 변은 stroke, 채운 사각형은 _fill_rules.
+    하얀색·투명 선과 채움, 사선·곡선, 이어도 MIN_RULE보다 짧은 선분, 쪽 밖은 버린다. 좌표는 글자와 같은 보이는
+    쪽 틀(회전 보정, 원점 왼쪽 위)의 pt. 순서는 그린 순서, 점선은 끝에. 그리고 채운 path는 stroke와 fill을 둘 다 낸다.
+    알려진 한계: 클리핑 경로는 보지 않는다(잘려 안 보이는 선도 낸다).
+    훑은 path 구간이나 점선 조각이 MAX_RULE_SEGMENTS개를 넘으면 그 쪽은 ()(표 검출을 건너뛴다. 글자는 그대로)."""
+    fill_mode, stroke = ctypes.c_int(), ctypes.c_int()
+    out: list[Rule] = []
+    dashes: list[Rule] = []
+    budget = MAX_RULE_SEGMENTS
+    for obj, matrix in _path_objects(page.raw, False, _IDENTITY):
+        budget -= max(pdfium_c.FPDFPath_CountSegments(obj), 1)  # 점을 읽기 전에 센다(넘으면 바로 멈춘다)
+        if budget < 0:
+            return ()
+        if not pdfium_c.FPDFPath_GetDrawMode(obj, fill_mode, stroke):
+            continue
+        stroked = bool(stroke.value) and _visible_color(pdfium_c.FPDFPageObj_GetStrokeColor, obj)
+        filled = (fill_mode.value != pdfium_c.FPDF_FILLMODE_NONE
+                  and _visible_color(pdfium_c.FPDFPageObj_GetFillColor, obj))
+        if not (stroked or filled):
+            continue
+        subs = _subpaths(obj, matrix, box, rotation, width, height)
+        # 부분 경로가 여럿인 채운 path(속이 빈 틀, 칸 여러 개의 틀, 사각형과 다른 모양이 섞인 것)의 사각형은 채움
+        # 규칙(even-odd·nonzero)을 따지지 않고 테두리로 본다: 넓은 사각형의 네 변도 fill이 아니라 stroke. 얇은 사각형은
+        # 그대로(점선 조각), 사각형이 아닌 부분 경로는 무시. 맞바꾼 것: 실제로 속까지 칠한 배경을 이런 path로 그리면
+        # 머리행 표시를 잃는다(머리행은 덧붙인 정보일 뿐이다)
+        border = filled and len(subs) > 1
+        for sub in subs:
+            found = [_edge_rule(p, q) for p, q in sub.edges] if stroked else []
+            fills = _fill_rules(sub) if filled else []
+            if border:
+                fills = [Rule(r.axis, r.pos, r.start, r.end) for r in fills]
+            for rule in found + fills:
+                if rule is None:
+                    continue
+                if rule.end - rule.start < MIN_RULE - LEN_EPS:
+                    dashes.append(rule)
+                elif (clipped := _clipped(rule, width, height)) is not None:
+                    out.append(clipped)
+        if len(dashes) > MAX_RULE_SEGMENTS:
+            return ()
+    out.extend(clipped for rule in _join_dashes(dashes) if (clipped := _clipped(rule, width, height)) is not None)
+    return tuple(out)
