@@ -234,11 +234,13 @@ def _continues(group: Sequence[Fragment], cur: Fragment, body: float) -> bool:
             and _is_heading_size(cur, body) == _is_heading_size(first, body))
 
 
-def _table_top(table: "TableSpec", page: PageText, axes: Axes) -> float:
-    """표 bbox(보이는 쪽 0~1)의 읽기 좌표(axes) 윗변 pt."""
+def _table_corner(table: "TableSpec", page: PageText, axes: Axes) -> tuple[float, float]:
+    """표 bbox(보이는 쪽 0~1)의 읽기 좌표(axes) (윗변, 왼변) pt."""
     x0, y0, x1, y1 = table.bbox
+    left, _ = _span(*((x0, x1) if axes[0] % 2 == 0 else (y0, y1)), axes[0])
     top, _ = _span(*((x0, x1) if axes[1] % 2 == 0 else (y0, y1)), axes[1])
-    return top * frame_size(page, axes)[1]
+    w, h = frame_size(page, axes)
+    return top * h, left * w
 
 
 def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
@@ -247,8 +249,8 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
     빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
     않는다). 표는 같은 읽기 방향(TableSpec.axes) 조각 사이에, 그 방향 조각이 없으면 쪽의 첫 방향 조각 사이에
-    그 방향 읽기 좌표의 윗변으로 끼운다. 그 방향 조각보다 아래인 표는 그 방향 조각 끝(다음 방향 조각 앞)에 둔다.
-    순서: 쪽 → 위→아래 → 왼→오."""
+    그 방향 읽기 좌표의 윗변으로 끼운다(조각이 없는 쪽은 표 자신의 방향). 윗변이 같으면 그 좌표의 왼쪽 표가
+    먼저다. 그 방향 조각보다 아래인 표는 그 방향 조각 끝(다음 방향 조각 앞)에 둔다. 순서: 쪽 → 위→아래 → 왼→오."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     frags: list[list[Fragment]] = []
     for page, state, page_tables in zip(pages, states, found, strict=True):
@@ -261,16 +263,16 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     for p, (page, page_frags, page_tables, state) in enumerate(zip(pages, frags, found, states)):
         present = {f.axes for f in page_frags}
         fallback = page_frags[0].axes if page_frags else UPRIGHT
-        placed: dict[Axes, list[tuple[float, TableSpec]]] = defaultdict(list)  # 끼울 방향 → (윗변, 표)
+        placed: dict[Axes, list[tuple[tuple[float, float], TableSpec]]] = defaultdict(list)  # 방향 → ((윗변, 왼변), 표)
         for t in page_tables if state != "unreliable" else []:
-            axes = t.axes if t.axes in present else fallback
-            placed[axes].append((_table_top(t, page, axes), t))
+            axes = t.axes if t.axes in present or not page_frags else fallback
+            placed[axes].append((_table_corner(t, page, axes), t))
         queues = {axes: deque(sorted(q, key=lambda item: item[0])) for axes, q in placed.items()}
         for i, f in enumerate(page_frags):
             if i and f.axes != page_frags[i - 1].axes:  # 앞 방향 조각이 끝났다: 그 방향에 남은 표를 먼저
                 items += [(page, None, t) for _, t in queues.pop(page_frags[i - 1].axes, ())]
             queue = queues.get(f.axes)
-            while queue and queue[0][0] <= f.y0:
+            while queue and queue[0][0][0] <= f.y0:
                 items.append((page, None, queue.popleft()[1]))
             margin = margins.get((p, i))
             last = items[-1] if items else None

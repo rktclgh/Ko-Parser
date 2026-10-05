@@ -234,3 +234,40 @@ def test_tables_in_margin_zones_are_not_page_headers_or_footers():
     specs = list(PdfParser().parse(buf.getvalue(), "t.pdf").blocks)
     assert [(s["locator"]["page"], s["kind"]) for s in specs] == [
         (p, k) for p in (1, 2, 3) for k in ("table", "paragraph", "table")]
+
+
+def rotated_parse(draw, rotation: int) -> list[dict]:
+    """MediaBox에 보통으로 그리고 /Rotate만 바꾼 쪽: 읽기 좌표(그린 좌표)의 순서는 회전과 상관없이 같아야 한다.
+    reportlab은 90°·270°면 MediaBox를 842×595로 눕히므로 put·table의 H 기준 좌표를 그 높이로 옮긴다."""
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(595.0, H), invariant=1, pageCompression=0)
+    if rotation:
+        c.setPageRotation(rotation)
+    c.translate(0, (595.0 if rotation in (90, 270) else H) - H)
+    draw(c)
+    c.showPage()
+    c.save()
+    return list(PdfParser().parse(buf.getvalue(), "t.pdf").blocks)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_tables_on_a_table_only_page_keep_reading_order_on_rotated_pages(rotation):
+    """표 밖 글자가 없는 쪽: 표는 자기 방향(TableSpec.axes) 읽기 좌표로 위→아래 순서다."""
+    def draw(c):
+        table(c, 80, [["가", "나", "다"], ["라", "마", "바"]])
+        table(c, 260, [["사", "아", "자"], ["차", "카", "타"]])
+
+    specs = rotated_parse(draw, rotation)
+    assert [s["text"].split("\t")[0] for s in specs] == ["가", "사"]
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_tables_at_the_same_top_are_ordered_left_to_right_in_reading_coordinates(rotation):
+    """윗변이 같은 두 표는 그 방향 읽기 좌표의 왼쪽 표가 먼저다."""
+    def draw(c):
+        put(c, 72, 60, "표 앞 문단이다.")
+        table(c, 100, [["가", "나"], ["다", "라"]], xs=(72, 172, 272))
+        table(c, 100, [["사", "아"], ["자", "차"]], xs=(322, 422, 522))
+
+    specs = rotated_parse(draw, rotation)
+    assert [s["text"].split("\t")[0] for s in specs] == ["표 앞 문단이다.", "가", "사"]
