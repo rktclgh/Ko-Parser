@@ -131,9 +131,10 @@ main.no-pages { grid-template-columns: minmax(0, 1fr); }
 .badge.kind { background: var(--c); color: #fff; }
 .badge.added { background: #2f9e44; color: #fff; }
 .badge.updated { background: #e8590c; color: #fff; }
-.grid { border-collapse: collapse; margin-top: 4px; font-size: 12px; }
-.grid td, .grid th { border: 1px solid var(--line); padding: 2px 6px; white-space: pre-wrap; word-break: break-word;
-                     vertical-align: top; text-align: left; }
+.grid-wrap { overflow-x: auto; margin-top: 4px; }
+.grid { border-collapse: collapse; font-size: 12px; }
+.grid td, .grid th { border: 1px solid var(--line); padding: 2px 6px; white-space: pre-wrap; word-break: keep-all;
+                     overflow-wrap: normal; vertical-align: top; text-align: left; }
 .grid th { background: #eef0f3; font-weight: 600; }
 .removed { margin-top: 16px; }
 .removed .item { --c: #adb5bd; text-decoration: line-through; color: var(--muted); cursor: default; }
@@ -175,20 +176,25 @@ const states = Object.entries(doc.page_states).map(([k, n]) => (STATE_LABEL[k] |
  ["레이어", doc.layer_state], ["형식", doc.mime], ["쪽", DATA.pages.length ? DATA.pages.length + "쪽 (" + states + ")" : "없음"],
  ["블록", DATA.blocks.length]].forEach(([k, v]) => meta.appendChild(el("span", "", k + ": " + v)));
 
-// 표 블록: 칸 목록으로 <table>을 DOM으로 만든다. 글자는 textContent(줄바꿈은 CSS pre-wrap), 머리 칸은 <th>
+// 표 블록: 칸 목록으로 <table>을 DOM으로 만든다. 글자는 textContent(줄바꿈은 CSS pre-wrap), 머리 칸은 <th>.
+// 낱말·숫자는 칸 안에서 끊지 않고(keep-all) 넓은 표는 가로로 스크롤한다
 function grid(t) {
+  const wrap = el("div", "grid-wrap");
   const table = el("table", "grid");
   const body = el("tbody");
   const rows = [];
   for (let r = 0; r < t.n_rows; r++) rows.push(body.appendChild(el("tr")));
   for (const c of t.cells) {
     const cell = el(c.header === "none" ? "td" : "th", "", c.text);
+    if (c.header === "column") cell.scope = "col";
+    else if (c.header === "row") cell.scope = "row";
     if (c.rowspan > 1) cell.rowSpan = c.rowspan;
     if (c.colspan > 1) cell.colSpan = c.colspan;
     rows[c.row].appendChild(cell);
   }
   table.appendChild(body);
-  return table;
+  wrap.appendChild(table);
+  return wrap;
 }
 const boxes = new Map();
 const items = new Map();

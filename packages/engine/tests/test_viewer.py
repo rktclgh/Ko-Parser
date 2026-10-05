@@ -192,3 +192,15 @@ def test_grid_is_built_with_dom_and_text_content_only():
     assert "innerHTML" not in page and "insertAdjacentHTML" not in page and "document.write" not in page
     (rule,) = re.findall(r"\.grid td, \.grid th \{([^}]*)\}", page)
     assert "white-space: pre-wrap" in rule
+
+
+def test_grid_keeps_words_whole_scrolls_wide_tables_and_scopes_header_cells():
+    """칸 글자의 낱말·숫자(25,036 같은)는 끊지 않고 넓은 표는 가로로 스크롤한다. 머리 칸 scope는 정해진 값으로만."""
+    page = render_html(table_tree(1))
+    (wrap,) = re.findall(r"\.grid-wrap \{([^}]*)\}", page)
+    assert "overflow-x: auto" in wrap
+    (rule,) = re.findall(r"\.grid td, \.grid th \{([^}]*)\}", page)
+    assert "word-break: keep-all" in rule and "overflow-wrap: normal" in rule and "white-space: pre-wrap" in rule
+    assert 'el("div", "grid-wrap")' in page
+    assert 'if (c.header === "column") cell.scope = "col";' in page
+    assert 'else if (c.header === "row") cell.scope = "row";' in page
