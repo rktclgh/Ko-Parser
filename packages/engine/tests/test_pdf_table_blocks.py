@@ -1,5 +1,6 @@
 import io
 from collections import Counter
+from dataclasses import replace
 
 import pytest
 from reportlab.lib.utils import ImageReader
@@ -9,6 +10,9 @@ from reportlab.pdfgen.canvas import Canvas
 
 from ko_parser.formats.pdf import PdfParser
 from ko_parser.formats.pdf import parser as pdf_parser
+from ko_parser.formats.pdf.extract import extract_pages
+from ko_parser.formats.pdf.group import build_specs
+from ko_parser.formats.pdf.tables import find_tables
 from ko_parser_contracts import Table, build_blocks
 
 FONT = "HYGothic-Medium"
@@ -172,3 +176,61 @@ def test_every_char_lands_in_exactly_one_block():
     expected = Counter(ch for s in ["1. 수출입 현황", "올해 수출입 실적은 아래 표와 같다.", "수출은 전년보다 늘었다.",
                                     *(x for row in ROWS for x in row)] for ch in s if not ch.isspace())
     assert seen == expected
+
+
+def side_label_page(table_top: float) -> list[dict]:
+    """바로 선 두 문단과 표, 그리고 90° 돌린 짧은 옆 글(바로 선 글보다 글자가 적어 조각 순서가 뒤다)."""
+    def draw(c):
+        put(c, 72, 80, "첫 문단이다.")
+        put(c, 72, 200, "둘째 문단이다.")
+        table(c, table_top, [["가", "나", "다"], ["라", "마", "바"]])
+        c.saveState()
+        c.translate(40, 300)
+        c.rotate(90)
+        t = c.beginText(0, 0)
+        t.setFont(FONT, 11)
+        t.textOut("옆 글")
+        c.drawText(t)
+        c.restoreState()
+
+    return parse(draw)
+
+
+@pytest.mark.parametrize("table_top,expected", [
+    (400, ["첫 문단이다.", "둘째 문단이다.", "table", "옆 글"]),
+    (120, ["첫 문단이다.", "table", "둘째 문단이다.", "옆 글"])])
+def test_table_below_its_direction_text_comes_before_text_of_other_directions(table_top, expected):
+    """표 윗변이 같은 방향 조각보다 모두 아래여도 다른 방향 조각 뒤(쪽 끝)로 밀리지 않는다."""
+    assert [s["text"] if s["kind"] != "table" else "table" for s in side_label_page(table_top)] == expected
+
+
+def test_table_bbox_keeps_nonzero_width_and_height():
+    """반올림한 표 bbox의 폭·높이가 0이면 _box처럼 0.001 넓힌다(쪽 끝이면 안쪽으로)."""
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(595.0, H), invariant=1, pageCompression=0)
+    report(c)
+    c.showPage()
+    c.save()
+    page = extract_pages(buf.getvalue(), "t.pdf")[0]
+    spec = find_tables(page)[0]
+    boxes = []
+    for bbox in [(0.2, 0.3, 0.2, 0.3), (1.0, 1.0, 1.0, 1.0)]:
+        specs = build_specs([page], ["digital"], [[replace(spec, bbox=bbox)]])
+        boxes += [s["locator"]["bbox"] for s in specs if s["kind"] == "table"]
+    assert boxes == [{"x0": 0.2, "y0": 0.3, "x1": 0.201, "y1": 0.301},
+                     {"x0": 0.999, "y0": 0.999, "x1": 1.0, "y1": 1.0}]
+
+
+def test_tables_in_margin_zones_are_not_page_headers_or_footers():
+    """여러 쪽 같은 위치(위·아래 8% 안)에 같은 글자의 표가 있어도 표 글자는 머리말·꼬리말이 되지 않고 표로 남는다."""
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(595.0, H), invariant=1, pageCompression=0)
+    for n in range(3):
+        table(c, 10, [["기관", "부서"], ["담당", "연락"]], size=9, xs=(72, 222, 372))
+        put(c, 72, 400, f"{n + 1}쪽 본문이다.")
+        table(c, 784, [["작성", "검토"], ["승인", "배포"]], size=9, xs=(72, 222, 372))
+        c.showPage()
+    c.save()
+    specs = list(PdfParser().parse(buf.getvalue(), "t.pdf").blocks)
+    assert [(s["locator"]["page"], s["kind"]) for s in specs] == [
+        (p, k) for p in (1, 2, 3) for k in ("table", "paragraph", "table")]

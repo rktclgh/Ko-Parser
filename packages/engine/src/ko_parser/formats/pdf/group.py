@@ -5,7 +5,7 @@
 
 import re
 import unicodedata
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
@@ -198,20 +198,21 @@ def repeated_margins(pages: Sequence[PageText], frags: Sequence[Sequence[Fragmen
     return found
 
 
-def _box(frags: Sequence[Fragment], page: PageText) -> dict[str, float]:
-    """보이는 쪽 기준 0~1(읽기 좌표에서 되돌린다), 소수 셋째 자리 반올림. 반올림으로 폭·높이가 0이 되면 0.001
-    넓힌다. frags는 같은 axes."""
-    def axis(lo: float, hi: float) -> tuple[float, float]:
-        a, b = (round(min(max(v, 0.0), 1.0), 3) for v in (lo, hi))
-        if b > a:
-            return a, b
-        return (a, round(a + 0.001, 3)) if a < 1.0 else (round(b - 0.001, 3), b)
+def _widen(lo: float, hi: float) -> tuple[float, float]:
+    """0~1 구간을 소수 셋째 자리로 반올림한다. 반올림으로 폭이 0이 되면 0.001 넓힌다(1이면 안쪽으로)."""
+    a, b = (round(min(max(v, 0.0), 1.0), 3) for v in (lo, hi))
+    if b > a:
+        return a, b
+    return (a, round(a + 0.001, 3)) if a < 1.0 else (round(b - 0.001, 3), b)
 
+
+def _box(frags: Sequence[Fragment], page: PageText) -> dict[str, float]:
+    """보이는 쪽 기준 0~1(읽기 좌표에서 되돌린다), 소수 셋째 자리 반올림(_widen). frags는 같은 axes."""
     axes = frags[0].axes
     w, h = frame_size(page, axes)
     spans = {axes[0] % 2: _span(min(f.x0 for f in frags) / w, max(f.x1 for f in frags) / w, axes[0]),
              axes[1] % 2: _span(min(f.y0 for f in frags) / h, max(f.y1 for f in frags) / h, axes[1])}
-    (x0, x1), (y0, y1) = axis(*spans[0]), axis(*spans[1])
+    (x0, x1), (y0, y1) = _widen(*spans[0]), _widen(*spans[1])
     return {"x0": x0, "y0": y0, "x1": x1, "y1": y1}
 
 
@@ -246,7 +247,8 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
     빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
     않는다). 표는 같은 읽기 방향(TableSpec.axes) 조각 사이에, 그 방향 조각이 없으면 쪽의 첫 방향 조각 사이에
-    그 방향 읽기 좌표의 윗변으로 끼운다. 순서: 쪽 → 위→아래 → 왼→오."""
+    그 방향 읽기 좌표의 윗변으로 끼운다. 그 방향 조각보다 아래인 표는 그 방향 조각 끝(다음 방향 조각 앞)에 둔다.
+    순서: 쪽 → 위→아래 → 왼→오."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     frags: list[list[Fragment]] = []
     for page, state, page_tables in zip(pages, states, found, strict=True):
@@ -259,16 +261,17 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     for p, (page, page_frags, page_tables, state) in enumerate(zip(pages, frags, found, states)):
         present = {f.axes for f in page_frags}
         fallback = page_frags[0].axes if page_frags else UPRIGHT
-        queues: dict[Axes, list[tuple[float, TableSpec]]] = defaultdict(list)  # 끼울 방향 → (윗변, 표)
+        placed: dict[Axes, list[tuple[float, TableSpec]]] = defaultdict(list)  # 끼울 방향 → (윗변, 표)
         for t in page_tables if state != "unreliable" else []:
             axes = t.axes if t.axes in present else fallback
-            queues[axes].append((_table_top(t, page, axes), t))
-        for queue in queues.values():
-            queue.sort(key=lambda item: item[0])
+            placed[axes].append((_table_top(t, page, axes), t))
+        queues = {axes: deque(sorted(q, key=lambda item: item[0])) for axes, q in placed.items()}
         for i, f in enumerate(page_frags):
+            if i and f.axes != page_frags[i - 1].axes:  # 앞 방향 조각이 끝났다: 그 방향에 남은 표를 먼저
+                items += [(page, None, t) for _, t in queues.pop(page_frags[i - 1].axes, ())]
             queue = queues.get(f.axes)
             while queue and queue[0][0] <= f.y0:
-                items.append((page, None, queue.pop(0)[1]))
+                items.append((page, None, queue.popleft()[1]))
             margin = margins.get((p, i))
             last = items[-1] if items else None
             if (margin is None and last is not None and last[0] is page and last[1] is None
@@ -288,7 +291,7 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     for page, margin, group in items:
         extra: dict[str, Any] = {}
         if not isinstance(group, list):
-            x0, y0, x1, y1 = group.bbox
+            (x0, x1), (y0, y1) = _widen(group.bbox[0], group.bbox[2]), _widen(group.bbox[1], group.bbox[3])
             specs.append({"kind": "table", "table": group.table, "text": group.table.plain_text(),
                           "section_path": tuple(t for _, t in stack), "confidence": CONFIDENCE["table"],
                           "state": "det", "text_source": "text_layer",
