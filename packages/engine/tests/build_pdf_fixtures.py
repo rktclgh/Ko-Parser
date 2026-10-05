@@ -106,6 +106,33 @@ def image_page(c: Canvas) -> None:
     c.showPage()
 
 
+def ruled_table(c: Canvas) -> None:
+    """제목·문단 뒤 선 있는 표 하나(머리행 배경, 가로 병합 '상반기', 세로 병합 '사업', 칸 안 두 줄)와 뒤 문단."""
+    text(c, 72, 770, 16, "1. 추진 실적")
+    text(c, 72, 745, 11, "분기별 실적은 아래 표와 같다.")
+    xs, ys = [72, 172, 272, 372, 472], [720, 696, 672, 648, 624]  # 칸 높이 24pt
+    c.saveState()
+    c.setFillGray(0.85)
+    c.rect(xs[0], ys[1], xs[-1] - xs[0], ys[0] - ys[1], stroke=0, fill=1)
+    c.restoreState()
+    for j, y in enumerate(ys):
+        c.line(xs[1] if j == 2 else xs[0], y, xs[-1], y)  # 1열 2·3행 사이는 선이 없다(세로 병합)
+    for x in xs:
+        c.line(x, ys[1] if x == 272 else ys[0], x, ys[-1])  # 머리행 2·3열 사이는 선이 없다(가로 병합)
+    text(c, 105, 703, 11, "구분")
+    text(c, 255.5, 703, 11, "상반기")
+    text(c, 405, 703, 11, "비고")
+    text(c, 105, 668, 11, "사업")
+    for x, row in zip((205, 305), (("1분기", "3건", "3건"), ("2분기", "5건", "5건"))):
+        for y, s in zip((679, 655, 631), row):
+            text(c, x, y, 11, s)
+    text(c, 105, 631, 11, "합계")
+    text(c, 405, 637, 9, "누적")
+    text(c, 405, 627, 9, "8건")
+    text(c, 72, 590, 11, "실적은 분기마다 갱신한다.")
+    c.showPage()
+
+
 def empty(c: Canvas) -> None:
     """글자도 그림도 없는 쪽 → digital, 블록 없음."""
     c.showPage()
@@ -113,7 +140,7 @@ def empty(c: Canvas) -> None:
 
 SAMPLES: dict[str, Callable[[Canvas], None]] = {
     "report.pdf": report, "header_footer.pdf": header_footer, "scanned_invisible.pdf": scanned_invisible,
-    "image_page.pdf": image_page, "empty.pdf": empty,
+    "image_page.pdf": image_page, "empty.pdf": empty, "table.pdf": ruled_table,
 }
 
 

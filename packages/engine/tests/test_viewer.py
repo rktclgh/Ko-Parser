@@ -147,3 +147,83 @@ def test_page_notice_is_not_overlaid_on_page_image():
     page = render_html(pdf_tree(1, spec("- 2 -", 0.05, page=2)))
     (rule,) = re.findall(r"\.notice \{([^}]*)\}", page)
     assert "absolute" not in rule and "inset" not in rule
+
+
+def merged_table(text: str = "실적"):
+    from ko_parser_contracts import Cell, Table
+
+    return Table(n_rows=2, n_cols=3, cells=[  # 칸 순서를 일부러 섞는다
+        Cell(row=1, col=2, text="나", text_source="text_layer"),
+        Cell(row=0, col=0, rowspan=2, text="구분", header="column", text_source="text_layer"),
+        Cell(row=0, col=1, colspan=2, text=text, header="column", text_source="text_layer"),
+        Cell(row=1, col=1, text="첫 줄\n둘째 줄", text_source="text_layer")])
+
+
+def table_tree(version: int, text: str = "실적") -> DocumentTree:
+    table = merged_table(text)
+    return pdf_tree(version, dict(spec(table.plain_text(), 0.1, "table"), table=table))
+
+
+def test_table_block_has_grid_cells_in_row_order():
+    data = data_of(render_html(table_tree(1)))
+    assert data["blocks"][0]["table"] == {"n_rows": 2, "n_cols": 3, "cells": [
+        {"row": 0, "col": 0, "rowspan": 2, "colspan": 1, "text": "구분", "header": "column"},
+        {"row": 0, "col": 1, "rowspan": 1, "colspan": 2, "text": "실적", "header": "column"},
+        {"row": 1, "col": 1, "rowspan": 1, "colspan": 1, "text": "첫 줄\n둘째 줄", "header": "none"},
+        {"row": 1, "col": 2, "rowspan": 1, "colspan": 1, "text": "나", "header": "none"}]}
+    # 사라진 표 블록도 같은 격자
+    removed = data_of(render_html(pdf_tree(2, spec("본문", 0.2)), previous=table_tree(1)))["removed"]
+    assert removed[0]["table"] == data["blocks"][0]["table"]
+    assert data_of(render_html(pdf_tree(1, spec("본문", 0.2))))["blocks"][0]["table"] is None
+
+
+@pytest.mark.parametrize("evil", ["</script><script>alert(1)</script>", "<img src=x onerror=alert(1)>", "<!--<script>"])
+def test_table_cell_text_is_escaped(evil):
+    page = render_html(table_tree(1, evil))
+    assert data_of(page)["blocks"][0]["table"]["cells"][1]["text"] == evil
+    assert page.count("<script") == 2 and page.count("</script>") == 2
+    assert "<" not in DATA.findall(page)[0]
+
+
+def test_grid_is_built_with_dom_and_text_content_only():
+    """문서 글자를 HTML로 해석하는 API를 쓰지 않고, 칸 글자의 줄바꿈은 CSS pre-wrap으로 보인다(병합·머리 칸 모양은
+    PR 마무리의 브라우저 확인)."""
+    page = render_html(table_tree(1))
+    assert "innerHTML" not in page and "insertAdjacentHTML" not in page and "document.write" not in page
+    (rule,) = re.findall(r"\.grid td, \.grid th \{([^}]*)\}", page)
+    assert "white-space: pre-wrap" in rule
+
+
+def test_grid_keeps_words_whole_scrolls_wide_tables_and_scopes_header_cells():
+    """칸 글자의 낱말·숫자(25,036 같은)는 끊지 않고 넓은 표는 가로로 스크롤한다. 머리 칸 scope는 정해진 값으로만."""
+    page = render_html(table_tree(1))
+    (wrap,) = re.findall(r"\.grid-wrap \{([^}]*)\}", page)
+    assert "overflow-x: auto" in wrap
+    (rule,) = re.findall(r"\.grid td, \.grid th \{([^}]*)\}", page)
+    assert "word-break: keep-all" in rule and "overflow-wrap: normal" in rule and "white-space: pre-wrap" in rule
+    assert 'el("div", "grid-wrap")' in page
+    assert 'if (c.header === "column") cell.scope = "col";' in page
+    assert 'else if (c.header === "row") cell.scope = "row";' in page
+
+
+def test_table_with_span_over_browser_limit_falls_back_to_text():
+    """브라우저는 colSpan을 1000, rowSpan을 65534로 자른다. 넘는 칸이 있으면 격자 대신 마크다운 글자(textContent)로."""
+    from ko_parser_contracts import Cell, Table
+
+    table = Table(n_rows=2, n_cols=1001, cells=[Cell(row=0, col=0, colspan=1001, text="머리", text_source="text_layer"),
+                                                *(Cell(row=1, col=k, text=str(k), text_source="text_layer")
+                                                  for k in range(1001))])
+    page = render_html(pdf_tree(1, dict(spec(table.plain_text(), 0.1, "table"), table=table)))
+    block = data_of(page)["blocks"][0]
+    assert block["text"] == table.to_markdown()  # 데이터는 그대로, 화면에서만 글자로
+    assert block["table"]["cells"][0] == {"row": 0, "col": 0, "rowspan": 1, "colspan": 1001, "text": "머리",
+                                          "header": "none"}
+    assert "const MAX_COLSPAN = 1000, MAX_ROWSPAN = 65534;" in page
+    assert "t.cells.some((c) => c.colspan > MAX_COLSPAN || c.rowspan > MAX_ROWSPAN)" in page
+    assert 'el("div", "grid-note", "표가 커서 글자로 표시")' in page and 'el("div", "text", text)' in page
+    assert "grid(b.table, b.text)" in page and "grid(r.table, r.text)" in page
+
+
+def test_only_column_and_row_header_cells_are_th():
+    page = render_html(table_tree(1))
+    assert 'el(c.header === "column" || c.header === "row" ? "th" : "td", "", c.text)' in page
