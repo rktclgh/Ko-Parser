@@ -1,0 +1,264 @@
+{
+  "schema_version": "0.2",
+  "document_id": "fx-pdf-table",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "table.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:92bbf49923ca6a8dfe505a271ea899b697032146825e72793aaa68b12450942a",
+    "page_count": 1
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": {
+        "chars": 60,
+        "invisible_ratio": 0.0,
+        "unmapped_ratio": 0.0,
+        "pua_ratio": 0.0,
+        "max_image_coverage": 0.0
+      }
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "b_f6bc5ce704184226283fb323",
+      "content_hash": "c_6a24e1474392a4aea43562d0846f978f",
+      "order": 0,
+      "kind": "heading",
+      "text": "1. 추진 실적",
+      "table": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.071,
+          "x1": 0.282,
+          "y1": 0.088
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_a8e109ad6d6c1ea1f2a370cd",
+      "content_hash": "c_36da4477ad3515c0f7cf9a2b6fd1f209",
+      "order": 1,
+      "kind": "paragraph",
+      "text": "분기별 실적은 아래 표와 같다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "1. 추진 실적"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.105,
+          "x1": 0.389,
+          "y1": 0.117
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_4292a7d42c78f828464ce196",
+      "content_hash": "c_9ce78f308efbc02b53238ed895687a99",
+      "order": 2,
+      "kind": "table",
+      "text": "구분\t상반기\t비고\n사업\t1분기\t2분기\t\n3건\t5건\t\n합계\t3건\t5건\t누적\n8건",
+      "table": {
+        "n_rows": 4,
+        "n_cols": 4,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "구분",
+            "header": "column",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 2,
+            "text": "상반기",
+            "header": "column",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 0,
+            "col": 3,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "비고",
+            "header": "column",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 2,
+            "colspan": 1,
+            "text": "사업",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "1분기",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 2,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "2분기",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 3,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 2,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "3건",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 2,
+            "col": 2,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "5건",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 2,
+            "col": 3,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 3,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "합계",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 3,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "3건",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 3,
+            "col": 2,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "5건",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 3,
+            "col": 3,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "누적\n8건",
+            "header": "none",
+            "text_source": "text_layer"
+          }
+        ]
+      },
+      "level": null,
+      "section_path": [
+        "1. 추진 실적"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.145,
+          "x1": 0.793,
+          "y1": 0.259
+        }
+      },
+      "confidence": 0.6,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_928f3c9559a172c0287e9c3b",
+      "content_hash": "c_caea08a8a02445893030ea585770604f",
+      "order": 3,
+      "kind": "paragraph",
+      "text": "실적은 분기마다 갱신한다.",
+      "table": null,
+      "level": null,
+      "section_path": [
+        "1. 추진 실적"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.121,
+          "y0": 0.289,
+          "x1": 0.352,
+          "y1": 0.301
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    }
+  ]
+}

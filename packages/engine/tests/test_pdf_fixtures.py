@@ -84,3 +84,18 @@ def test_scanned_pages_keep_reasons_and_only_visible_text(name, invisible, cover
 def test_empty_page_is_digital_without_blocks():
     tree = _expected("empty.pdf")
     assert tree.blocks == () and tree.pages[0].text_layer == "digital" and tree.pages[0].text_stats.chars == 0
+
+
+def test_table_fixture_has_one_table_block_between_paragraphs():
+    tree = _expected("table.pdf")
+    assert [b.kind for b in tree.blocks] == ["heading", "paragraph", "table", "paragraph"]
+    block = tree.blocks[2]
+    assert [(c.row, c.col, c.rowspan, c.colspan, c.text, c.header) for c in block.table.cells] == [
+        (0, 0, 1, 1, "구분", "column"), (0, 1, 1, 2, "상반기", "column"), (0, 3, 1, 1, "비고", "column"),
+        (1, 0, 2, 1, "사업", "none"), (1, 1, 1, 1, "1분기", "none"), (1, 2, 1, 1, "2분기", "none"),
+        (1, 3, 1, 1, "", "none"), (2, 1, 1, 1, "3건", "none"), (2, 2, 1, 1, "5건", "none"), (2, 3, 1, 1, "", "none"),
+        (3, 0, 1, 1, "합계", "none"), (3, 1, 1, 1, "3건", "none"), (3, 2, 1, 1, "5건", "none"),
+        (3, 3, 1, 1, "누적\n8건", "none")]
+    assert block.section_path == ("1. 추진 실적",) and block.text == block.table.plain_text()
+    assert (block.locator.page, block.locator.bbox.x0, block.locator.bbox.y1) == (1, 0.121, 0.259)
+    assert "상반기" not in "".join(b.text for b in tree.blocks if b.kind != "table")
