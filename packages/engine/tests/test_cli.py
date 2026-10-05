@@ -316,3 +316,30 @@ def test_export_out_directory_fails_before_writing_assets(capsys, db, tmp_path):
                          "--assets", tmp_path / "a")
     assert (code, out) == (1, "") and "IsADirectoryError: output path is a directory" in err
     assert not (tmp_path / "a").exists() and list(out_dir.iterdir()) == []
+
+
+def test_export_assets_replace_a_symlink_instead_of_writing_through_it(capsys, db, tmp_path):
+    asset, png = seed_figure(db)
+    outside = write(tmp_path / "outside.txt", "keep me")
+    folder = tmp_path / "a"
+    folder.mkdir()
+    target = folder / (asset.removeprefix("sha256:")[:16] + ".png")
+    try:
+        os.symlink(outside, target)
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--assets", folder)
+    assert code == 0 and outside.read_text(encoding="utf-8") == "keep me"
+    assert not target.is_symlink() and target.read_bytes() == png
+    assert sorted(p.name for p in folder.iterdir()) == [target.name]  # 임시 파일이 남지 않는다
+
+
+@pytest.mark.parametrize("upper", [False, True])
+def test_export_out_colliding_with_an_asset_file_exit_1_and_writes_nothing(capsys, db, tmp_path, upper):
+    asset, _ = seed_figure(db)
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    out = tmp_path / "a" / (name.upper() if upper else name)  # 대소문자를 가리지 않는 파일 시스템도 같은 파일
+    code, out_text, err = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out,
+                              "--assets", tmp_path / "a")
+    assert (code, out_text) == (1, "") and "output path is also an asset file" in err
+    assert not (tmp_path / "a").exists()

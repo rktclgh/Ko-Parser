@@ -150,11 +150,52 @@ def _assets_link(assets: str, out: str | None) -> str:
     return folder.resolve().as_uri()
 
 
-def _write_assets(engine: LocalEngine, tree: DocumentTree, folder: Path) -> None:
-    """트리의 그림 이미지를 폴더에 쓴다(같은 이미지는 한 번). 없는 이미지는 AssetNotFound."""
+def _new_file_mode() -> int:
+    """새 파일의 umask 기본 권한(mkstemp는 0600으로 만든다)."""
+    umask = os.umask(0)  # umask는 읽으려면 바꿔야 한다(CLI는 한 스레드라 바로 되돌린다)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
+def _path_key(path: Path) -> str:
+    """같은 파일인지 비교할 열쇠: 절대 경로(심볼릭 링크 풀기)를 NFC·대소문자 무시로. 대소문자·정규화를 가리는
+    파일 시스템에서는 다른 파일도 같다고 볼 수 있지만, 쓰기 전에 거절하는 쪽이 안전하다."""
+    return unicodedata.normalize("NFC", os.path.normcase(str(path.resolve()))).casefold()
+
+
+def _asset_paths(tree: DocumentTree, folder: Path, out: str | None) -> dict[str, Path]:
+    """그림 이미지마다 쓸 경로(같은 이미지는 한 번). --out이 폴더나 이미지 파일과 겹치면 아무것도 쓰기 전에 ValueError."""
+    paths = {asset: folder / asset_name(asset)
+             for asset in dict.fromkeys(b.figure.asset for b in tree.blocks if b.figure is not None)}
+    if out is not None:
+        key = _path_key(Path(out))
+        if key == _path_key(folder) or any(key == _path_key(path) for path in paths.values()):
+            raise ValueError(f"output path is also an asset file: {out}")
+    return paths
+
+
+def _write_assets(engine: LocalEngine, paths: dict[str, Path], folder: Path) -> None:
+    """그림 이미지를 쓴다. 없는 이미지는 AssetNotFound. 같은 폴더의 임시 파일에 쓴 뒤 바꿔 끼운다: 그 이름이
+    심볼릭 링크여도 링크가 가리키는 파일을 덮지 않고 링크 자리를 PNG로 바꾼다."""
     folder.mkdir(parents=True, exist_ok=True)
-    for asset in dict.fromkeys(b.figure.asset for b in tree.blocks if b.figure is not None):
-        (folder / asset_name(asset)).write_bytes(engine.get_asset(asset))
+    mode = _new_file_mode()
+    for asset, path in paths.items():
+        data = engine.get_asset(asset)
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".ko-parser-asset.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            try:
+                os.chmod(tmp, mode)
+            except OSError:
+                pass
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
+                pass
+            raise
 
 
 def view_path(file: str, out: str | None) -> Path:
@@ -181,12 +222,7 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
         # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
         with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as f:
             f.write(html)
-        if out.exists():
-            mode = stat.S_IMODE(out.stat().st_mode)
-        else:
-            umask = os.umask(0)  # umask는 읽으려면 바꿔야 한다(CLI는 한 스레드라 바로 되돌린다)
-            os.umask(umask)
-            mode = 0o666 & ~umask
+        mode = stat.S_IMODE(out.stat().st_mode) if out.exists() else _new_file_mode()
         try:  # mkstemp는 0600으로 만든다: 이미 있던 HTML의 권한 또는 umask 기본 권한으로
             os.chmod(tmp, mode)
         except OSError:
@@ -209,7 +245,7 @@ def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
         case "export":
             tree = engine.get_tree(args.document_id, args.version)
             if args.assets:
-                _write_assets(engine, tree, Path(args.assets))
+                _write_assets(engine, _asset_paths(tree, Path(args.assets), args.out), Path(args.assets))
             _emit_tree(tree, args, _assets_link(args.assets, args.out) if args.assets else None)
         case "documents":
             _write(_json([ref.model_dump(mode="json") for ref in engine.documents()]), None)
