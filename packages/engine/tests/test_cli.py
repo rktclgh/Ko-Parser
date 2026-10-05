@@ -402,6 +402,19 @@ def test_export_links_follow_a_symlinked_parent_before_dotdot(capsys, db, tmp_pa
     assert (written.parent / "../img" / name).resolve().is_file()
 
 
+def test_export_out_under_a_symlinked_parent_and_dotdot_is_written_where_the_fs_puts_it(capsys, db, tmp_path):
+    seed_figure(db)
+    (tmp_path / "actual" / "deep").mkdir(parents=True)  # actual/nested는 없다: 내보내기가 만든다
+    try:
+        os.symlink(tmp_path / "actual" / "deep", tmp_path / "link")
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md",
+                     "--out", tmp_path / "link" / ".." / "nested" / "x.md")
+    assert code == 0 and (tmp_path / "actual" / "nested" / "x.md").is_file()
+    assert not (tmp_path / "nested").exists()
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
 def test_export_fchmod_failure_keeps_the_old_file_and_leaves_no_temp(capsys, db, tmp_path, monkeypatch):
     seed_figure(db)

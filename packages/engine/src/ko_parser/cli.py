@@ -192,6 +192,7 @@ def _replace_file(path: Path, data: bytes) -> None:
     않고, 그 이름이 심볼릭 링크면 가리키는 파일을 덮지 않고 링크 자리를 바꾼다. 권한은 경로가 아니라 fd로 정한다:
     이미 있던 보통 파일의 권한, 새 파일·심볼릭 링크 자리는 umask 기본 권한(mkstemp는 0600으로 만든다). Windows는
     권한을 건드리지 않는다(읽기 전용 임시 파일이 남지 않게). 어떤 오류든 임시 파일을 지우고 다시 던진다."""
+    path = path.parent.resolve() / path.name  # 부모의 심볼릭 링크·'..'는 파일 시스템처럼 푼다(마지막 이름은 그대로)
     mode = None
     if _POSIX_MODES:
         try:
