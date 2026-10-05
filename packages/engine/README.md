@@ -5,7 +5,7 @@ ko-parser 결정론 엔진. 형식별 파서가 원문을 전사하고, core가 
 - 형식: Markdown(`.md`, `.markdown`; UTF-8·UTF-8 BOM·cp949), PDF(`.pdf`; 텍스트 레이어. 쪽마다 digital·scanned·unreliable 판정과 근거, scanned 쪽은 보이는 글자만 블록(숨은 OCR 글자층은 버림), unreliable 쪽은 블록 없음. 선 있는 표(2×2 이상 격자)는 `table` 블록: 병합 칸, 배경 있는 맨 윗행은 머리행, 안 보이는 안쪽 칸 경계는 글자 정렬로 찾는다)
 - 리눅스·Docker: PDF에 넣어 두지 않은(미임베드) 한글 글꼴은 시스템 글꼴로 대신 읽으므로 한글 글꼴이 필요하다. `pip install "ko-parser-engine[fonts]"`(번들 Noto Sans KR, OFL)를 권장한다. 시스템 한글 글꼴(`fonts-noto-cjk`·`fonts-nanum`)이 있으면 필요 없다. 둘 다 없으면 한글이 빠질 상황을 감지해 파싱 실패(종료 코드 4)로 알린다. 알려진 한계: 번들 글꼴에 없는 기호(∙‣▸)만 담긴 한 글자 객체는 리눅스에서 빠질 수 있다. Windows·macOS는 기본 글꼴로 충분하다
 - PDF 한계: 쪽 내용 스트림의 글자만 읽는다. 입력 양식(AcroForm) 필드 값과 주석(annotation) 모양의 글자는 뽑지 않는다. 선이 하나도 없는 표, 가로선만 있는 표(세로선 없는 삼선표 등), 쪽을 넘는 표 잇기(쪽마다 블록 하나), 왼쪽 열 행머리, 칸 안 그림은 다루지 않는다. 1×1 상자와 한 줄·한 칸짜리 띠는 표가 아니라 문단이다. 상자 안 표는 안쪽 표만 블록이 된다. 표 영역 안이라도 표와 다른 방향으로 쓴 글자(회전한 글자)는 표 칸에 넣지 않고 문단으로 남긴다. 다단 읽기 순서는 아직 규칙 기반이다
-- 표 검출(E1-2c) 이전에 수집한 PDF는 원본이 같아 `parse`·`view`가 저장된 버전을 그대로 쓴다. `view`에는 `--force`가 없으니 먼저 `ko-parser parse 문서.pdf --force`로 다시 파싱한다. 그러면 표 자리의 문단·제목 블록이 사라지고(removed) 표 블록이 생기며(added), 뒤 블록의 `section_path`가 바뀌어 updated로 나올 수 있다. 정상 동작이다
+- 표 검출(E1-2c) 이전에 수집한 PDF는 원본이 같아 `parse`·`view`가 저장된 버전을 그대로 쓴다. `view`에는 `--force`가 없으니 먼저 `ko-parser parse 문서.pdf --force`로 다시 파싱한다. 그러면 표 자리의 문단·제목 블록이 사라지고(removed) 표 블록이 생기며(added), 뒤 블록은 순서(`order`)나 위치가 바뀌어 updated로 나올 수 있다. 정상 동작이다
 - 저장: `Store` 포트, 기본 구현 `MemoryStore`(테스트용)·`SqliteStore`(CLI 기본 상태 파일)
 - 문서 ID: `--id`로 주거나, 없으면 `doc_` + 원본 sha256 앞 24자리. 같은 원본은 새 버전을 만들지 않는다(`--force`로 재파싱)
 

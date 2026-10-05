@@ -136,6 +136,7 @@ main.no-pages { grid-template-columns: minmax(0, 1fr); }
 .grid td, .grid th { border: 1px solid var(--line); padding: 2px 6px; white-space: pre-wrap; word-break: keep-all;
                      overflow-wrap: normal; vertical-align: top; text-align: left; }
 .grid th { background: #eef0f3; font-weight: 600; }
+.grid-note { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .removed { margin-top: 16px; }
 .removed .item { --c: #adb5bd; text-decoration: line-through; color: var(--muted); cursor: default; }
 .hidden { display: none !important; }
@@ -178,14 +179,22 @@ const states = Object.entries(doc.page_states).map(([k, n]) => (STATE_LABEL[k] |
 
 // 표 블록: 칸 목록으로 <table>을 DOM으로 만든다. 글자는 textContent(줄바꿈은 CSS pre-wrap), 머리 칸은 <th>.
 // 낱말·숫자는 칸 안에서 끊지 않고(keep-all) 넓은 표는 가로로 스크롤한다
-function grid(t) {
+// 브라우저는 colSpan을 1000, rowSpan을 65534로 자른다. 넘는 칸이 있으면 격자 대신 마크다운 글자로
+const MAX_COLSPAN = 1000, MAX_ROWSPAN = 65534;
+function grid(t, text) {
+  if (t.cells.some((c) => c.colspan > MAX_COLSPAN || c.rowspan > MAX_ROWSPAN)) {
+    const box = el("div");
+    box.appendChild(el("div", "grid-note", "표가 커서 글자로 표시"));
+    box.appendChild(el("div", "text", text));
+    return box;
+  }
   const wrap = el("div", "grid-wrap");
   const table = el("table", "grid");
   const body = el("tbody");
   const rows = [];
   for (let r = 0; r < t.n_rows; r++) rows.push(body.appendChild(el("tr")));
   for (const c of t.cells) {
-    const cell = el(c.header === "none" ? "td" : "th", "", c.text);
+    const cell = el(c.header === "column" || c.header === "row" ? "th" : "td", "", c.text);
     if (c.header === "column") cell.scope = "col";
     else if (c.header === "row") cell.scope = "row";
     if (c.rowspan > 1) cell.rowSpan = c.rowspan;
@@ -251,7 +260,7 @@ for (const b of DATA.blocks) {
   head.appendChild(el("span", "badge", "#" + b.order + " · " + b.where));
   item.appendChild(head);
   if (b.section_path.length) item.appendChild(el("div", "meta", b.section_path.join(" › ")));
-  item.appendChild(b.table ? grid(b.table) : el("div", "text", b.text));
+  item.appendChild(b.table ? grid(b.table, b.text) : el("div", "text", b.text));
   item.addEventListener("click", () => select(b.id, "item"));
   items.set(b.id, item);
   list.appendChild(item);
@@ -280,7 +289,7 @@ if (DATA.removed.length) {
   for (const r of DATA.removed) {
     const item = el("div", "item");
     item.appendChild(el("span", "badge", r.kind + " · " + r.where));
-    item.appendChild(r.table ? grid(r.table) : el("div", "text", r.text));
+    item.appendChild(r.table ? grid(r.table, r.text) : el("div", "text", r.text));
     removed.appendChild(item);
   }
 }

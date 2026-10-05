@@ -204,3 +204,26 @@ def test_grid_keeps_words_whole_scrolls_wide_tables_and_scopes_header_cells():
     assert 'el("div", "grid-wrap")' in page
     assert 'if (c.header === "column") cell.scope = "col";' in page
     assert 'else if (c.header === "row") cell.scope = "row";' in page
+
+
+def test_table_with_span_over_browser_limit_falls_back_to_text():
+    """브라우저는 colSpan을 1000, rowSpan을 65534로 자른다. 넘는 칸이 있으면 격자 대신 마크다운 글자(textContent)로."""
+    from ko_parser_contracts import Cell, Table
+
+    table = Table(n_rows=2, n_cols=1001, cells=[Cell(row=0, col=0, colspan=1001, text="머리", text_source="text_layer"),
+                                                *(Cell(row=1, col=k, text=str(k), text_source="text_layer")
+                                                  for k in range(1001))])
+    page = render_html(pdf_tree(1, dict(spec(table.plain_text(), 0.1, "table"), table=table)))
+    block = data_of(page)["blocks"][0]
+    assert block["text"] == table.to_markdown()  # 데이터는 그대로, 화면에서만 글자로
+    assert block["table"]["cells"][0] == {"row": 0, "col": 0, "rowspan": 1, "colspan": 1001, "text": "머리",
+                                          "header": "none"}
+    assert "const MAX_COLSPAN = 1000, MAX_ROWSPAN = 65534;" in page
+    assert "t.cells.some((c) => c.colspan > MAX_COLSPAN || c.rowspan > MAX_ROWSPAN)" in page
+    assert 'el("div", "grid-note", "표가 커서 글자로 표시")' in page and 'el("div", "text", text)' in page
+    assert "grid(b.table, b.text)" in page and "grid(r.table, r.text)" in page
+
+
+def test_only_column_and_row_header_cells_are_th():
+    page = render_html(table_tree(1))
+    assert 'el(c.header === "column" || c.header === "row" ? "th" : "td", "", c.text)' in page
