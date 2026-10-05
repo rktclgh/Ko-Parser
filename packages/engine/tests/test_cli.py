@@ -386,6 +386,22 @@ def test_export_links_are_relative_to_the_out_symlink_folder_not_its_target(caps
     assert out.read_text(encoding="utf-8") == f"![그림 1. 현황](img/{name})\n\n그림 1. 현황\n"
 
 
+def test_export_links_follow_a_symlinked_parent_before_dotdot(capsys, db, tmp_path):
+    asset, _ = seed_figure(db)
+    (tmp_path / "other" / "deep").mkdir(parents=True)
+    try:
+        os.symlink(tmp_path / "other" / "deep", tmp_path / "link")
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    out = tmp_path / "link" / ".." / "x.md"  # 파일 시스템은 other/x.md에 쓴다
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out,
+                     "--assets", tmp_path / "img")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    written = tmp_path / "other" / "x.md"
+    assert code == 0 and written.read_text(encoding="utf-8").startswith(f"![그림 1. 현황](../img/{name})")
+    assert (written.parent / "../img" / name).resolve().is_file()
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
 def test_export_fchmod_failure_keeps_the_old_file_and_leaves_no_temp(capsys, db, tmp_path, monkeypatch):
     seed_figure(db)

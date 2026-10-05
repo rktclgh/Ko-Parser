@@ -139,12 +139,12 @@ def _emit_tree(tree: DocumentTree, args: argparse.Namespace, assets_dir: str | N
 def _assets_link(assets: str, out: str | None) -> str:
     """마크다운 링크의 폴더 부분('/' 구분). --out이 있으면 그 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준
     입력 그대로. 상대 경로가 없거나(Windows 다른 드라이브) 드라이브가 붙은 경로를 표준 출력에 쓰면 file:// URI.
-    경로는 글자 그대로(lexical) 절대 경로로 비교한다: --out이 심볼릭 링크여도 따라가지 않고 그 자리를 바꿔 쓰며,
-    마크다운 뷰어도 링크를 그 파일이 있는 폴더 기준으로 푼다."""
+    두 폴더는 실제 위치로(부모의 심볼릭 링크·'..'를 파일 시스템처럼 풀어) 비교한다. --out 파일 자체는 따라가지
+    않는다(심볼릭 링크여도 그 자리를 바꿔 쓴다)."""
     folder = Path(assets)
     try:
         if out is not None:
-            return Path(os.path.relpath(os.path.abspath(folder), os.path.dirname(os.path.abspath(out)))).as_posix()
+            return Path(os.path.relpath(folder.resolve(), Path(out).parent.resolve())).as_posix()
         if not folder.drive:  # C:·UNC 경로가 C:/… 같은 스킴 모양 링크가 되지 않게
             return folder.as_posix()
     except ValueError:  # Windows: 드라이브가 다르면 상대 경로가 없다
