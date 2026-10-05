@@ -251,7 +251,7 @@ def test_export_missing_asset_exit_5(capsys, db, tmp_path, monkeypatch):
 
     monkeypatch.setattr(SqliteStore, "get_asset", missing)
     code, out, err = run(capsys, "export", "fig", "--db", db, "--assets", tmp_path / "a")
-    assert (code, out) == (5, "") and "sha256:" in err
+    assert (code, out) == (5, "") and "asset not found: sha256:" in err
 
 
 def test_export_assets_path_that_is_a_file_exit_1(capsys, db, tmp_path):
@@ -306,3 +306,13 @@ def test_export_figures_sharing_one_asset_write_it_once(capsys, db, tmp_path, mo
     name = asset.removeprefix("sha256:")[:16] + ".png"
     assert code == 0 and calls == [asset] and [p.name for p in (tmp_path / "a").iterdir()] == [name]
     assert out == f"![그림 1. 현황](a/{name})\n\n그림 1. 현황\n\n![그림 2. 현황](a/{name})\n\n그림 2. 현황\n"
+
+
+def test_export_out_directory_fails_before_writing_assets(capsys, db, tmp_path):
+    seed_figure(db)
+    out_dir = tmp_path / "출력"
+    out_dir.mkdir()
+    code, out, err = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out_dir,
+                         "--assets", tmp_path / "a")
+    assert (code, out) == (1, "") and "IsADirectoryError: output path is a directory" in err
+    assert not (tmp_path / "a").exists() and list(out_dir.iterdir()) == []

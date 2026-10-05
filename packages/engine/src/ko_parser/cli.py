@@ -228,8 +228,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:  # argparse: 사용법 오류 2, --help 0
         return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     try:
-        out = view_path(args.file, args.out) if args.command == "view" else args.out if args.command == "parse" else None
-        if out and Path(out).is_dir():  # 저장소를 건드리기 전에 막는다(view는 기본 출력 경로도)
+        out = (view_path(args.file, args.out) if args.command == "view"
+               else args.out if args.command in ("parse", "export") else None)
+        if out and Path(out).is_dir():  # 저장소·그림 파일을 건드리기 전에 막는다(view는 기본 출력 경로도)
             raise IsADirectoryError(f"output path is a directory: {out}")
         with SqliteStore(resolve_db(args.db)) as store:
             parsers = default_parsers(ocr=False) if getattr(args, "no_ocr", False) else None

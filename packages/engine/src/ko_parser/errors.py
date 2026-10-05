@@ -39,4 +39,8 @@ class OcrUnavailable(KoParserError):
 
 
 class AssetNotFound(KoParserError):
-    """저장소에 없는 그림 자산(sha256)."""
+    """저장소에 없는 그림 자산(sha256). asset은 찾은 해시."""
+
+    def __init__(self, asset: str) -> None:
+        super().__init__(f"asset not found: {asset}")
+        self.asset = asset
