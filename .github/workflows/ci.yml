@@ -39,6 +39,9 @@ jobs:
       # (번들 없을 때 가드는 test_pdf_fonts가 하위 프로세스로 검증)
       - name: Sync
         run: uv sync --locked
+      # 워크스페이스는 OCR 추가 설치(ko-parser-engine[ocr])까지 깐다: onnxruntime 휠이 세 OS에 있고 모델이 열리는지 본다
+      - name: OCR runtime loads
+        run: uv run python -W error::EncodingWarning -c "from ko_parser.formats.pdf import ocr; ocr.get_reader(); print('ocr ok')"
       - name: Tests
         # EncodingWarning 오류화는 pyproject filterwarnings가 한다. 명령줄 -W는 그 안의 pypdfium2 예외 필터를 덮어쓰므로 쓰지 않는다
         env:

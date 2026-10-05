@@ -32,3 +32,7 @@ class StoreConflict(KoParserError):
 
 class VlmUnavailable(KoParserError):
     """이 엔진에는 VLM 경로가 없다."""
+
+
+class OcrUnavailable(KoParserError):
+    """OCR을 켜라고 했는데 OCR 추가 설치(ko-parser-engine[ocr])가 없거나 깨졌다. 설정 오류(종료 코드 1)."""
