@@ -48,32 +48,46 @@ def test_ocr_fixture_text_is_exact_and_boxes_within_tolerance():
         assert 0.45 <= block.confidence <= 0.5  # 평균 점수 × 0.5
 
 
-def test_cli_parse_no_ocr(capsys, db, tmp_path):
+def no_ocr_runtime(monkeypatch) -> None:
+    """--no-ocr는 설치를 확인하지도 읽개를 만들지도 않는다(onnxruntime 없이 돈다)."""
+    monkeypatch.setattr(ocr, "available", lambda: pytest.fail("--no-ocr는 OCR 설치를 확인하지 않는다"))
+    monkeypatch.setattr(ocr, "get_reader", lambda: pytest.fail("--no-ocr는 OCR을 돌리지 않는다"))
+
+
+def test_cli_parse_runs_ocr_by_default(capsys, db):
     pytest.importorskip("onnxruntime")
     code, out, _ = run(capsys, "parse", FIXTURE, "--db", db)
     assert code == 0 and [b["text_source"] for b in json.loads(out)["blocks"]] == ["ocr", "ocr", "ocr", "text_layer"]
-    code, out, _ = run(capsys, "parse", FIXTURE, "--no-ocr", "--db", tmp_path / "off.db")
+
+
+def test_cli_parse_no_ocr(capsys, db, monkeypatch):
+    no_ocr_runtime(monkeypatch)
+    code, out, _ = run(capsys, "parse", FIXTURE, "--no-ocr", "--db", db)
     assert code == 0 and [b["text"] for b in json.loads(out)["blocks"]] == ["1"]
 
 
-def test_viewer_notice_follows_ocr_state(capsys, db, tmp_path):
+def notice(capsys, html: Path, *argv) -> str | None:
+    assert run(capsys, "view", FIXTURE, *argv, "--out", html)[0] == 0
+    return json.loads(DATA.search(html.read_text(encoding="utf-8")).group(1))["pages"][0]["notice"]
+
+
+def test_viewer_notice_says_ocr_read_the_page(capsys, db, tmp_path):
     pytest.importorskip("onnxruntime")
-    out_html = tmp_path / "on.html"
-    assert run(capsys, "view", FIXTURE, "--db", db, "--out", out_html)[0] == 0
-    page = json.loads(DATA.search(out_html.read_text(encoding="utf-8")).group(1))["pages"][0]
-    assert page["notice"] == "그림 속 글자는 OCR로 읽음(검증 전)"
-    off_html = tmp_path / "off.html"
-    assert run(capsys, "view", FIXTURE, "--no-ocr", "--db", tmp_path / "off.db", "--out", off_html)[0] == 0
-    page = json.loads(DATA.search(off_html.read_text(encoding="utf-8")).group(1))["pages"][0]
-    assert page["notice"] == "그림 속 글자는 OCR 필요(보이는 글자만 블록)"
+    assert notice(capsys, tmp_path / "on.html", "--db", db) == "그림 속 글자는 OCR로 읽음(검증 전)"
+
+
+def test_viewer_notice_without_ocr(capsys, db, tmp_path, monkeypatch):
+    no_ocr_runtime(monkeypatch)
+    assert notice(capsys, tmp_path / "off.html", "--no-ocr", "--db", db) == "그림 속 글자는 OCR 필요(보이는 글자만 블록)"
 
 
 def test_broken_ocr_install_is_a_configuration_error(capsys, db, monkeypatch):
-    """OCR 추가 설치가 있는데 모델을 못 열면 파싱 실패(4)가 아니라 그 밖의 오류(1)와 설치 안내."""
-    pytest.importorskip("onnxruntime")  # 설치돼 있어야 자동 모드가 _build까지 간다
+    """OCR 추가 설치가 있는데 모델을 못 열면 파싱 실패(4)가 아니라 그 밖의 오류(1)와 설치 안내.
+    설치 확인(available)을 참으로 바꿔 끼워 onnxruntime 없이도 자동 모드가 _build까지 간다."""
     def broken():
         raise OcrUnavailable('OCR models could not be loaded: x; reinstall with pip install "ko-parser-engine[ocr]"')
 
+    monkeypatch.setattr(ocr, "available", lambda: True)
     monkeypatch.setattr(ocr, "_reader", None)
     monkeypatch.setattr(ocr, "_build", broken)
     code, _, err = run(capsys, "parse", FIXTURE, "--db", db)

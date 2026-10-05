@@ -108,6 +108,28 @@ def test_ocr_true_without_the_install_fails_at_construction(monkeypatch):
     assert PdfParser().ocr is None and PdfParser(ocr=False).ocr is False  # 자동·끔은 만들 때 확인하지 않는다
 
 
+def test_auto_mode_does_not_check_the_install_without_scanned_pages(monkeypatch):
+    """자동 모드: scanned 쪽이 없는 문서는 OCR 추가 설치를 확인하지 않는다(디지털 문서 파싱에 import 비용 없음)."""
+    monkeypatch.setattr(ocr, "available", lambda: pytest.fail("scanned 쪽이 없으면 설치를 확인하지 않는다"))
+    parsed = PdfParser().parse((FIXTURES / "report.pdf").read_bytes(), "report.pdf")
+    assert {p.text_layer for p in parsed.pages} == {"digital"} and parsed.blocks
+
+
+@pytest.mark.parametrize("name", ["image_page.pdf", "scanned_invisible.pdf"])
+def test_auto_mode_with_a_broken_install_raises_instead_of_falling_back(monkeypatch, name):
+    """자동 모드에서 설치는 있는데(available) 읽개를 못 만들면 텍스트 레이어로 조용히 물러나지 않고 OcrUnavailable
+    (설정 오류). onnxruntime 없이 돈다: 설치 확인과 읽개 만들기를 바꿔 끼운다."""
+    def broken():
+        raise OcrUnavailable("OCR models could not be loaded: x; run with --no-ocr")
+
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "get_reader", broken)
+    data = (FIXTURES / name).read_bytes()
+    assert [p.text_layer for p in PdfParser(ocr=False).parse(data, name).pages] == ["scanned"]
+    with pytest.raises(OcrUnavailable, match="--no-ocr"):
+        PdfParser().parse(data, name)
+
+
 def test_visible_text_is_not_read_twice_and_blocks_merge_by_top():
     """보이는 글자(쪽 위 줄·아래 쪽 번호)도 렌더 그림에 그려져 OCR이 읽지만 텍스트 레이어가 우선이라 버린다.
     블록은 윗변 순서: 위 텍스트 레이어 → OCR 문단 → 아래 쪽 번호."""

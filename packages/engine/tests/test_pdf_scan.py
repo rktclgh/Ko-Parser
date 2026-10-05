@@ -134,10 +134,10 @@ def test_ocr_boxes_on_a_page_with_offset_cropbox_are_in_visible_page_coordinates
     """CropBox 원점이 0이 아닌 스캔 쪽(MediaBox 600×800, CropBox 50 60 550 760 → 보이는 쪽 500×700pt): 렌더가 보이는
     쪽만 그리므로 OCR 블록 상자는 보이는 쪽 0~1에서 글자가 실제로 있는 자리에 온다."""
     pytest.importorskip("onnxruntime")
+    ko_parser_fonts = pytest.importorskip("ko_parser_fonts")
     from PIL import Image, ImageDraw, ImageFont
     from reportlab.lib.utils import ImageReader
 
-    import ko_parser_fonts
     from ko_parser.formats.pdf.extract import extract_pages
 
     font = ImageFont.truetype(str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE), 40)
@@ -159,4 +159,38 @@ def test_ocr_boxes_on_a_page_with_offset_cropbox_are_in_visible_page_coordinates
     expected = ((left + ink[0] * pt - 50) / 500, (760 - (top - ink[1] * pt)) / 700,
                 (left + ink[2] * pt - 50) / 500, (760 - (top - ink[3] * pt)) / 700)
     assert para.text == "스캔한 쪽의 글자를 읽는다."
+    assert all(abs(got - want) <= 0.02 for got, want in zip(para.bbox, expected)), (para.bbox, expected)
+
+
+def test_ocr_boxes_on_a_rotated_scanned_page_are_in_visible_page_coordinates():
+    """/Rotate 90 스캔 쪽(MediaBox 800×600 → 보이는 쪽 600×800pt): 스캐너가 눕혀 담은 그림을 쪽 회전으로 세운 실제 경우.
+    그림은 PDF 좌표에서 반시계로 누워 있어 보이는 쪽에서 바로 선다. 렌더가 회전을 반영하므로 OCR이 글자를 읽고,
+    블록 상자는 보이는 쪽 0~1에서 글자가 실제로 있는 자리에 온다(PDF 점 (x, y)는 보이는 (y, x))."""
+    pytest.importorskip("onnxruntime")
+    ko_parser_fonts = pytest.importorskip("ko_parser_fonts")
+    from PIL import Image, ImageDraw, ImageFont
+    from reportlab.lib.utils import ImageReader
+
+    from ko_parser.formats.pdf.extract import extract_pages
+
+    font = ImageFont.truetype(str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE), 40)
+    upright = Image.new("RGB", (1000, 200), "white")
+    ImageDraw.Draw(upright).text((60, 60), "돌린 쪽의 글자도 바로 읽는다.", font=font, fill="black")
+    image = upright.rotate(90, expand=True)  # 200×1000, 반시계로 눕힘(쪽 회전 90°가 시계 방향으로 세운다)
+    ink = Image.eval(image.convert("L"), lambda v: 255 - v).getbbox()  # 누운 그림의 글자 잉크 상자(화소)
+    left, bottom, pt = 150.0, 120.0, 72 / 200
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(600, 800), invariant=1, pageCompression=0)
+    c.setPageRotation(90)  # reportlab은 MediaBox를 800×600으로 눕힌다
+    c.drawImage(ImageReader(image), left, bottom, width=200 * pt, height=1000 * pt)
+    c.showPage()
+    c.save()
+    data = buf.getvalue()
+    pages = extract_pages(data, "rot.pdf")
+    assert (pages[0].rotation, pages[0].width_pt, pages[0].height_pt) == (90, 600, 800) and pages[0].chars == ()
+    (para,), = scan.ocr_pages(data, "rot.pdf", pages, ["scanned"])
+    top = bottom + 1000 * pt  # 그림 윗변(PDF y)
+    expected = ((top - ink[3] * pt) / 600, (left + ink[0] * pt) / 800,
+                (top - ink[1] * pt) / 600, (left + ink[2] * pt) / 800)
+    assert para.text == "돌린 쪽의 글자도 바로 읽는다."
     assert all(abs(got - want) <= 0.02 for got, want in zip(para.bbox, expected)), (para.bbox, expected)
