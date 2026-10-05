@@ -14,9 +14,10 @@ MAX_SIDE = 4000  # 검출 입력의 긴 변 상한(아주 길쭉한 그림에서
 THRESH = 0.3  # 화소 확률 문턱
 BOX_THRESH = 0.5  # 상자 안 평균 확률 문턱
 UNCLIP_RATIO = 1.6
-MAX_CANDIDATES = 1000
+MAX_CANDIDATES = 1000  # 후보 상한: 짧은 변이 MIN_SIZE 이상인 덩어리만 센다(작은 점이 많은 쪽에서 줄을 잃지 않게)
 MIN_SIZE = 3  # 상자의 짧은 변 하한(검출 출력 화소)
-SAME_ROW = 10  # 정렬: 윗변 차가 10px 미만이면 같은 줄로 보고 왼쪽부터(RapidOCR sorted_boxes)
+SAME_ROW = 10  # 정렬: 윗변 순으로 늘어놓고 이웃 윗변 차가 10px 미만이면 같은 줄로 묶어 왼쪽부터(RapidOCR sorted_boxes의
+# 이웃 바꾸기와는 다르다. 쪽의 읽기 순서는 PR B scan.py가 다시 정한다)
 
 
 def _hull(p: np.ndarray) -> np.ndarray:
@@ -47,7 +48,7 @@ def mini_box(points: np.ndarray) -> tuple[np.ndarray, float]:
     e = e[np.linalg.norm(e, axis=1) > 0]
     u = e / np.linalg.norm(e, axis=1)[:, None]
     v = np.stack([-u[:, 1], u[:, 0]], 1)
-    pu, pv = h @ u.T, h @ v.T
+    pu, pv = np.einsum("ij,kj->ik", h, u), np.einsum("ij,kj->ik", h, v)  # BLAS 행렬곱 대신(플랫폼 반올림·경고)
     area = (pu.max(0) - pu.min(0)) * (pv.max(0) - pv.min(0))
     k = int(np.argmin(area))
     p0, p1, q0, q1 = pu[:, k].min(), pu[:, k].max(), pv[:, k].min(), pv[:, k].max()
@@ -102,7 +103,7 @@ def _line(p: tuple[int, int], q: tuple[int, int]) -> tuple[np.ndarray, np.ndarra
 
 
 def fill_poly(shape: tuple[int, int], q: list[list[int]]) -> np.ndarray:
-    """cv2.fillPoly(mask, [q], 1)(정수 다각형, shift=0, LINE_8)."""
+    """cv2.fillPoly(mask, [q], 1)(정수 다각형, shift=0, LINE_8). OpenCV 4.11 이상과 같다(4.14로 잼)."""
     mask = np.zeros(shape, bool)
     h, w = shape
     lo = np.full(h, 1 << 60)
@@ -152,13 +153,15 @@ def _unclip(box: np.ndarray, ratio: float) -> np.ndarray:
 
 
 def _order_clockwise(pts: np.ndarray) -> np.ndarray:
-    xs = pts[np.argsort(pts[:, 0]), :]
-    left, right = xs[:2][np.argsort(xs[:2, 1])], xs[2:][np.argsort(xs[2:, 1])]
+    xs = pts[np.argsort(pts[:, 0], kind="stable"), :]
+    left = xs[:2][np.argsort(xs[:2, 1], kind="stable")]
+    right = xs[2:][np.argsort(xs[2:, 1], kind="stable")]
     return np.array([left[0], right[0], right[1], left[1]], np.float32)
 
 
 def _input_size(h: int, w: int) -> tuple[int, int]:
-    """검출 입력 (높이, 너비): 짧은 변을 736 이상으로 키우고(긴 변 MAX_SIDE 이하) 32 배수(최소 32)."""
+    """검출 입력 (높이, 너비): 짧은 변을 736 이상으로 키우고 32 배수(최소 32). 키울 때 긴 변이 MAX_SIDE를 넘지 않게
+    덜 키운다. 이미 MAX_SIDE보다 긴 그림은 줄이지 않는다(reader가 긴 변 2000px로 줄여 넘긴다). 빈 그림은 받지 않는다."""
     r = LIMIT_SIDE / min(h, w) if min(h, w) < LIMIT_SIDE else 1.0
     r = min(r, max(MAX_SIDE / max(h, w), 1.0))
     return max(32, int(round(int(h * r) / 32) * 32)), max(32, int(round(int(w * r) / 32) * 32))
@@ -167,9 +170,11 @@ def _input_size(h: int, w: int) -> tuple[int, int]:
 def detect(session: Any, img: np.ndarray) -> np.ndarray:
     """BGR uint8 그림 → 줄 상자 (N, 4, 2)(그림 화소, 왼쪽 위부터 시계 방향). 위→아래, 같은 줄은 왼쪽→오른쪽."""
     h, w = img.shape[:2]
+    if not h or not w:
+        return np.zeros((0, 4, 2), np.float32)
     rh, rw = _input_size(h, w)
     x = (resize_linear(img, rw, rh).astype(np.float32) * (1 / 255.0) - 0.5) / 0.5
-    feed = {session.get_inputs()[0].name: x.transpose(2, 0, 1)[None].astype(np.float32)}
+    feed = {session.get_inputs()[0].name: np.ascontiguousarray(x.transpose(2, 0, 1)[None])}
     pred = session.run(None, feed)[0][0, 0]
     seg = pred > THRESH
     mask = seg.copy()
@@ -177,12 +182,14 @@ def detect(session: Any, img: np.ndarray) -> np.ndarray:
     mask[:, 1:] |= mask[:, :-1].copy()  # cv2.dilate 2×2, 기준점 (1,1)
     bh, bw = pred.shape
     boxes = []
-    for n, pts in enumerate(components(mask)):
-        if n >= MAX_CANDIDATES:
-            break
+    candidates = 0
+    for pts in components(mask):
         box, short = mini_box(pts)
         if short < MIN_SIZE:
             continue
+        candidates += 1
+        if candidates > MAX_CANDIDATES:
+            break
         if BOX_THRESH > _box_score(pred, box):
             continue
         box, short = mini_box(_unclip(box, UNCLIP_RATIO))

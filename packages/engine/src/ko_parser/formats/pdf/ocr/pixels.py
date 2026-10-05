@@ -19,14 +19,15 @@ def _linear_axis(n_out: int, n_in: int, clamp_frac: bool) -> tuple[np.ndarray, n
 
 
 def resize_linear(img: np.ndarray, width: int, height: int) -> np.ndarray:
-    """cv2.resize(INTER_LINEAR)와 같은 값(일반 고정소수 경로)."""
+    """cv2.resize(INTER_LINEAR)와 같은 값(일반 고정소수 경로). 크기가 같으면 복사하지 않고 입력 배열을 그대로 돌려준다."""
     h, w = img.shape[:2]
     if (h, w) == (height, width):
         return img
     x0, x1, a0, a1 = _linear_axis(width, w, True)
     y0, y1, b0, b1 = _linear_axis(height, h, False)
-    src = img.astype(np.int32)
-    rows = src[:, x0] * a0[None, :, None].astype(np.int32) + src[:, x1] * a1[None, :, None].astype(np.int32)
+    # 그림 전체를 int32로 바꾸지 않고 필요한 열만 모아서 바꾼다
+    rows = (img[:, x0].astype(np.int32) * a0[None, :, None].astype(np.int32)
+            + img[:, x1].astype(np.int32) * a1[None, :, None].astype(np.int32))
     b0, b1 = b0.astype(np.int32)[:, None, None], b1.astype(np.int32)[:, None, None]
     out = (((b0 * (rows[y0] >> 4)) >> 16) + ((b1 * (rows[y1] >> 4)) >> 16) + 2) >> 2
     return np.clip(out, 0, 255).astype(np.uint8)
@@ -52,7 +53,8 @@ def _homography(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
 
 def crop_quad(img: np.ndarray, pts: np.ndarray) -> np.ndarray:
     """네 꼭짓점(왼쪽 위부터 시계 방향) 줄 상자를 원근 보정으로 잘라 바로 세운다(RapidOCR get_rotate_crop_image:
-    양삼차 보간 A=-0.75, 가장자리 복제). 세로로 1.5배 이상 길면 90° 돌린다."""
+    양삼차 보간 A=-0.75, 가장자리 복제). 세로로 1.5배 이상 길면 90° 돌린다. 좌표를 부동소수로 계산하는 양삼차라
+    OpenCV 4.x(고정소수 보간표)와 화소값이 ±2 안에서 다를 수 있다."""
     cw = int(max(np.linalg.norm(pts[0] - pts[1]), np.linalg.norm(pts[2] - pts[3])))
     ch = int(max(np.linalg.norm(pts[0] - pts[3]), np.linalg.norm(pts[1] - pts[2])))
     std = np.array([[0, 0], [cw, 0], [cw, ch], [0, ch]], float)

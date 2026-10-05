@@ -34,11 +34,12 @@ _reader: "OcrReader | None" = None
 
 
 def _missing() -> str | None:
-    """OCR에 필요한데 없는 것(모듈 이름이나 모델 파일). 다 있으면 None."""
+    """OCR에 필요한데 없는 것(모듈 이름이나 모델 파일). 다 있으면 None. 깨진 네이티브 설치(공유 라이브러리 오류 등)도
+    없는 것으로 본다."""
     for module in ("numpy", "onnxruntime", "pyclipper", "ko_parser_ocr_models"):
         try:
             __import__(module)
-        except ImportError:
+        except Exception:  # ImportError 밖의 import 오류도 '설치 없음'으로 알린다
             return module
     import ko_parser_ocr_models as models
 
@@ -61,14 +62,20 @@ def _build() -> "OcrReader":
 
     from .reader import OcrReader
 
+    root = models.model_dir()
     try:
-        return OcrReader(models.model_dir(), models.DET_FILE, models.REC_FILE, models.DICT_FILE)
-    except Exception as exc:  # 깨진 모델 파일·onnxruntime 오류: 설정 문제로 알린다
-        raise OcrUnavailable(f"OCR models could not be loaded: {exc}; reinstall with {INSTALL_HINT} or run with --no-ocr") from None
+        return OcrReader(root, models.DET_FILE, models.REC_FILE, models.DICT_FILE)
+    except MemoryError:  # 메모리 부족은 설치 문제가 아니다
+        raise
+    except Exception as exc:  # 깨진 모델 파일·사전·onnxruntime 오류: 설정 문제로 알린다(오류에 파일 경로가 있다)
+        raise OcrUnavailable(
+            f"OCR models in {root} could not be loaded: {exc}; reinstall with {INSTALL_HINT} or run with --no-ocr"
+        ) from exc
 
 
 def get_reader() -> "OcrReader":
-    """프로세스에 하나뿐인 읽개. 처음 부를 때 세션을 만든다(동시에 불러도 한 번만). 없으면 OcrUnavailable."""
+    """프로세스에 하나뿐인 읽개. 처음 부를 때 세션을 만든다(동시에 불러도 한 번만). 없으면 OcrUnavailable.
+    부르는 쪽은 읽개를 인터프리터 종료 너머까지 붙잡아 두지 않는다(atexit의 _release가 놓을 수 있게)."""
     global _reader
     if _reader is None:
         with _lock:

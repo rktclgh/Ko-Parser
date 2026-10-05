@@ -35,13 +35,19 @@ class OcrReader:
     def __init__(self, model_dir: Path, det_file: str, rec_file: str, dict_file: str) -> None:
         self.det = _session(model_dir / det_file)
         self.rec = _session(model_dir / rec_file)
-        symbols = (model_dir / dict_file).read_text(encoding="utf-8").removesuffix("\n").split("\n")
+        path = model_dir / dict_file
+        symbols = path.read_text(encoding="utf-8").removesuffix("\n").split("\n")
         self.symbols = ["blank", *symbols, " "]  # CTC 빈칸 + 사전 + 공백(use_space_char)
+        classes = self.rec.get_outputs()[0].shape[-1]
+        if isinstance(classes, int) and classes != len(self.symbols):  # 글자 번호가 어긋난다
+            raise ValueError(f"{path} gives {len(self.symbols)} classes but the recognition model has {classes}")
 
     def __call__(self, image: Image.Image) -> list[OcrLine]:
         """줄마다 OcrLine(상자는 입력 그림 화소, 글자는 NFC·앞뒤 공백 없음). 글자가 빈 줄은 버린다. 점수로는 거르지 않는다."""
         img = np.ascontiguousarray(np.asarray(image.convert("RGB"))[:, :, ::-1])  # RapidOCR처럼 BGR
         h, w = img.shape[:2]
+        if not h or not w:
+            return []
         sy = sx = 1.0
         if max(h, w) > MAX_SIDE:
             nh, nw = _shrunk_size(h, w)

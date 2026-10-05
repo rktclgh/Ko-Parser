@@ -1,16 +1,35 @@
 """OCR 화소 연산이 OpenCV(RapidOCR가 쓰는 연산)와 같은 값을 내는지. 기대값은 opencv-python-headless 4.x로 한 번 잰 값."""
 
+from types import SimpleNamespace
+
 import pytest
 
 np = pytest.importorskip("numpy")
 pytest.importorskip("pyclipper")
 
-from ko_parser.formats.pdf.ocr.det import _input_size, components, fill_poly, mini_box
+from ko_parser.formats.pdf.ocr.det import _input_size, components, detect, fill_poly, mini_box
 from ko_parser.formats.pdf.ocr.pixels import crop_quad, resize_linear
 
 
 def gray3(rows):
     return np.array(rows, np.uint8)[:, :, None].repeat(3, 2)
+
+
+class FakeSession:
+    """검출 모델 대신 손으로 만든 확률 지도(높이×너비)를 돌려준다."""
+
+    def __init__(self, pred):
+        self.pred = np.asarray(pred, np.float32)
+
+    def get_inputs(self):
+        return [SimpleNamespace(name="x")]
+
+    def run(self, _, feed):
+        return [self.pred[None, None]]
+
+
+def page(h=736, w=736):
+    return np.zeros((h, w, 3), np.uint8)
 
 
 def test_resize_linear_matches_opencv_up_and_down():
@@ -64,3 +83,26 @@ def test_detector_input_is_capped_for_a_very_long_strip():
     assert _input_size(1414, 2000) == (1408, 1984)  # 32 배수(파이썬 round: 62.5 → 62)
     assert _input_size(20, 2000) == (32, 4000)
     assert _input_size(10, 10) == (736, 736)
+
+
+def test_detect_blank_map_has_no_boxes():
+    assert detect(FakeSession(np.zeros((736, 736))), page()).shape == (0, 4, 2)
+
+
+def test_detect_one_blob_is_one_unclipped_box():
+    pred = np.zeros((736, 736))
+    pred[100:130, 50:250] = 0.9  # 200×30 줄(팽창 뒤 x 50~250, y 100~130), unclip 거리 6000×1.6/460 ≈ 20.9px
+    assert detect(FakeSession(pred), page()).tolist() == [[[29, 79], [271, 79], [271, 151], [29, 151]]]
+
+
+def test_detect_specks_do_not_use_up_the_candidate_limit():
+    """작은 점(짧은 변 < MIN_SIZE)은 후보 상한 1000을 세지 않는다: 점이 1200개 있어도 아래쪽 줄을 찾는다."""
+    pred = np.zeros((736, 736))
+    pred[0:120:4, 0:160:4] = 0.9  # 30×40 = 1200개, 서로 떨어진 한 화소 점
+    pred[600:630, 100:600] = 0.9
+    boxes = detect(FakeSession(pred), page())
+    assert len(boxes) == 1 and 570 <= boxes[0, :, 1].min() and boxes[0, :, 1].max() <= 660
+
+
+def test_detect_zero_size_image_has_no_boxes():
+    assert detect(FakeSession(np.zeros((32, 32))), page(0, 10)).shape == (0, 4, 2)

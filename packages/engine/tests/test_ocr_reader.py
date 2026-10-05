@@ -1,6 +1,8 @@
 """OCR 실행부: 합성 그림(번들 Noto Sans KR로 그린 깨끗한 한글 줄)을 정확히 읽는지, 세션은 한 번만 만드는지,
 OCR 추가 설치가 없으면 OcrUnavailable인지. 그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴로 그린다."""
 
+import builtins
+import shutil
 import subprocess
 import sys
 import threading
@@ -17,7 +19,7 @@ import ko_parser_fonts
 import ko_parser_ocr_models
 from ko_parser.errors import KoParserError, OcrUnavailable
 from ko_parser.formats.pdf import ocr
-from ko_parser.formats.pdf.ocr import det, reader
+from ko_parser.formats.pdf.ocr import reader
 
 LINES = ["스캔한 쪽의 글자를 읽는다.", "공공누리 2026년 10월 5일", "사업 계획 보고서"]
 
@@ -61,17 +63,24 @@ def test_blank_image_has_no_lines():
 
 
 def test_very_long_strip_is_read_without_huge_memory(monkeypatch):
-    """아주 길쭉한 그림은 긴 변 2000px로 줄여 검출에 넘기고, 검출 입력도 긴 변 4000px 상한 안이다(시간으로 보지 않는다)."""
+    """아주 길쭉한 그림(3000×20)은 긴 변 2000px로 줄여(1984×32) 검출에 넘기고, 검출 모델 입력은 짧은 변을 키우되
+    긴 변 4000px 상한 안이다(시간으로 보지 않는다)."""
+    session = ocr.get_reader().det
+    real = session.run
     seen = []
-    real = reader.detect
 
-    def spy(session, img):
-        seen.append(img.shape)
-        return real(session, img)
+    def spy(names, feed):
+        seen.append(next(iter(feed.values())).shape)
+        return real(names, feed)
 
-    monkeypatch.setattr(reader, "detect", spy)
+    monkeypatch.setattr(session, "run", spy)
     assert ocr.read_lines(Image.new("RGB", (3000, 20), "white")) == []
-    assert seen == [(32, 1984, 3)] and det._input_size(32, 1984) == (64, 4000)
+    assert seen == [(1, 3, 64, 4000)]
+
+
+def test_zero_size_image_has_no_lines():
+    assert ocr.read_lines(Image.new("RGB", (0, 0))) == []
+    assert ocr.read_lines(Image.new("RGB", (3000, 0))) == []
 
 
 def test_dict_is_the_recognition_model_alphabet():
@@ -129,7 +138,24 @@ def test_missing_ocr_install_is_unavailable(monkeypatch, module):
     assert ocr.available() is False
     with pytest.raises(OcrUnavailable, match=r'missing .*ko-parser-engine\[ocr\].* or run with --no-ocr'):
         ocr.get_reader()
+    assert ocr._reader is None
     assert issubclass(OcrUnavailable, KoParserError)
+
+
+def test_broken_native_install_is_unavailable(monkeypatch):
+    """import가 ImportError 밖의 오류(깨진 공유 라이브러리 등)를 내도 available()은 False, get_reader()는 OcrUnavailable."""
+    real = builtins.__import__
+
+    def broken(name, *args, **kwargs):
+        if name == "onnxruntime":
+            raise OSError("cannot load shared library")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", broken)
+    monkeypatch.setattr(ocr, "_reader", None)
+    assert ocr.available() is False
+    with pytest.raises(OcrUnavailable, match=r"missing onnxruntime"):
+        ocr.get_reader()
 
 
 def test_missing_model_file_is_unavailable(monkeypatch, tmp_path):
@@ -138,6 +164,7 @@ def test_missing_model_file_is_unavailable(monkeypatch, tmp_path):
     assert ocr.available() is False
     with pytest.raises(OcrUnavailable, match="det.onnx"):
         ocr.get_reader()
+    assert ocr._reader is None
 
 
 def test_broken_model_file_is_unavailable(monkeypatch, tmp_path):
@@ -146,8 +173,37 @@ def test_broken_model_file_is_unavailable(monkeypatch, tmp_path):
     monkeypatch.setattr(ko_parser_ocr_models, "model_dir", lambda: tmp_path)
     monkeypatch.setattr(ocr, "_reader", None)
     assert ocr.available() is True  # 파일은 있다
-    with pytest.raises(OcrUnavailable, match=r"could not be loaded.* or run with --no-ocr"):
+    with pytest.raises(OcrUnavailable, match=r"could not be loaded: .*det\.onnx.* or run with --no-ocr") as info:
         ocr.get_reader()
+    assert info.value.__cause__ is not None and ocr._reader is None
+
+
+def test_dict_that_does_not_match_the_model_is_unavailable(monkeypatch, tmp_path):
+    """사전 글자 수가 인식 모델의 출력 갈래 수와 다르면 글자 번호가 어긋난다: 만들 때 알린다."""
+    root = ko_parser_ocr_models.model_dir()
+    for name in (ko_parser_ocr_models.DET_FILE, ko_parser_ocr_models.REC_FILE):
+        shutil.copyfile(root / name, tmp_path / name)
+    words = (root / ko_parser_ocr_models.DICT_FILE).read_text(encoding="utf-8").removesuffix("\n").split("\n")
+    (tmp_path / ko_parser_ocr_models.DICT_FILE).write_text("\n".join(words[:-1]) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="dict.txt"):
+        reader.OcrReader(tmp_path, ko_parser_ocr_models.DET_FILE, ko_parser_ocr_models.REC_FILE,
+                         ko_parser_ocr_models.DICT_FILE)
+    monkeypatch.setattr(ko_parser_ocr_models, "model_dir", lambda: tmp_path)
+    monkeypatch.setattr(ocr, "_reader", None)
+    with pytest.raises(OcrUnavailable, match=r"could not be loaded: .*dict\.txt"):
+        ocr.get_reader()
+    assert ocr._reader is None
+
+
+def test_out_of_memory_is_not_reported_as_a_broken_install(monkeypatch):
+    def oom(*args):
+        raise MemoryError
+
+    monkeypatch.setattr(reader, "OcrReader", oom)
+    monkeypatch.setattr(ocr, "_reader", None)
+    with pytest.raises(MemoryError):
+        ocr.get_reader()
+    assert ocr._reader is None
 
 
 def test_ocr_module_imports_without_numpy():
@@ -161,8 +217,21 @@ def test_ocr_module_imports_without_numpy():
     assert out.stdout.strip() == "False"
 
 
+def test_release_is_registered_at_exit():
+    """하위 프로세스: ocr보다 먼저 등록한 atexit 함수는 나중에 돈다(등록 역순). 그때 세션은 이미 놓여 있다."""
+    code = ("import atexit, sys\n"
+            "atexit.register(lambda: print(sys.modules['ko_parser.formats.pdf.ocr']._reader is None))\n"
+            "from ko_parser.formats.pdf import ocr\n"
+            "ocr.get_reader()\n"
+            "print(ocr._reader is None)")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.split() == ["False", "True"]
+
+
 def test_reader_runs_only_detection_and_recognition():
     """방향 판정(180° 분류)은 쓰지 않는다: 긴 한국어 줄을 뒤집어 글자를 잃는다(스펙 §2). 세션은 검출·인식 둘뿐."""
-    reader = ocr.get_reader()
-    assert sorted(vars(reader)) == ["det", "rec", "symbols"]
-    assert [s.get_inputs()[0].shape[1] for s in (reader.det, reader.rec)] == [3, 3]
+    got = ocr.get_reader()
+    sessions = sorted(k for k, v in vars(got).items() if isinstance(v, ort.InferenceSession))
+    assert sessions == ["det", "rec"]
+    assert [s.get_inputs()[0].shape[1] for s in (got.det, got.rec)] == [3, 3]
