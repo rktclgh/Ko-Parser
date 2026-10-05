@@ -222,6 +222,9 @@ def page_paragraphs(data: bytes, name: str, index: int, page: PageText) -> list[
 
 def ocr_pages(data: bytes, name: str, pages: Sequence[PageText],
               states: Sequence[TextLayerState]) -> list[list[OcrParagraph]]:
-    """쪽마다 OCR 문단. scanned 쪽만 읽고 나머지는 빈 목록."""
+    """쪽마다 OCR 문단. scanned 쪽만 읽고 나머지는 빈 목록. 읽을 쪽이 있으면 읽개를 먼저 만든다: 깨진 설치는
+    쪽을 그리기 전에 OcrUnavailable."""
+    if "scanned" in states:
+        ocr.get_reader()
     return [page_paragraphs(data, name, i, page) if state == "scanned" else []
             for i, (page, state) in enumerate(zip(pages, states, strict=True))]

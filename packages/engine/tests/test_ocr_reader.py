@@ -165,11 +165,12 @@ def test_broken_native_install_is_unavailable(monkeypatch):
     assert ocr._reader is None
 
 
-def test_missing_model_file_is_unavailable(monkeypatch, tmp_path):
+def test_missing_model_file_is_a_broken_install(monkeypatch, tmp_path):
+    """모델 패키지가 깔렸으면 설치는 있다(available 참). 모델 파일이 없으면 깨진 설치: get_reader()가 파일을 알린다."""
     monkeypatch.setattr(ko_parser_ocr_models, "model_dir", lambda: tmp_path)
     monkeypatch.setattr(ocr, "_reader", None)
-    assert ocr.available() is False
-    with pytest.raises(OcrUnavailable, match="det.onnx"):
+    assert ocr.available() is True
+    with pytest.raises(OcrUnavailable, match=r"det\.onnx.* or run with --no-ocr"):
         ocr.get_reader()
     assert ocr._reader is None
 

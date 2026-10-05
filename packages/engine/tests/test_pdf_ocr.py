@@ -1,9 +1,11 @@
 """PdfParser의 스캔 쪽 OCR: scanned 쪽만 읽고, 텍스트 레이어가 우선이며, 블록은 윗변 순서로 합쳐진다.
 그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴(Pillow)로 그려 reportlab PDF에 넣는다."""
 
+import importlib.machinery
 import io
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -127,6 +129,7 @@ def test_auto_mode_with_a_broken_install_raises_instead_of_falling_back(monkeypa
     monkeypatch.setattr(ocr, "get_reader", broken)
     data = (FIXTURES / name).read_bytes()
     assert [p.text_layer for p in PdfParser(ocr=False).parse(data, name).pages] == ["scanned"]
+    monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("깨진 설치는 쪽을 그리기 전에 알린다"))
     with pytest.raises(OcrUnavailable, match="--no-ocr"):
         PdfParser().parse(data, name)
 
@@ -151,6 +154,49 @@ def test_installed_but_broken_module_is_available_and_get_reader_names_it(monkey
     with pytest.raises(OcrUnavailable, match=r"onnxruntime .*libstub\.so\.1.*ko-parser-engine\[ocr\].* or run with --no-ocr"):
         ocr.get_reader()
     assert ocr._reader is None
+
+
+def test_leftover_namespace_module_without_its_api_is_a_broken_install(monkeypatch):
+    """덜 지운 onnxruntime(빈 폴더 = 이름공간 패키지)은 찾히고 import도 되지만 InferenceSession이 없다. 읽개 모듈을
+    가져오다 난 AttributeError도 날 오류로 새지 않고 OcrUnavailable(오류와 설치·--no-ocr 안내). onnxruntime 없이 돈다."""
+    pytest.importorskip("numpy")
+    pytest.importorskip("pyclipper")
+    leftover = types.ModuleType("onnxruntime")
+    leftover.__spec__ = importlib.machinery.ModuleSpec("onnxruntime", None, is_package=True)
+    leftover.__path__ = []
+    monkeypatch.setitem(sys.modules, "onnxruntime", leftover)
+    monkeypatch.delitem(sys.modules, "ko_parser.formats.pdf.ocr.reader", raising=False)  # 읽개 모듈을 다시 가져오게
+    monkeypatch.setattr(ocr, "_reader", None)
+    assert ocr.available() is True
+    with pytest.raises(OcrUnavailable,
+                       match=r"onnxruntime.* has no attribute .*ko-parser-engine\[ocr\].* or run with --no-ocr"):
+        ocr.get_reader()
+    assert ocr._reader is None
+
+
+def models_without_files(monkeypatch, tmp_path):
+    """모델 패키지는 깔렸는데(찾힌다) 모델 파일이 없는 설치. 다른 의존성은 보지 않게 MODULES를 줄인다
+    (onnxruntime 없이 돈다)."""
+    models = pytest.importorskip("ko_parser_ocr_models")
+    monkeypatch.setattr(models, "model_dir", lambda: tmp_path)
+    monkeypatch.setattr(ocr, "MODULES", ("ko_parser_ocr_models",))
+    monkeypatch.setattr(ocr, "_reader", None)
+
+
+def test_models_package_without_model_files_is_a_broken_install(monkeypatch, tmp_path):
+    """모델 패키지가 깔렸으면 설치는 있다(available 참). 모델 파일이 없으면 get_reader()가 그 파일을 알린다."""
+    models_without_files(monkeypatch, tmp_path)
+    assert ocr.available() is True
+    with pytest.raises(OcrUnavailable, match=r"det\.onnx.*ko-parser-engine\[ocr\].* or run with --no-ocr"):
+        ocr.get_reader()
+    assert ocr._reader is None
+
+
+def test_auto_mode_with_missing_model_files_raises(monkeypatch, tmp_path):
+    """자동 모드 + 모델 파일 없는 설치: scanned 쪽이 있으면 텍스트 레이어로 조용히 물러나지 않고 OcrUnavailable."""
+    models_without_files(monkeypatch, tmp_path)
+    with pytest.raises(OcrUnavailable, match=r"det\.onnx"):
+        PdfParser().parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
 
 
 def test_module_that_cannot_be_found_is_not_installed(monkeypatch):
