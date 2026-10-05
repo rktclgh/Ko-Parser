@@ -28,7 +28,8 @@ DB_ENV = "KO_PARSER_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
 OCR_HELP = "스캔 쪽 OCR을 끈다 (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)"
-ASSETS_HELP = "그림 이미지를 이 폴더에 <sha256 앞 16자>.png로 쓴다(--format md면 마크다운이 그 파일을 가리킨다)"
+ASSETS_HELP = ("그림 이미지를 이 폴더에 <sha256 앞 16자>.png로 쓴다(--format md면 마크다운이 그 파일을 가리킨다. 링크는 "
+               "--out 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준)")
 _EXIT_CODES: tuple[tuple[type[KoParserError], int], ...] = (
     (UnsupportedFormat, EXIT_UNSUPPORTED), (ParseError, EXIT_PARSE),
     (DocumentNotFound, EXIT_NOT_FOUND), (VersionNotFound, EXIT_NOT_FOUND), (AssetNotFound, EXIT_NOT_FOUND),
@@ -135,6 +136,20 @@ def _emit_tree(tree: DocumentTree, args: argparse.Namespace, assets_dir: str | N
     _write(to_markdown(tree, assets_dir) if args.format == "md" else _json(tree.model_dump(mode="json")), args.out)
 
 
+def _assets_link(assets: str, out: str | None) -> str:
+    """마크다운 링크의 폴더 부분('/' 구분). --out이 있으면 그 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준
+    입력 그대로. 상대 경로가 없거나(Windows 다른 드라이브) 드라이브가 붙은 경로를 표준 출력에 쓰면 file:// URI."""
+    folder = Path(assets)
+    try:
+        if out is not None:
+            return Path(os.path.relpath(folder.resolve(), Path(out).resolve().parent)).as_posix()
+        if not folder.drive:  # C:·UNC 경로가 C:/… 같은 스킴 모양 링크가 되지 않게
+            return folder.as_posix()
+    except ValueError:  # Windows: 드라이브가 다르면 상대 경로가 없다
+        pass
+    return folder.resolve().as_uri()
+
+
 def _write_assets(engine: LocalEngine, tree: DocumentTree, folder: Path) -> None:
     """트리의 그림 이미지를 폴더에 쓴다(같은 이미지는 한 번). 없는 이미지는 AssetNotFound."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -195,7 +210,7 @@ def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
             tree = engine.get_tree(args.document_id, args.version)
             if args.assets:
                 _write_assets(engine, tree, Path(args.assets))
-            _emit_tree(tree, args, Path(args.assets).as_posix() if args.assets else None)
+            _emit_tree(tree, args, _assets_link(args.assets, args.out) if args.assets else None)
         case "documents":
             _write(_json([ref.model_dump(mode="json") for ref in engine.documents()]), None)
         case "changes":

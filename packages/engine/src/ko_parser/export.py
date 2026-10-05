@@ -1,12 +1,12 @@
 """DocumentTree → 마크다운. 원본 복원이 아니라 RAG용 텍스트 뷰다."""
 
 import re
+from urllib.parse import quote
 
 from ko_parser_contracts import DocumentTree
 
 _NUMBERED = re.compile(r"\d+[.)] ")
 _ALT_SPECIAL = re.compile(r"([\\\[\]])")
-_NEEDS_ANGLE = re.compile(r"[\s()<>]")
 
 
 def asset_name(asset: str) -> str:
@@ -20,15 +20,16 @@ def _alt(text: str) -> str:
 
 
 def _target(folder: str, asset: str) -> str:
-    """링크 주소. 공백·괄호가 있으면 <…>로 감싼다."""
-    path = f"{folder.rstrip('/')}/{asset_name(asset)}" if folder.rstrip("/") else asset_name(asset)
-    return f"<{path.replace('<', '%3C').replace('>', '%3E')}>" if _NEEDS_ANGLE.search(path) else path
+    """링크 주소. '/' 구분 폴더 경로는 퍼센트 인코딩한다(공백·#·?·%·괄호·한글 등). file:// URI는 이미 인코딩돼 그대로."""
+    base = folder if folder.startswith("file://") else quote(folder, safe="/")
+    return f"{base.rstrip('/')}/{asset_name(asset)}" if base else asset_name(asset)
 
 
 def to_markdown(tree: DocumentTree, assets_dir: str | None = None) -> str:
     """블록 사이 빈 줄 하나. page_header·page_footer는 생략. 블록이 없으면 빈 문자열.
     assets_dir를 주면 이미지가 있는 그림 블록은 ![캡션](assets_dir/<sha256 앞 16자>.png)과 그 아래 그림 글자(대체
-    글자)로 쓴다(이미지 파일은 부르는 쪽이 쓴다). 없으면 그림은 글자만, 글자 없는 그림은 건너뛴다."""
+    글자)로 쓴다(이미지 파일은 부르는 쪽이 쓴다). assets_dir는 마크다운 파일 기준 '/' 구분 경로(퍼센트 인코딩한다)
+    또는 file:// URI. 없으면 그림은 글자만, 글자 없는 그림은 건너뛴다."""
     captions = {b.block_id: b.text for b in tree.blocks if b.kind == "caption"}
     parts: list[str] = []
     for block in tree.blocks:

@@ -73,8 +73,8 @@ def figure_tree(caption: str | None = "그림 1. [예산] 현황", text: str = "
 
 def test_figure_with_assets_dir_links_its_png_with_the_caption_as_alt_text():
     md = to_markdown(figure_tree(), "그림 폴더")
-    assert md == ("![그림 1. \\[예산\\] 현황](<그림 폴더/abababababababab.png>)\n\n1분기\n2분기\n\n"
-                  "그림 1. [예산] 현황\n")
+    assert md == ("![그림 1. \\[예산\\] 현황](%EA%B7%B8%EB%A6%BC%20%ED%8F%B4%EB%8D%94/abababababababab.png)\n\n"
+                  "1분기\n2분기\n\n그림 1. [예산] 현황\n")
 
 
 def test_without_assets_dir_figures_are_text_and_empty_ones_are_skipped():
@@ -85,3 +85,10 @@ def test_without_assets_dir_figures_are_text_and_empty_ones_are_skipped():
 
 def test_figure_without_image_stays_text_even_with_assets_dir():
     assert to_markdown(figure_tree(image=False), "assets") == "1분기\n2분기\n\n그림 1. [예산] 현황\n"
+
+
+def test_assets_dir_link_is_percent_encoded_and_a_file_uri_is_kept():
+    tree = figure_tree(caption=None, text="")
+    assert to_markdown(tree, "out/a #b?c%20(d)") == "![](out/a%20%23b%3Fc%2520%28d%29/abababababababab.png)\n"
+    assert to_markdown(tree, "/") == "![](/abababababababab.png)\n"
+    assert to_markdown(tree, "file:///C:/a%20b") == "![](file:///C:/a%20b/abababababababab.png)\n"

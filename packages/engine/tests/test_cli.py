@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 import sqlite3
 import sys
 
@@ -204,16 +205,19 @@ def test_stdout_forced_to_utf8(monkeypatch, db, tmp_path):
     assert raw.getvalue().decode("utf-8") == "# 한글 제목\n"
 
 
-def seed_figure(db) -> tuple[str, bytes]:
-    """그림 블록·캡션과 그 이미지를 상태 파일에 바로 넣는다(이 PR의 파서는 아직 그림을 내지 않는다)."""
+def seed_figure(db, figures: int = 1) -> tuple[str, bytes]:
+    """그림 블록·캡션과 그 이미지를 상태 파일에 바로 넣는다(이 PR의 파서는 아직 그림을 내지 않는다).
+    figures개의 그림(캡션 i: "그림 i. 현황")이 모두 같은 이미지를 가리킨다."""
     png = b"\x89PNG\r\n\x1a\n-figure-"
     asset = "sha256:" + hashlib.sha256(png).hexdigest()
     loc = {"kind": "page", "page": 1, "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.4}}
-    specs = [{"kind": "figure", "text": "", "confidence": 0.7, "state": "det", "text_source": "text_layer",
-              "locator": loc, "figure": {"asset": asset, "mime": "image/png", "width_px": 4, "height_px": 3,
-                                         "dpi": 200, "category": "image", "caption_ref": 1}},
-             {"kind": "caption", "text": "그림 1. 현황", "confidence": 0.7, "state": "det", "text_source": "text_layer",
-              "locator": loc}]
+    specs = []
+    for i in range(figures):
+        specs += [{"kind": "figure", "text": "", "confidence": 0.7, "state": "det", "text_source": "text_layer",
+                   "locator": loc, "figure": {"asset": asset, "mime": "image/png", "width_px": 4, "height_px": 3,
+                                              "dpi": 200, "category": "image", "caption_ref": 2 * i + 1}},
+                  {"kind": "caption", "text": f"그림 {i + 1}. 현황", "confidence": 0.7, "state": "det",
+                   "text_source": "text_layer", "locator": loc}]
     page = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
     source = SourceInfo(name="f.pdf", mime="application/pdf", content_hash="sha256:" + "0" * 64, page_count=1)
     tree = build_tree(ParsedSource(mime="application/pdf", pages=(page,), blocks=specs), "fig", 1, source)
@@ -222,15 +226,13 @@ def seed_figure(db) -> tuple[str, bytes]:
     return asset, png
 
 
-def test_export_assets_writes_pngs_and_markdown_links(capsys, db, tmp_path):
+def test_export_assets_writes_pngs_and_markdown_links(capsys, db, tmp_path, monkeypatch):
     asset, png = seed_figure(db)
-    folder = tmp_path / "그림"
-    code, out, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--assets", folder)
+    monkeypatch.chdir(tmp_path)  # 표준 출력이면 링크는 현재 폴더 기준, 입력 그대로(퍼센트 인코딩)
+    code, out, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--assets", "그림")
     name = asset.removeprefix("sha256:")[:16] + ".png"
-    assert code == 0 and (folder / name).read_bytes() == png
-    first, rest = out.split("\n", 1)
-    assert first.startswith("![그림 1. 현황](") and first.rstrip(">)").endswith(f"/{name}")
-    assert rest == "\n그림 1. 현황\n"
+    assert code == 0 and (tmp_path / "그림" / name).read_bytes() == png
+    assert out == f"![그림 1. 현황](%EA%B7%B8%EB%A6%BC/{name})\n\n그림 1. 현황\n"
 
 
 def test_export_json_with_assets_writes_files_and_the_same_json(capsys, db, tmp_path):
@@ -257,3 +259,50 @@ def test_export_assets_path_that_is_a_file_exit_1(capsys, db, tmp_path):
     blocker = write(tmp_path / "file", "x")
     code, _, err = run(capsys, "export", "fig", "--db", db, "--assets", blocker)
     assert code == 1 and "FileExistsError" in err
+
+
+def test_export_out_links_assets_relative_to_the_out_file(capsys, db, tmp_path):
+    asset, png = seed_figure(db)
+    docs = tmp_path / "docs"
+    code, out, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", docs / "x.md",
+                       "--assets", docs / "img")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert (code, out) == (0, "") and (docs / "img" / name).read_bytes() == png
+    assert (docs / "x.md").read_text(encoding="utf-8") == f"![그림 1. 현황](img/{name})\n\n그림 1. 현황\n"
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", docs / "sub" / "y.md",
+                     "--assets", tmp_path / "그림 #1")
+    assert code == 0
+    assert (docs / "sub" / "y.md").read_text(encoding="utf-8").startswith(
+        f"![그림 1. 현황](../../%EA%B7%B8%EB%A6%BC%20%231/{name})")
+
+
+def test_export_out_on_another_drive_links_a_file_uri(capsys, db, tmp_path, monkeypatch):
+    asset, _ = seed_figure(db)
+
+    def other_drive(path, start=None):
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(os.path, "relpath", other_drive)
+    folder = tmp_path / "그림"
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", tmp_path / "x.md",
+                     "--assets", folder)
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert code == 0 and (tmp_path / "x.md").read_text(encoding="utf-8").startswith(
+        f"![그림 1. 현황]({folder.resolve().as_uri()}/{name})")
+
+
+def test_export_figures_sharing_one_asset_write_it_once(capsys, db, tmp_path, monkeypatch):
+    asset, png = seed_figure(db, figures=2)
+    calls = []
+    original = SqliteStore.get_asset
+
+    def counted(self, key):
+        calls.append(key)
+        return original(self, key)
+
+    monkeypatch.setattr(SqliteStore, "get_asset", counted)
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--assets", "a")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert code == 0 and calls == [asset] and [p.name for p in (tmp_path / "a").iterdir()] == [name]
+    assert out == f"![그림 1. 현황](a/{name})\n\n그림 1. 현황\n\n![그림 2. 현황](a/{name})\n\n그림 2. 현황\n"
