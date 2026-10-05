@@ -8,11 +8,14 @@ import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ko_parser_contracts import TextLayerState
 
 from .extract import UPRIGHT, Axes, Char, PageText
+
+if TYPE_CHECKING:  # tables.py가 이 모듈을 import하므로 실행 중에는 가져오지 않는다
+    from .tables import TableSpec
 
 SAME_LINE = 0.5  # 기준선 차이 ≤ 실제 크기 × 0.5면 같은 줄
 SPLIT_GAP = 3.0  # 줄 안 글자 간격 > 실제 크기 × 3이면 줄 조각을 나눈다(표 칸·다단)
@@ -28,7 +31,8 @@ PARA_INDENT = 1.0  # 왼쪽 시작 차 ≤ 본문 크기 × 1
 MARGIN = 0.08  # 머리말·꼬리말 영역: 쪽 높이의 위·아래 8%(줄의 세로 중심 기준)
 SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
-CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8}
+CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8,
+              "table": 0.6}
 # 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →). 차례 글자는 가~하 열네 글자뿐
 # (유니코드 범위 가-하가 아니다). 숫자 뒤에 "10. "·"10.03"처럼 숫자 차례가 또 오면 날짜("2026. 10. 3.",
 # "2026. 10.03.")라 표지가 아니다. "1.5배"처럼 숫자 차례 뒤가 숫자·공백이 아니면 표지다("2. 1.5배 증가").
@@ -229,33 +233,68 @@ def _continues(group: Sequence[Fragment], cur: Fragment, body: float) -> bool:
             and _is_heading_size(cur, body) == _is_heading_size(first, body))
 
 
-def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]) -> list[dict[str, Any]]:
+def _table_top(table: "TableSpec", page: PageText, axes: Axes) -> float:
+    """표 bbox(보이는 쪽 0~1)의 읽기 좌표(axes) 윗변 pt."""
+    x0, y0, x1, y1 = table.bbox
+    top, _ = _span(*((x0, x1) if axes[1] % 2 == 0 else (y0, y1)), axes[1])
+    return top * frame_size(page, axes)[1]
+
+
+def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
+                tables: Sequence[Sequence["TableSpec"]] | None = None) -> list[dict[str, Any]]:
     """블록 명세(계약 build_blocks 입력). digital·scanned 쪽은 보이는 글자로 블록을 만들고(숨은 글자는 fragments가
-    버린다), unreliable 쪽은 블록이 없다. 순서: 쪽 → 위→아래 → 왼→오."""
-    frags = [fragments(page) if state != "unreliable" else [] for page, state in zip(pages, states, strict=True)]
+    버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
+    빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
+    않는다). 표는 같은 읽기 방향(TableSpec.axes) 조각 사이에, 그 방향 조각이 없으면 쪽의 첫 방향 조각 사이에
+    그 방향 읽기 좌표의 윗변으로 끼운다. 순서: 쪽 → 위→아래 → 왼→오."""
+    found = list(tables) if tables is not None else [[] for _ in pages]
+    frags: list[list[Fragment]] = []
+    for page, state, page_tables in zip(pages, states, found, strict=True):
+        taken = {i for t in page_tables for i in t.char_ids}
+        rest = replace(page, chars=tuple(c for i, c in enumerate(page.chars) if i not in taken)) if taken else page
+        frags.append(fragments(rest) if state != "unreliable" else [])
     body = body_size(frags)
-    if body is None:
-        return []
     margins = repeated_margins(pages, frags)
-    groups: list[tuple[PageText, str | None, list[Fragment]]] = []  # (쪽, 머리말·꼬리말 종류, 조각)
-    for p, (page, page_frags) in enumerate(zip(pages, frags)):
+    items: list[tuple[PageText, str | None, list[Fragment] | TableSpec]] = []  # (쪽, 머리말·꼬리말 종류, 조각 또는 표)
+    for p, (page, page_frags, page_tables, state) in enumerate(zip(pages, frags, found, states)):
+        present = {f.axes for f in page_frags}
+        fallback = page_frags[0].axes if page_frags else UPRIGHT
+        queues: dict[Axes, list[tuple[float, TableSpec]]] = defaultdict(list)  # 끼울 방향 → (윗변, 표)
+        for t in page_tables if state != "unreliable" else []:
+            axes = t.axes if t.axes in present else fallback
+            queues[axes].append((_table_top(t, page, axes), t))
+        for queue in queues.values():
+            queue.sort(key=lambda item: item[0])
         for i, f in enumerate(page_frags):
+            queue = queues.get(f.axes)
+            while queue and queue[0][0] <= f.y0:
+                items.append((page, None, queue.pop(0)[1]))
             margin = margins.get((p, i))
-            last = groups[-1] if groups else None
-            if margin is None and last is not None and last[0] is page and last[1] is None and _continues(
-                    last[2], f, body):
+            last = items[-1] if items else None
+            if (margin is None and last is not None and last[0] is page and last[1] is None
+                    and isinstance(last[2], list) and body is not None and _continues(last[2], f, body)):
                 last[2].append(f)
             else:
-                groups.append((page, margin, [f]))
+                items.append((page, margin, [f]))
+        items += [(page, None, t) for queue in queues.values() for _, t in queue]
 
     def is_heading(group: Sequence[Fragment]) -> bool:
-        return _is_heading_size(group[0], body) and len(group) <= HEADING_MAX_LINES
+        return body is not None and _is_heading_size(group[0], body) and len(group) <= HEADING_MAX_LINES
 
-    sizes = sorted({g[0].size for _, m, g in groups if m is None and is_heading(g)}, reverse=True)
+    sizes = sorted({g[0].size for _, m, g in items if isinstance(g, list) and m is None and is_heading(g)},
+                   reverse=True)
     specs: list[dict[str, Any]] = []
     stack: list[tuple[int, str]] = []  # (단계, 제목 글자)
-    for page, margin, group in groups:
+    for page, margin, group in items:
         extra: dict[str, Any] = {}
+        if not isinstance(group, list):
+            x0, y0, x1, y1 = group.bbox
+            specs.append({"kind": "table", "table": group.table, "text": group.table.plain_text(),
+                          "section_path": tuple(t for _, t in stack), "confidence": CONFIDENCE["table"],
+                          "state": "det", "text_source": "text_layer",
+                          "locator": {"kind": "page", "page": page.page,
+                                      "bbox": {"x0": x0, "y0": y0, "x1": x1, "y1": y1}}})
+            continue
         if margin is not None:
             kind, text, path = margin, group[0].text, ()
         elif is_heading(group):
