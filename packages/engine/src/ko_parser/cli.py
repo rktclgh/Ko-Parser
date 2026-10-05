@@ -16,8 +16,8 @@ from platformdirs import user_data_dir
 from ko_parser_contracts import DocumentTree
 
 from .engine import LocalEngine
-from .errors import DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
-from .export import to_markdown
+from .errors import AssetNotFound, DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
+from .export import asset_name, to_markdown
 from .formats.detect import default_parsers
 from .formats.pdf.parser import MIME as PDF_MIME
 from .store.sqlite import SqliteStore
@@ -28,9 +28,10 @@ DB_ENV = "KO_PARSER_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
 OCR_HELP = "스캔 쪽 OCR을 끈다 (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)"
+ASSETS_HELP = "그림 이미지를 이 폴더에 <sha256 앞 16자>.png로 쓴다(--format md면 마크다운이 그 파일을 가리킨다)"
 _EXIT_CODES: tuple[tuple[type[KoParserError], int], ...] = (
     (UnsupportedFormat, EXIT_UNSUPPORTED), (ParseError, EXIT_PARSE),
-    (DocumentNotFound, EXIT_NOT_FOUND), (VersionNotFound, EXIT_NOT_FOUND),
+    (DocumentNotFound, EXIT_NOT_FOUND), (VersionNotFound, EXIT_NOT_FOUND), (AssetNotFound, EXIT_NOT_FOUND),
 )
 
 
@@ -99,6 +100,7 @@ def _build_parser() -> argparse.ArgumentParser:
     export = sub.add_parser("export", parents=[common, output], help="저장된 문서 트리를 출력")
     export.add_argument("document_id")
     export.add_argument("--version", type=_positive)
+    export.add_argument("--assets", type=_non_empty, help=ASSETS_HELP)
     sub.add_parser("documents", parents=[common], help="문서마다 최신 버전")
     changes = sub.add_parser("changes", parents=[common], help="커서 뒤의 변경 내역")
     changes.add_argument("--cursor", type=_non_negative)
@@ -129,8 +131,15 @@ def _write(text: str, out: str | None) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
-def _emit_tree(tree: DocumentTree, args: argparse.Namespace) -> None:
-    _write(to_markdown(tree) if args.format == "md" else _json(tree.model_dump(mode="json")), args.out)
+def _emit_tree(tree: DocumentTree, args: argparse.Namespace, assets_dir: str | None = None) -> None:
+    _write(to_markdown(tree, assets_dir) if args.format == "md" else _json(tree.model_dump(mode="json")), args.out)
+
+
+def _write_assets(engine: LocalEngine, tree: DocumentTree, folder: Path) -> None:
+    """트리의 그림 이미지를 폴더에 쓴다(같은 이미지는 한 번). 없는 이미지는 AssetNotFound."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for asset in dict.fromkeys(b.figure.asset for b in tree.blocks if b.figure is not None):
+        (folder / asset_name(asset)).write_bytes(engine.get_asset(asset))
 
 
 def view_path(file: str, out: str | None) -> Path:
@@ -183,7 +192,10 @@ def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
             ref = engine.ingest(args.file, document_id=args.document_id, force=args.force)
             _emit_tree(engine.get_tree(ref.document_id, ref.version), args)
         case "export":
-            _emit_tree(engine.get_tree(args.document_id, args.version), args)
+            tree = engine.get_tree(args.document_id, args.version)
+            if args.assets:
+                _write_assets(engine, tree, Path(args.assets))
+            _emit_tree(tree, args, Path(args.assets).as_posix() if args.assets else None)
         case "documents":
             _write(_json([ref.model_dump(mode="json") for ref in engine.documents()]), None)
         case "changes":

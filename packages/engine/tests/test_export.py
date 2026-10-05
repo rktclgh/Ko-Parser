@@ -3,7 +3,7 @@ from pathlib import Path
 from ko_parser.core import build_tree
 from ko_parser.export import to_markdown
 from ko_parser.formats.base import ParsedSource
-from ko_parser_contracts import DocumentTree, SourceInfo
+from ko_parser_contracts import DocumentTree, PageInfo, SourceInfo
 
 CONTRACT_FIXTURES = Path(__file__).resolve().parents[2] / "contracts" / "fixtures"
 
@@ -50,3 +50,38 @@ def test_numbered_items_and_levels():
         spec("list_item", "2026년 계획"), spec("figure", "조직도"),
     ]), "d", 1, SourceInfo(name="t.md", mime="text/markdown", content_hash="sha256:" + "0" * 64))
     assert to_markdown(tree) == "### 셋째 수준\n\n3. 셋째\n\n7) 괄호\n\n- 2026년 계획\n\n조직도\n"
+
+
+FIG = "sha256:" + "ab" * 32
+A4 = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
+
+
+def figure_tree(caption: str | None = "그림 1. [예산] 현황", text: str = "1분기\n2분기", image: bool = True) -> DocumentTree:
+    def spec(kind: str, body: str, y: float, **kw) -> dict:
+        return {"kind": kind, "text": body, "confidence": 0.7, "state": "det", "text_source": "text_layer",
+                "locator": {"kind": "page", "page": 1, "bbox": {"x0": 0.1, "y0": y, "x1": 0.9, "y1": y + 0.1}}, **kw}
+
+    figure = {"asset": FIG, "mime": "image/png", "width_px": 10, "height_px": 10, "dpi": 200, "category": "chart",
+              "caption_ref": 1 if caption is not None else None}
+    specs = [spec("figure", text, 0.1, **({"figure": figure} if image else {}))]
+    if caption is not None:
+        specs.append(spec("caption", caption, 0.3))
+    return build_tree(ParsedSource(mime="application/pdf", pages=(A4,), blocks=specs), "d", 1,
+                      SourceInfo(name="f.pdf", mime="application/pdf", content_hash="sha256:" + "0" * 64,
+                                 page_count=1))
+
+
+def test_figure_with_assets_dir_links_its_png_with_the_caption_as_alt_text():
+    md = to_markdown(figure_tree(), "그림 폴더")
+    assert md == ("![그림 1. \\[예산\\] 현황](<그림 폴더/abababababababab.png>)\n\n1분기\n2분기\n\n"
+                  "그림 1. [예산] 현황\n")
+
+
+def test_without_assets_dir_figures_are_text_and_empty_ones_are_skipped():
+    assert to_markdown(figure_tree()) == "1분기\n2분기\n\n그림 1. [예산] 현황\n"
+    assert to_markdown(figure_tree(caption=None, text="")) == ""
+    assert to_markdown(figure_tree(caption=None, text=""), "assets") == "![](assets/abababababababab.png)\n"
+
+
+def test_figure_without_image_stays_text_even_with_assets_dir():
+    assert to_markdown(figure_tree(image=False), "assets") == "1분기\n2분기\n\n그림 1. [예산] 현황\n"
