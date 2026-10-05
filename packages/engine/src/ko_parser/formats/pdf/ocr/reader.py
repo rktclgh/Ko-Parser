@@ -41,6 +41,10 @@ class OcrReader:
         classes = self.rec.get_outputs()[0].shape[-1]
         if isinstance(classes, int) and classes != len(self.symbols):  # 글자 번호가 어긋난다
             raise ValueError(f"{path} gives {len(self.symbols)} classes but the recognition model has {classes}")
+        if not isinstance(classes, int):  # 갈래 수가 정해지지 않은 모델: 모델 정보의 글자 목록이 있으면 그것과 맞춘다
+            inner = self.rec.get_modelmeta().custom_metadata_map.get("character")
+            if inner is not None and symbols != inner.removesuffix("\n").split("\n"):
+                raise ValueError(f"{path} does not match the character list in the recognition model")
 
     def __call__(self, image: Image.Image) -> list[OcrLine]:
         """줄마다 OcrLine(상자는 입력 그림 화소, 글자는 NFC·앞뒤 공백 없음). 글자가 빈 줄은 버린다. 점수로는 거르지 않는다."""

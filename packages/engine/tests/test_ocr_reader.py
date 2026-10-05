@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import unicodedata
+from types import SimpleNamespace
 
 import pytest
 
@@ -235,3 +236,39 @@ def test_reader_runs_only_detection_and_recognition():
     sessions = sorted(k for k, v in vars(got).items() if isinstance(v, ort.InferenceSession))
     assert sessions == ["det", "rec"]
     assert [s.get_inputs()[0].shape[1] for s in (got.det, got.rec)] == [3, 3]
+
+
+def test_release_waits_for_a_reader_being_built():
+    """_release는 잠금을 잡고 놓는다: 다른 스레드가 읽개를 만드는 중이면 끝날 때까지 기다린다."""
+    done = threading.Event()
+    with ocr._lock:
+        t = threading.Thread(target=lambda: (ocr._release(), done.set()))
+        t.start()
+        assert not done.wait(0.2)  # 잠금을 쥐고 있는 동안은 끝나지 않는다
+    t.join()
+    assert done.is_set() and ocr._reader is None
+
+
+class FakeRec:
+    """출력 갈래 수가 정해지지 않은(symbolic) 인식 모델 흉내. 글자 목록은 모델 정보에만 있다."""
+
+    def __init__(self, character):
+        self.character = character
+
+    def get_outputs(self):
+        return [SimpleNamespace(shape=["batch", "time", "classes"])]
+
+    def get_modelmeta(self):
+        meta = {} if self.character is None else {"character": self.character}
+        return SimpleNamespace(custom_metadata_map=meta)
+
+
+@pytest.mark.parametrize(("character", "ok"), [("가\n나\n", True), ("가\n다\n", False), (None, True)])
+def test_dict_is_checked_against_model_metadata_when_classes_are_symbolic(monkeypatch, tmp_path, character, ok):
+    (tmp_path / "dict.txt").write_text("가\n나\n", encoding="utf-8")
+    monkeypatch.setattr(reader, "_session", lambda path: FakeRec(character))
+    if ok:
+        assert reader.OcrReader(tmp_path, "det", "rec", "dict.txt").symbols == ["blank", "가", "나", " "]
+    else:
+        with pytest.raises(ValueError, match="dict.txt"):
+            reader.OcrReader(tmp_path, "det", "rec", "dict.txt")

@@ -1,5 +1,6 @@
 """OCR 화소 연산이 OpenCV(RapidOCR가 쓰는 연산)와 같은 값을 내는지. 기대값은 opencv-python-headless 4.x로 한 번 잰 값."""
 
+import tracemalloc
 from types import SimpleNamespace
 
 import pytest
@@ -106,3 +107,25 @@ def test_detect_specks_do_not_use_up_the_candidate_limit():
 
 def test_detect_zero_size_image_has_no_boxes():
     assert detect(FakeSession(np.zeros((32, 32))), page(0, 10)).shape == (0, 4, 2)
+
+
+def test_crop_quad_of_a_large_box_keeps_memory_bounded():
+    """큰 상자(1500×1200)도 16개 탭을 한꺼번에 쌓지 않는다: 최대 할당이 150MB 아래(시간으로 보지 않는다)."""
+    img = np.random.default_rng(0).integers(0, 256, (1500, 2000, 3), np.uint8)
+    box = np.array([[100, 100], [1600, 100], [1600, 1300], [100, 1300]], np.float32)
+    tracemalloc.start()
+    try:
+        out = crop_quad(img, box)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 150 * 2**20, peak
+    assert out.shape == (1200, 1500, 3) and (out == img[100:1300, 100:1600]).all()
+
+
+@pytest.mark.parametrize("box", [[[5, 5], [5, 5], [5, 5], [5, 5]], [[2, 3], [9, 3], [9, 3], [2, 3]],
+                                 [[0, 0], [10, 0], [20, 0], [30, 0]]])
+def test_crop_quad_of_a_degenerate_box_is_empty(box):
+    """넓이가 없는 상자(점·선)는 빈 그림을 낸다(원근 변환을 풀지 못해 오류를 내지 않는다)."""
+    out = crop_quad(gray3([[1] * 40] * 20), np.array(box, np.float32))
+    assert out.size == 0 and out.dtype == np.uint8 and out.ndim == 3

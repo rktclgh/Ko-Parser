@@ -89,7 +89,8 @@ def _release() -> None:
     'recursive_mutex lock failed'로 abort한다(실측: 10쪽 읽고 끝나는 프로세스 약 60번에 1번).
     인터프리터가 끝날 때 아직 추론 중인 데몬 스레드는 지원하지 않는다(그 스레드가 쥔 세션은 놓지 못한다)."""
     global _reader
-    _reader = None
+    with _lock:  # 다른 스레드가 만드는 중이면 끝난 뒤에 놓는다
+        _reader = None
 
 
 atexit.register(_release)

@@ -10,7 +10,7 @@ import pyclipper
 from .pixels import resize_linear
 
 LIMIT_SIDE = 736  # 짧은 변이 이보다 작으면 키운다(RapidOCR limit_type=min)
-MAX_SIDE = 4000  # 검출 입력의 긴 변 상한(아주 길쭉한 그림에서 짧은 변을 키우다 메모리가 터지지 않게, RapidOCR에는 없다)
+DET_MAX_SIDE = 4000  # 검출 입력의 긴 변 상한(아주 길쭉한 그림에서 짧은 변을 키우다 메모리가 터지지 않게, RapidOCR에는 없다)
 THRESH = 0.3  # 화소 확률 문턱
 BOX_THRESH = 0.5  # 상자 안 평균 확률 문턱
 UNCLIP_RATIO = 1.6
@@ -160,10 +160,10 @@ def _order_clockwise(pts: np.ndarray) -> np.ndarray:
 
 
 def _input_size(h: int, w: int) -> tuple[int, int]:
-    """검출 입력 (높이, 너비): 짧은 변을 736 이상으로 키우고 32 배수(최소 32). 키울 때 긴 변이 MAX_SIDE를 넘지 않게
-    덜 키운다. 이미 MAX_SIDE보다 긴 그림은 줄이지 않는다(reader가 긴 변 2000px로 줄여 넘긴다). 빈 그림은 받지 않는다."""
+    """검출 입력 (높이, 너비): 짧은 변을 736 이상으로 키우고 32 배수(최소 32). 키울 때 긴 변이 DET_MAX_SIDE를 넘지 않게
+    덜 키운다. 이미 DET_MAX_SIDE보다 긴 그림은 줄이지 않는다(reader가 긴 변 reader.MAX_SIDE=2000px로 줄여 넘긴다). 빈 그림은 받지 않는다."""
     r = LIMIT_SIDE / min(h, w) if min(h, w) < LIMIT_SIDE else 1.0
-    r = min(r, max(MAX_SIDE / max(h, w), 1.0))
+    r = min(r, max(DET_MAX_SIDE / max(h, w), 1.0))
     return max(32, int(round(int(h * r) / 32) * 32)), max(32, int(round(int(w * r) / 32) * 32))
 
 
