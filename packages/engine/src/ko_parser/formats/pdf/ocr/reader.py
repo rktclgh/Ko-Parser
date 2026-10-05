@@ -53,6 +53,8 @@ class OcrReader:
         """줄마다 OcrLine(상자는 입력 그림 화소, 글자는 NFC·앞뒤 공백 없음). 글자가 빈 줄은 버린다. 점수로는 거르지 않는다.
         아주 큰 그림은 먼저 Pillow로 정수배 줄여(Image.reduce, 칸 평균) 원래 크기의 배열을 만들지 않는다. 보통 쪽은 그대로."""
         width, height = image.size
+        if not width or not height:  # 빈 그림(미리 줄이기 전에 본다)
+            return []
         f = max(math.ceil(max(width, height) / PRE_SHRINK_SIDE), math.ceil(math.sqrt(width * height / PRE_SHRINK_PIXELS)))
         if f <= 1:
             return self._read(image)

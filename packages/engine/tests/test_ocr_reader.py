@@ -84,6 +84,8 @@ def test_very_long_strip_is_read_without_huge_memory(monkeypatch):
 def test_zero_size_image_has_no_lines():
     assert ocr.read_lines(Image.new("RGB", (0, 0))) == []
     assert ocr.read_lines(Image.new("RGB", (3000, 0))) == []
+    assert ocr.read_lines(Image.new("RGB", (5000, 0))) == []  # 미리 줄이는 경로(긴 변 > 4000)에서도
+    assert ocr.read_lines(Image.new("RGB", (0, 5000))) == []
 
 
 def test_dict_is_the_recognition_model_alphabet():
