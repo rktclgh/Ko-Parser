@@ -138,16 +138,21 @@ def _emit_tree(tree: DocumentTree, args: argparse.Namespace, assets_dir: str | N
 
 def _assets_link(assets: str, out: str | None) -> str:
     """마크다운 링크의 폴더 부분('/' 구분). --out이 있으면 그 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준
-    입력 그대로. 상대 경로가 없거나(Windows 다른 드라이브) 드라이브가 붙은 경로를 표준 출력에 쓰면 file:// URI."""
+    입력 그대로. 상대 경로가 없거나(Windows 다른 드라이브) 드라이브가 붙은 경로를 표준 출력에 쓰면 file:// URI.
+    경로는 글자 그대로(lexical) 절대 경로로 비교한다: --out이 심볼릭 링크여도 따라가지 않고 그 자리를 바꿔 쓰며,
+    마크다운 뷰어도 링크를 그 파일이 있는 폴더 기준으로 푼다."""
     folder = Path(assets)
     try:
         if out is not None:
-            return Path(os.path.relpath(folder.resolve(), Path(out).resolve().parent)).as_posix()
+            return Path(os.path.relpath(os.path.abspath(folder), os.path.dirname(os.path.abspath(out)))).as_posix()
         if not folder.drive:  # C:·UNC 경로가 C:/… 같은 스킴 모양 링크가 되지 않게
             return folder.as_posix()
     except ValueError:  # Windows: 드라이브가 다르면 상대 경로가 없다
         pass
     return folder.resolve().as_uri()
+
+
+_POSIX_MODES = sys.platform != "win32" and hasattr(os, "fchmod")
 
 
 def _new_file_mode() -> int:
@@ -184,21 +189,22 @@ def _write_assets(engine: LocalEngine, paths: dict[str, Path], folder: Path) -> 
 
 def _replace_file(path: Path, data: bytes) -> None:
     """같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 파일이 반쯤 덮이지
-    않고, 그 이름이 심볼릭 링크면 가리키는 파일을 덮지 않고 링크 자리를 바꾼다. 이미 있던 보통 파일의 권한은 지키고
-    새 파일·심볼릭 링크 자리는 umask 기본 권한(mkstemp는 0600으로 만든다)."""
-    try:
-        st = os.lstat(path)
-        mode = stat.S_IMODE(st.st_mode) if stat.S_ISREG(st.st_mode) else _new_file_mode()
-    except FileNotFoundError:
-        mode = _new_file_mode()
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".ko-parser.", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
+    않고, 그 이름이 심볼릭 링크면 가리키는 파일을 덮지 않고 링크 자리를 바꾼다. 권한은 경로가 아니라 fd로 정한다:
+    이미 있던 보통 파일의 권한, 새 파일·심볼릭 링크 자리는 umask 기본 권한(mkstemp는 0600으로 만든다). Windows는
+    권한을 건드리지 않는다(읽기 전용 임시 파일이 남지 않게). 어떤 오류든 임시 파일을 지우고 다시 던진다."""
+    mode = None
+    if _POSIX_MODES:
         try:
-            os.chmod(tmp, mode)
-        except OSError:
-            pass
+            st = os.lstat(path)
+            mode = stat.S_IMODE(st.st_mode) if stat.S_ISREG(st.st_mode) else _new_file_mode()
+        except FileNotFoundError:
+            mode = _new_file_mode()
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
+    try:
+        with os.fdopen(fd, "wb") as f:  # 나갈 때(오류여도) fd를 닫는다
+            if mode is not None:
+                os.fchmod(f.fileno(), mode)
+            f.write(data)
         os.replace(tmp, path)
     except BaseException:
         try:

@@ -368,3 +368,33 @@ def test_export_out_symlink_is_replaced_not_followed(capsys, db, tmp_path):
     assert code == 0 and outside.read_text(encoding="utf-8") == "keep me"
     assert not out.is_symlink() and out.read_text(encoding="utf-8") == "그림 1. 현황\n"
     assert sorted(p.name for p in out.parent.iterdir()) == ["x.md"]
+
+
+def test_export_links_are_relative_to_the_out_symlink_folder_not_its_target(capsys, db, tmp_path):
+    asset, _ = seed_figure(db)
+    real = write(tmp_path / "other" / "real.md", "keep me")
+    out = tmp_path / "docs" / "x.md"
+    out.parent.mkdir()
+    try:
+        os.symlink(real, out)
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out,
+                     "--assets", tmp_path / "docs" / "img")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert code == 0 and real.read_text(encoding="utf-8") == "keep me"
+    assert out.read_text(encoding="utf-8") == f"![그림 1. 현황](img/{name})\n\n그림 1. 현황\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_export_fchmod_failure_keeps_the_old_file_and_leaves_no_temp(capsys, db, tmp_path, monkeypatch):
+    seed_figure(db)
+    out = write(tmp_path / "docs" / "x.md", "old")
+
+    def failing(fd, mode):
+        raise OSError("fchmod failed")
+
+    monkeypatch.setattr(os, "fchmod", failing)
+    code, _, err = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out)
+    assert code == 1 and "fchmod failed" in err
+    assert out.read_text(encoding="utf-8") == "old" and [p.name for p in out.parent.iterdir()] == ["x.md"]
