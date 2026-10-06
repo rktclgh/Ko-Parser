@@ -1,13 +1,15 @@
 """스캔 쪽 OCR 연결(scan.py): 그림 화소 → 보이는 쪽 pt, 점수 거르기, 텍스트 레이어 우선, XY 분할, 문단, 렌더 배율."""
 
 import io
+import os
 
 import pytest
 from reportlab.pdfgen.canvas import Canvas
 
+from ko_parser import models
 from ko_parser.formats.pdf import scan
 from ko_parser.formats.pdf.extract import Char, PageText
-from ko_parser.formats.pdf.ocr import OcrLine
+from ko_parser.formats.pdf.ocr import MODEL_NAMES, OcrLine
 
 W, H = 600.0, 800.0
 
@@ -124,6 +126,15 @@ def test_render_is_200_dpi_in_the_visible_frame():
     assert scan.render(one_page_pdf(595, 842, rotation=90), "r.pdf", 0).size == (1653, 2339)
 
 
+def require_models(*names: str) -> None:
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    missing = [name for name in names if models.find(name) is None]
+    if missing:
+        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
+        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+
+
 def test_huge_page_render_is_capped():
     """긴 변이 MAX_RENDER_SIDE(4000px)를 넘지 않게 배율을 낮춘다(A0 두 배 쪽도 메모리 수십 MB)."""
     image = scan.render(one_page_pdf(4768, 6741), "big.pdf", 0)
@@ -134,6 +145,7 @@ def test_ocr_boxes_on_a_page_with_offset_cropbox_are_in_visible_page_coordinates
     """CropBox 원점이 0이 아닌 스캔 쪽(MediaBox 600×800, CropBox 50 60 550 760 → 보이는 쪽 500×700pt): 렌더가 보이는
     쪽만 그리므로 OCR 블록 상자는 보이는 쪽 0~1에서 글자가 실제로 있는 자리에 온다."""
     pytest.importorskip("onnxruntime")
+    require_models(*MODEL_NAMES)
     ko_parser_fonts = pytest.importorskip("ko_parser_fonts")
     from PIL import Image, ImageDraw, ImageFont
     from reportlab.lib.utils import ImageReader
@@ -167,6 +179,7 @@ def test_ocr_boxes_on_a_rotated_scanned_page_are_in_visible_page_coordinates():
     그림은 PDF 좌표에서 반시계로 누워 있어 보이는 쪽에서 바로 선다. 렌더가 회전을 반영하므로 OCR이 글자를 읽고,
     블록 상자는 보이는 쪽 0~1에서 글자가 실제로 있는 자리에 온다(PDF 점 (x, y)는 보이는 (y, x))."""
     pytest.importorskip("onnxruntime")
+    require_models(*MODEL_NAMES)
     ko_parser_fonts = pytest.importorskip("ko_parser_fonts")
     from PIL import Image, ImageDraw, ImageFont
     from reportlab.lib.utils import ImageReader

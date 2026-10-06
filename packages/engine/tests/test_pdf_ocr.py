@@ -86,6 +86,7 @@ def blocks(data: bytes, parser: PdfParser | None = None) -> list[tuple[str, str,
 
 def test_scanned_page_text_becomes_ocr_paragraph_blocks():
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     parsed = PdfParser().parse(pdf(lambda c: scanned_page(c, 300, 400, BODY)), "s.pdf")
     assert parsed.pages[0].text_layer == "scanned"
     assert [(b["kind"], b["text_source"], b["text"]) for b in parsed.blocks] == [
@@ -100,6 +101,7 @@ def test_scanned_page_text_becomes_ocr_paragraph_blocks():
 
 def test_only_scanned_pages_are_read(monkeypatch):
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     calls = []
     real = ocr.read_lines
     monkeypatch.setattr(ocr, "read_lines", lambda image: calls.append(image.size) or real(image))
@@ -274,6 +276,7 @@ def test_visible_text_is_not_read_twice_and_blocks_merge_by_top():
     """보이는 글자(쪽 위 줄·아래 쪽 번호)도 렌더 그림에 그려져 OCR이 읽지만 텍스트 레이어가 우선이라 버린다.
     블록은 윗변 순서: 위 텍스트 레이어 → OCR 문단 → 아래 쪽 번호."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     visible = [(40, 370, 12, "보이는 글자 줄"), (148, 20, 9, "1")]
     data = pdf(lambda c: scanned_page(c, 300, 400, BODY, visible))
     assert blocks(data) == [("paragraph", "text_layer", "보이는 글자 줄"),
@@ -284,6 +287,7 @@ def test_visible_text_is_not_read_twice_and_blocks_merge_by_top():
 
 def test_ocr_blocks_follow_the_previous_heading():
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     def digital(c):
         put(c, 40, 340, 18, "1. 추진 배경")
         for i in range(4):
@@ -297,6 +301,7 @@ def test_ocr_blocks_follow_the_previous_heading():
 def test_rotated_scanned_page_has_visible_page_coordinates():
     """/Rotate 90 쪽: 그림을 PDF 좌표에서 돌려 넣어 보이는 쪽에서 바로 선다. 결과는 돌리지 않은 쪽과 같다."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     image = text_image(300, 400, BODY)
 
     def upright(c):
@@ -325,6 +330,7 @@ def test_blank_scanned_page_has_no_ocr_blocks():
 def test_scanned_golden_inputs_are_the_same_with_ocr_on(name):
     """기존 scanned 골든 예제(보이는 쪽 번호만, 숨은 글자층): OCR을 켜도 쪽 번호를 두 번 내지 않는다."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     data = (FIXTURES / name).read_bytes()
     assert PdfParser(ocr=True).parse(data, name) == PdfParser(ocr=False).parse(data, name)
 
@@ -332,6 +338,7 @@ def test_scanned_golden_inputs_are_the_same_with_ocr_on(name):
 def test_parallel_parses_give_the_same_ocr_blocks():
     """여러 스레드가 동시에 스캔 쪽을 파싱해도(렌더는 PDFIUM_LOCK, OCR 세션은 공유) 결과가 같다."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     from concurrent.futures import ThreadPoolExecutor
 
     data = pdf(lambda c: scanned_page(c, 300, 400, BODY))

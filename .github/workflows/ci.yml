@@ -24,6 +24,8 @@ jobs:
     env:
       # 기본 인코딩(Windows cp949)에 기대는 open()·read_text()를 경고로 드러내고 아래 -W로 실패시킨다
       PYTHONWARNDEFAULTENCODING: "1"
+      # 모델 파일이 없어 건너뛸 테스트를 실패로(모델은 아래 캐시·fetch가 준비한다)
+      KO_PARSER_CI_REQUIRE_MODELS: "1"
     defaults:
       run:
         shell: bash
@@ -39,6 +41,18 @@ jobs:
       # (번들 없을 때 가드는 test_pdf_fonts가 하위 프로세스로 검증)
       - name: Sync
         run: uv sync --locked
+      # 모델 파일은 저장소에 없다(업스트림 고정 주소, models.toml): 목록 해시를 열쇠로 캐시하고 캐시가 없을 때만 받는다
+      - name: Model cache location
+        run: echo "KO_PARSER_CACHE_DIR=${{ runner.temp }}/ko-parser-models" >> "$GITHUB_ENV"
+      - name: Model cache
+        id: model-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ko-parser-models
+          key: models-${{ runner.os }}-${{ hashFiles('packages/engine/src/ko_parser/models/models.toml') }}
+      - name: Fetch models
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: uv run ko-parser models fetch
       # 워크스페이스는 OCR 추가 설치(ko-parser-engine[ocr])까지 깐다: onnxruntime 휠이 세 OS에 있고 모델이 열리는지 본다
       - name: OCR runtime loads
         run: uv run python -W error::EncodingWarning -c "from ko_parser.formats.pdf import ocr; ocr.get_reader(); print('ocr ok')"
