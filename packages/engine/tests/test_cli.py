@@ -1,13 +1,20 @@
+import hashlib
 import io
 import json
+import os
 import sqlite3
+import stat
 import sys
 
 import pytest
 
 from ko_parser import cli
 from ko_parser.cli import main
-from ko_parser_contracts import ChangeBatch, DocumentTree, ProcessingHistory
+from ko_parser.core import build_tree, diff_trees
+from ko_parser.errors import AssetNotFound
+from ko_parser.formats.base import ParsedSource
+from ko_parser.store import SqliteStore
+from ko_parser_contracts import ChangeBatch, DocumentTree, PageInfo, ProcessingHistory, SourceInfo
 
 
 @pytest.fixture
@@ -157,11 +164,12 @@ def test_db_not_sqlite_exit_1(capsys, tmp_path):
     assert err.count("\n") == 1 and "Traceback" not in err
 
 
-def test_db_from_contracts_0_1_exit_1(capsys, db):
+@pytest.mark.parametrize("old", ["1", "2"])  # 계약 0.1·0.2 시절 상태 파일
+def test_db_from_older_contracts_exit_1(capsys, db, old):
     assert run(capsys, "documents", "--db", db)[0] == 0
     conn = sqlite3.connect(db)
     with conn:
-        conn.execute("UPDATE meta SET value = '1' WHERE key = 'format'")  # 계약 0.1 시절 상태 파일
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'format'", (old,))
     conn.close()
     code, out, err = run(capsys, "documents", "--db", db)
     assert (code, out) == (1, "") and err.startswith("ko-parser: ") and "ingest again" in err
@@ -196,3 +204,228 @@ def test_stdout_forced_to_utf8(monkeypatch, db, tmp_path):
     path = write(tmp_path / "a.md", "# 한글 제목\n")
     assert main(["parse", str(path), "--db", str(db), "--format", "md"]) == 0
     assert raw.getvalue().decode("utf-8") == "# 한글 제목\n"
+
+
+def seed_figure(db, figures: int = 1) -> tuple[str, bytes]:
+    """그림 블록·캡션과 그 이미지를 상태 파일에 바로 넣는다(이 PR의 파서는 아직 그림을 내지 않는다).
+    figures개의 그림(캡션 i: "그림 i. 현황")이 모두 같은 이미지를 가리킨다."""
+    png = b"\x89PNG\r\n\x1a\n-figure-"
+    asset = "sha256:" + hashlib.sha256(png).hexdigest()
+    loc = {"kind": "page", "page": 1, "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.4}}
+    specs = []
+    for i in range(figures):
+        specs += [{"kind": "figure", "text": "", "confidence": 0.7, "state": "det", "text_source": "text_layer",
+                   "locator": loc, "figure": {"asset": asset, "mime": "image/png", "width_px": 4, "height_px": 3,
+                                              "dpi": 200, "category": "image", "caption_ref": 2 * i + 1}},
+                  {"kind": "caption", "text": f"그림 {i + 1}. 현황", "confidence": 0.7, "state": "det",
+                   "text_source": "text_layer", "locator": loc}]
+    page = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
+    source = SourceInfo(name="f.pdf", mime="application/pdf", content_hash="sha256:" + "0" * 64, page_count=1)
+    tree = build_tree(ParsedSource(mime="application/pdf", pages=(page,), blocks=specs), "fig", 1, source)
+    with SqliteStore(db) as store:
+        store.commit(tree, diff_trees(None, tree), ProcessingHistory(document_id="fig", version=1), {asset: png})
+    return asset, png
+
+
+def test_export_assets_writes_pngs_and_markdown_links(capsys, db, tmp_path, monkeypatch):
+    asset, png = seed_figure(db)
+    monkeypatch.chdir(tmp_path)  # 표준 출력이면 링크는 현재 폴더 기준, 입력 그대로(퍼센트 인코딩)
+    code, out, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--assets", "그림")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert code == 0 and (tmp_path / "그림" / name).read_bytes() == png
+    assert out == f"![그림 1. 현황](%EA%B7%B8%EB%A6%BC/{name})\n\n그림 1. 현황\n"
+
+
+def test_export_json_with_assets_writes_files_and_the_same_json(capsys, db, tmp_path):
+    asset, png = seed_figure(db)
+    plain = run(capsys, "export", "fig", "--db", db)[1]
+    code, out, _ = run(capsys, "export", "fig", "--db", db, "--assets", tmp_path / "a")
+    assert code == 0 and out == plain
+    assert (tmp_path / "a" / (asset.removeprefix("sha256:")[:16] + ".png")).read_bytes() == png
+
+
+def test_export_missing_asset_exit_5(capsys, db, tmp_path, monkeypatch):
+    seed_figure(db)
+
+    def missing(self, asset):
+        raise AssetNotFound(asset)
+
+    monkeypatch.setattr(SqliteStore, "get_asset", missing)
+    code, out, err = run(capsys, "export", "fig", "--db", db, "--assets", tmp_path / "a")
+    assert (code, out) == (5, "") and "asset not found: sha256:" in err
+
+
+def test_export_assets_path_that_is_a_file_exit_1(capsys, db, tmp_path):
+    seed_figure(db)
+    blocker = write(tmp_path / "file", "x")
+    code, _, err = run(capsys, "export", "fig", "--db", db, "--assets", blocker)
+    assert code == 1 and "FileExistsError" in err
+
+
+def test_export_out_links_assets_relative_to_the_out_file(capsys, db, tmp_path):
+    asset, png = seed_figure(db)
+    docs = tmp_path / "docs"
+    code, out, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", docs / "x.md",
+                       "--assets", docs / "img")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert (code, out) == (0, "") and (docs / "img" / name).read_bytes() == png
+    assert (docs / "x.md").read_text(encoding="utf-8") == f"![그림 1. 현황](img/{name})\n\n그림 1. 현황\n"
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", docs / "sub" / "y.md",
+                     "--assets", tmp_path / "그림 #1")
+    assert code == 0
+    assert (docs / "sub" / "y.md").read_text(encoding="utf-8").startswith(
+        f"![그림 1. 현황](../../%EA%B7%B8%EB%A6%BC%20%231/{name})")
+
+
+def test_export_out_on_another_drive_links_a_file_uri(capsys, db, tmp_path, monkeypatch):
+    asset, _ = seed_figure(db)
+
+    def other_drive(path, start=None):
+        raise ValueError("path is on mount 'D:', start on mount 'C:'")
+
+    monkeypatch.setattr(os.path, "relpath", other_drive)
+    folder = tmp_path / "그림"
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", tmp_path / "x.md",
+                     "--assets", folder)
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert code == 0 and (tmp_path / "x.md").read_text(encoding="utf-8").startswith(
+        f"![그림 1. 현황]({folder.resolve().as_uri()}/{name})")
+
+
+def test_export_figures_sharing_one_asset_write_it_once(capsys, db, tmp_path, monkeypatch):
+    asset, png = seed_figure(db, figures=2)
+    calls = []
+    original = SqliteStore.get_asset
+
+    def counted(self, key):
+        calls.append(key)
+        return original(self, key)
+
+    monkeypatch.setattr(SqliteStore, "get_asset", counted)
+    monkeypatch.chdir(tmp_path)
+    code, out, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--assets", "a")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert code == 0 and calls == [asset] and [p.name for p in (tmp_path / "a").iterdir()] == [name]
+    assert out == f"![그림 1. 현황](a/{name})\n\n그림 1. 현황\n\n![그림 2. 현황](a/{name})\n\n그림 2. 현황\n"
+
+
+def test_export_out_directory_fails_before_writing_assets(capsys, db, tmp_path):
+    seed_figure(db)
+    out_dir = tmp_path / "출력"
+    out_dir.mkdir()
+    code, out, err = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out_dir,
+                         "--assets", tmp_path / "a")
+    assert (code, out) == (1, "") and "IsADirectoryError: output path is a directory" in err
+    assert not (tmp_path / "a").exists() and list(out_dir.iterdir()) == []
+
+
+def test_export_assets_replace_a_symlink_instead_of_writing_through_it(capsys, db, tmp_path):
+    asset, png = seed_figure(db)
+    outside = write(tmp_path / "outside.txt", "keep me")
+    folder = tmp_path / "a"
+    folder.mkdir()
+    target = folder / (asset.removeprefix("sha256:")[:16] + ".png")
+    try:
+        os.symlink(outside, target)
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--assets", folder)
+    assert code == 0 and outside.read_text(encoding="utf-8") == "keep me"
+    assert not target.is_symlink() and target.read_bytes() == png
+    assert sorted(p.name for p in folder.iterdir()) == [target.name]  # 임시 파일이 남지 않는다
+
+
+@pytest.mark.parametrize("upper", [False, True])
+def test_export_out_colliding_with_an_asset_file_exit_1_and_writes_nothing(capsys, db, tmp_path, upper):
+    asset, _ = seed_figure(db)
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    out = tmp_path / "a" / (name.upper() if upper else name)  # 대소문자를 가리지 않는 파일 시스템도 같은 파일
+    code, out_text, err = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out,
+                              "--assets", tmp_path / "a")
+    assert (code, out_text) == (1, "") and "output path is also an asset file" in err
+    assert not (tmp_path / "a").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_export_assets_keep_the_mode_of_an_existing_png(capsys, db, tmp_path):
+    asset, png = seed_figure(db)
+    target = write(tmp_path / "a" / (asset.removeprefix("sha256:")[:16] + ".png"), "old")
+    target.chmod(0o600)
+    assert run(capsys, "export", "fig", "--db", db, "--assets", tmp_path / "a")[0] == 0
+    assert target.read_bytes() == png and stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_export_out_symlink_is_replaced_not_followed(capsys, db, tmp_path):
+    seed_figure(db)
+    outside = write(tmp_path / "outside.txt", "keep me")
+    out = tmp_path / "docs" / "x.md"
+    out.parent.mkdir()
+    try:
+        os.symlink(outside, out)
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out)
+    assert code == 0 and outside.read_text(encoding="utf-8") == "keep me"
+    assert not out.is_symlink() and out.read_text(encoding="utf-8") == "그림 1. 현황\n"
+    assert sorted(p.name for p in out.parent.iterdir()) == ["x.md"]
+
+
+def test_export_links_are_relative_to_the_out_symlink_folder_not_its_target(capsys, db, tmp_path):
+    asset, _ = seed_figure(db)
+    real = write(tmp_path / "other" / "real.md", "keep me")
+    out = tmp_path / "docs" / "x.md"
+    out.parent.mkdir()
+    try:
+        os.symlink(real, out)
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out,
+                     "--assets", tmp_path / "docs" / "img")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    assert code == 0 and real.read_text(encoding="utf-8") == "keep me"
+    assert out.read_text(encoding="utf-8") == f"![그림 1. 현황](img/{name})\n\n그림 1. 현황\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows resolves '..' lexically before following symlinks")
+def test_export_links_follow_a_symlinked_parent_before_dotdot(capsys, db, tmp_path):
+    asset, _ = seed_figure(db)
+    (tmp_path / "other" / "deep").mkdir(parents=True)
+    try:
+        os.symlink(tmp_path / "other" / "deep", tmp_path / "link")
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    out = tmp_path / "link" / ".." / "x.md"  # 파일 시스템은 other/x.md에 쓴다
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out,
+                     "--assets", tmp_path / "img")
+    name = asset.removeprefix("sha256:")[:16] + ".png"
+    written = tmp_path / "other" / "x.md"
+    assert code == 0 and written.read_text(encoding="utf-8").startswith(f"![그림 1. 현황](../img/{name})")
+    assert (written.parent / "../img" / name).resolve().is_file()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows resolves '..' lexically before following symlinks")
+def test_export_out_under_a_symlinked_parent_and_dotdot_is_written_where_the_fs_puts_it(capsys, db, tmp_path):
+    seed_figure(db)
+    (tmp_path / "actual" / "deep").mkdir(parents=True)  # actual/nested는 없다: 내보내기가 만든다
+    try:
+        os.symlink(tmp_path / "actual" / "deep", tmp_path / "link")
+    except (OSError, NotImplementedError) as exc:  # Windows 권한 없음 등
+        pytest.skip(f"cannot create symlink: {exc}")
+    code, _, _ = run(capsys, "export", "fig", "--db", db, "--format", "md",
+                     "--out", tmp_path / "link" / ".." / "nested" / "x.md")
+    assert code == 0 and (tmp_path / "actual" / "nested" / "x.md").is_file()
+    assert not (tmp_path / "nested").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_export_fchmod_failure_keeps_the_old_file_and_leaves_no_temp(capsys, db, tmp_path, monkeypatch):
+    seed_figure(db)
+    out = write(tmp_path / "docs" / "x.md", "old")
+
+    def failing(fd, mode):
+        raise OSError("fchmod failed")
+
+    monkeypatch.setattr(os, "fchmod", failing)
+    code, _, err = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out)
+    assert code == 1 and "fchmod failed" in err
+    assert out.read_text(encoding="utf-8") == "old" and [p.name for p in out.parent.iterdir()] == ["x.md"]

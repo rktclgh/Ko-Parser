@@ -54,6 +54,17 @@
           "title": "Content Hash",
           "type": "string"
         },
+        "figure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FigureImage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "kind": {
           "enum": [
             "heading",
@@ -241,6 +252,70 @@
         "text_source"
       ],
       "title": "Cell",
+      "type": "object"
+    },
+    "FigureImage": {
+      "additionalProperties": false,
+      "description": "잘라 낸 그림 PNG의 참조. asset은 PNG 바이트의 sha256(저장소 get_asset의 키).\ncaption_block_id는 같은 트리의 caption 블록(한 캡션은 그림 하나에만). 내용 해시에는 asset만 들어간다.",
+      "properties": {
+        "asset": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Asset",
+          "type": "string"
+        },
+        "caption_block_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caption Block Id"
+        },
+        "category": {
+          "enum": [
+            "image",
+            "chart"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "dpi": {
+          "exclusiveMinimum": 0,
+          "title": "Dpi",
+          "type": "integer"
+        },
+        "height_px": {
+          "exclusiveMinimum": 0,
+          "maximum": 4000,
+          "title": "Height Px",
+          "type": "integer"
+        },
+        "mime": {
+          "const": "image/png",
+          "title": "Mime",
+          "type": "string"
+        },
+        "width_px": {
+          "exclusiveMinimum": 0,
+          "maximum": 4000,
+          "title": "Width Px",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "asset",
+        "mime",
+        "width_px",
+        "height_px",
+        "dpi",
+        "category"
+      ],
+      "title": "FigureImage",
       "type": "object"
     },
     "FlowLocator": {
@@ -601,8 +676,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "0.2",
-      "default": "0.2",
+      "const": "0.3",
+      "default": "0.3",
       "title": "Schema Version",
       "type": "string"
     },

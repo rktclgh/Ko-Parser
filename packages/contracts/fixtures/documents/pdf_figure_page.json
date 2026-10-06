@@ -1,0 +1,139 @@
+{
+  "schema_version": "0.3",
+  "document_id": "fx-figure",
+  "version": 1,
+  "layer_state": "det",
+  "source": {
+    "name": "현황.pdf",
+    "mime": "application/pdf",
+    "content_hash": "sha256:780f29c695290d380e80d912b1580cb4435b6d4b912540908c95eef53a04bee8",
+    "page_count": 1
+  },
+  "pages": [
+    {
+      "page": 1,
+      "width_pt": 595.0,
+      "height_pt": 842.0,
+      "rotation": 0,
+      "render_dpi": 144,
+      "text_layer": "digital",
+      "text_stats": null
+    }
+  ],
+  "blocks": [
+    {
+      "block_id": "b_1e1233019636a861c2a8f0e2",
+      "content_hash": "c_1f4532d45dfc5996ee4b4072f80be14d",
+      "order": 0,
+      "kind": "heading",
+      "text": "추진 현황",
+      "table": null,
+      "figure": null,
+      "level": 1,
+      "section_path": [],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.06,
+          "x1": 0.9,
+          "y1": 0.09
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_01b6249448cbd639cae9fc99",
+      "content_hash": "c_cab7f5dc0a13291c5fc9c657fe150af2",
+      "order": 1,
+      "kind": "paragraph",
+      "text": "분기별 처리 건수는 아래 그림과 같다.",
+      "table": null,
+      "figure": null,
+      "level": null,
+      "section_path": [
+        "추진 현황"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.11,
+          "x1": 0.9,
+          "y1": 0.13
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_c360c76511f8e59b88a9b851",
+      "content_hash": "c_a87dc512b5efc2e040b12fdf7695d136",
+      "order": 2,
+      "kind": "figure",
+      "text": "1분기\n2분기\n3분기\n32\n55\n41",
+      "table": null,
+      "figure": {
+        "asset": "sha256:eff846bcf7130487f1f4eca58fc9b41f4269b846b336b67ca1f2aa756b024712",
+        "mime": "image/png",
+        "width_px": 1322,
+        "height_px": 702,
+        "dpi": 200,
+        "category": "chart",
+        "caption_block_id": "b_4a84023ef4c1bcb7e1d8da3c"
+      },
+      "level": null,
+      "section_path": [
+        "추진 현황"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.15,
+          "x1": 0.9,
+          "y1": 0.45
+        }
+      },
+      "confidence": 0.7,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    },
+    {
+      "block_id": "b_4a84023ef4c1bcb7e1d8da3c",
+      "content_hash": "c_18aa4d42fe6d07d00b50830cd5668276",
+      "order": 3,
+      "kind": "caption",
+      "text": "그림 1. 분기별 처리 건수(단위: 건)",
+      "table": null,
+      "figure": null,
+      "level": null,
+      "section_path": [
+        "추진 현황"
+      ],
+      "locator": {
+        "kind": "page",
+        "page": 1,
+        "bbox": {
+          "x0": 0.1,
+          "y0": 0.46,
+          "x1": 0.9,
+          "y1": 0.48
+        }
+      },
+      "confidence": 1.0,
+      "state": "det",
+      "text_source": "text_layer",
+      "region_id": null
+    }
+  ]
+}

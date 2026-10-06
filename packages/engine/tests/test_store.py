@@ -1,9 +1,11 @@
 """저장소 공통 테스트 묶음: 모든 Store 구현이 같은 결과를 내야 한다."""
 
+import hashlib
+
 import pytest
 
 from ko_parser.core import build_tree, diff_trees
-from ko_parser.errors import DocumentNotFound, StoreConflict, VersionNotFound
+from ko_parser.errors import AssetNotFound, DocumentNotFound, StoreConflict, VersionNotFound
 from ko_parser.formats.base import ParsedSource
 from ko_parser.store import MemoryStore, SqliteStore
 from ko_parser_contracts import DocRef, DocumentTree, ProcessingHistory, SourceInfo
@@ -165,3 +167,91 @@ def test_commit_returns_the_cursor_of_its_change(store):
     second = commit(store, "d1", "가", "나")
     batch = store.changes_after(first, 1)
     assert [(c.document_id, c.version) for c in batch.changes] == [("d1", 2)] and second == batch.next_cursor
+
+
+ASSET_BYTES = b"\x89PNG\r\n\x1a\n-figure-"  # 저장소는 바이트 모양을 보지 않는다(해시만 확인)
+ASSET = "sha256:" + hashlib.sha256(ASSET_BYTES).hexdigest()
+
+
+def figure_tree(doc: str, version: int, *texts: str) -> DocumentTree:
+    """그림 블록 하나(이미지 ASSET) + 문단들."""
+    figure = {"kind": "figure", "text": "", "confidence": 0.7, "state": "det", "text_source": "native",
+              "locator": {"kind": "lines", "line_start": 1, "line_end": 1},
+              "figure": {"asset": ASSET, "mime": "image/png", "width_px": 2, "height_px": 2, "dpi": 72,
+                         "category": "image"}}
+    paragraphs = [{"kind": "paragraph", "text": t, "confidence": 1.0, "state": "det", "text_source": "native",
+                   "locator": {"kind": "lines", "line_start": i + 2, "line_end": i + 2}} for i, t in enumerate(texts)]
+    return build_tree(ParsedSource(mime="text/markdown", blocks=[figure, *paragraphs]), doc, version, SOURCE)
+
+
+def commit_figure(store, doc: str, assets, *texts: str) -> int:
+    prev = store.latest(doc)
+    tree = figure_tree(doc, 1 if prev is None else prev.version + 1, *texts)
+    return store.commit(tree, diff_trees(prev, tree), ProcessingHistory(document_id=doc, version=tree.version), assets)
+
+
+def test_assets_round_trip_and_are_shared_between_documents(store):
+    commit_figure(store, "d1", {ASSET: ASSET_BYTES})
+    commit_figure(store, "d2", {ASSET: ASSET_BYTES})  # 같은 해시는 한 번만 저장(문서끼리 중복 제거)
+    assert store.get_asset(ASSET) == ASSET_BYTES
+    assert store.get_tree("d2").blocks[0].figure.asset == ASSET
+
+
+def test_unknown_asset_is_asset_not_found(store):
+    with pytest.raises(AssetNotFound):
+        store.get_asset("sha256:" + "0" * 64)
+
+
+@pytest.mark.parametrize("assets,message", [
+    ({ASSET: b"tampered"}, "does not match its bytes"),
+    ({ASSET: ASSET_BYTES, "sha256:" + hashlib.sha256(b"other").hexdigest(): b"other"}, "not referenced"),
+    ({}, "neither given nor stored"),
+])
+def test_commit_rejects_bad_assets_and_leaves_store_unchanged(store, assets, message):
+    with pytest.raises(ValueError, match=message):
+        commit_figure(store, "d1", assets)
+    assert store.latest("d1") is None and store.changes_after(None, 10).changes == ()
+    with pytest.raises(AssetNotFound):
+        store.get_asset(ASSET)
+
+
+def test_later_version_may_reuse_a_stored_asset_without_resending(store):
+    commit_figure(store, "d1", {ASSET: ASSET_BYTES})
+    assert commit_figure(store, "d1", {}, "새 문단") == 2  # 이미 저장된 이미지는 다시 주지 않아도 된다
+    assert store.get_tree("d1").version == 2 and store.get_asset(ASSET) == ASSET_BYTES
+
+
+OTHER_BYTES = b"\x89PNG\r\n\x1a\n-another-figure-"
+OTHER = "sha256:" + hashlib.sha256(OTHER_BYTES).hexdigest()
+
+
+def two_figure_tree(doc: str, version: int) -> DocumentTree:
+    """그림 블록 둘(이미지 ASSET, OTHER)."""
+    blocks = [{"kind": "figure", "text": "", "confidence": 0.7, "state": "det", "text_source": "native",
+               "locator": {"kind": "lines", "line_start": i + 1, "line_end": i + 1},
+               "figure": {"asset": asset, "mime": "image/png", "width_px": 2, "height_px": 2, "dpi": 72,
+                          "category": "image"}} for i, asset in enumerate((ASSET, OTHER))]
+    return build_tree(ParsedSource(mime="text/markdown", blocks=blocks), doc, version, SOURCE)
+
+
+def test_direct_commit_over_the_asset_cap_is_rejected_and_writes_nothing(store, monkeypatch):
+    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) - 1)
+    with pytest.raises(ValueError, match="exceed MAX_DOCUMENT_ASSET_BYTES"):
+        commit_figure(store, "d1", {ASSET: ASSET_BYTES})
+    assert store.latest("d1") is None and store.changes_after(None, 10).changes == ()
+    with pytest.raises(AssetNotFound):
+        store.get_asset(ASSET)
+
+
+def test_already_stored_assets_count_toward_the_cap(store, monkeypatch):
+    commit_figure(store, "d1", {ASSET: ASSET_BYTES})
+    tree = two_figure_tree("d2", 1)
+    args = (tree, diff_trees(None, tree), ProcessingHistory(document_id="d2", version=1), {OTHER: OTHER_BYTES})
+    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES) - 1)
+    with pytest.raises(ValueError, match="exceed MAX_DOCUMENT_ASSET_BYTES"):
+        store.commit(*args)  # 주는 것(OTHER)만으로는 상한 안이지만 이미 저장된 ASSET까지 세면 넘는다
+    assert store.latest("d2") is None
+    with pytest.raises(AssetNotFound):
+        store.get_asset(OTHER)
+    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES))
+    assert store.commit(*args) == 2 and store.get_asset(OTHER) == OTHER_BYTES  # 상한과 같으면 된다

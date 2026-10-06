@@ -8,6 +8,7 @@ from typing import Any, Literal, Self
 from pydantic import Field, model_validator
 
 from .base import ContractModel, VersionedModel
+from .figure import FigureImage
 from .geometry import PageInfo
 from .ids import compute_block_id, compute_content_hash
 from .locator import Locator, PageLocator
@@ -41,6 +42,7 @@ class Block(ContractModel):
     kind: BlockKind
     text: str
     table: Table | None = None
+    figure: FigureImage | None = None  # kind == "figure"일 때만(그림 블록도 없을 수 있다: MD 그림, 바이트 상한 초과)
     level: int | None = Field(default=None, ge=1, le=6)
     section_path: tuple[str, ...] = ()
     locator: Locator
@@ -52,6 +54,8 @@ class Block(ContractModel):
     @model_validator(mode="after")
     def _check_invariants(self) -> Self:
         check_kind_fields(self.kind, self.table, self.level)
+        if self.figure is not None and self.kind != "figure":
+            raise ValueError("figure may only be set when kind == 'figure'")
         if self.table is not None:
             if self.text != self.table.plain_text():
                 raise ValueError("table block text must equal table.plain_text()")
@@ -65,7 +69,8 @@ class Block(ContractModel):
             self.table is not None and any(c.text_source == "vlm" for c in self.table.cells))
         if has_vlm_text and self.state != "vlm":
             raise ValueError("vlm text requires state 'vlm'")
-        if self.content_hash != compute_content_hash(self.kind, self.text, self.level, self.table):
+        asset = self.figure.asset if self.figure is not None else None
+        if self.content_hash != compute_content_hash(self.kind, self.text, self.level, self.table, asset):
             raise ValueError("content_hash does not match block content")
         return self
 
@@ -103,6 +108,14 @@ class DocumentTree(VersionedModel):
                 raise ValueError(f"block_id mismatch at order {block.order}")
             if isinstance(block.locator, PageLocator) and block.locator.page not in page_numbers:
                 raise ValueError(f"block at order {block.order} refers to unknown page {block.locator.page}")
+        kinds = {b.block_id: b.kind for b in self.blocks}
+        captions = [b.figure.caption_block_id for b in self.blocks
+                    if b.figure is not None and b.figure.caption_block_id is not None]
+        for caption in captions:
+            if kinds.get(caption) != "caption":
+                raise ValueError(f"caption_block_id {caption!r} does not refer to a caption block in this tree")
+        if len(set(captions)) != len(captions):
+            raise ValueError("a caption block may belong to one figure only")
         return self
 
 
@@ -110,6 +123,7 @@ def build_blocks(document_id: str, specs: Iterable[Mapping[str, Any]]) -> tuple[
     """order(나열 순서), content_hash, block_id를 계산해 블록을 만든다.
 
     spec에는 block_id·content_hash·order를 넣지 않는다. 표 블록은 text를 생략하면 table.plain_text()로 채운다.
+    figure는 매핑도 받는다(caption_block_id는 이미 아는 id만. 파서 명세의 짝은 엔진이 트리를 만들 때 id로 바꾼다).
     """
     seen: Counter[str] = Counter()
     blocks: list[Block] = []
@@ -124,7 +138,12 @@ def build_blocks(document_id: str, specs: Iterable[Mapping[str, Any]]) -> tuple[
             fields["table"] = table
         if table is not None and "text" not in fields:
             fields["text"] = table.plain_text()
-        content_hash = compute_content_hash(fields["kind"], fields.get("text", ""), fields.get("level"), table)
+        figure = fields.get("figure")
+        if isinstance(figure, Mapping):
+            figure = FigureImage.model_validate(figure)
+            fields["figure"] = figure
+        content_hash = compute_content_hash(fields["kind"], fields.get("text", ""), fields.get("level"), table,
+                                            figure.asset if figure is not None else None)
         block_id = compute_block_id(document_id, content_hash, seen[content_hash])
         seen[content_hash] += 1
         blocks.append(Block(block_id=block_id, content_hash=content_hash, order=order, **fields))

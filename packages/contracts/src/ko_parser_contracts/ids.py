@@ -25,7 +25,10 @@ def _canonical_table(table: Table | None) -> dict | None:
     }
 
 
-def compute_content_hash(kind: str, text: str, level: int | None, table: Table | None) -> str:
+def compute_content_hash(kind: str, text: str, level: int | None, table: Table | None,
+                         figure_asset: str | None = None) -> str:
+    """figure_asset은 그림 이미지의 내용 해시(FigureImage.asset). 없으면 해시 입력에 넣지 않아 그림이 없는 블록의
+    해시는 계약 0.2와 같다. 캡션 짝·dpi·분류는 넣지 않는다(바뀌면 같은 id로 updated)."""
     payload = {
         "v": NORMALIZATION_VERSION,
         "kind": kind,
@@ -33,6 +36,8 @@ def compute_content_hash(kind: str, text: str, level: int | None, table: Table |
         "level": level,
         "table": _canonical_table(table),
     }
+    if figure_asset is not None:
+        payload["figure"] = figure_asset
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return "c_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 

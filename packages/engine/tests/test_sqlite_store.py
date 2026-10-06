@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 
 import pytest
@@ -46,7 +47,7 @@ def test_wal_mode_and_format_meta(db):
     conn = sqlite3.connect(db)
     try:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert conn.execute("SELECT value FROM meta WHERE key = 'format'").fetchone()[0] == "2"
+        assert conn.execute("SELECT value FROM meta WHERE key = 'format'").fetchone()[0] == "3"
     finally:
         conn.close()
 
@@ -62,12 +63,13 @@ def test_unknown_format_rejected(db):
         SqliteStore(db)
 
 
-def test_contracts_0_1_store_asks_to_ingest_again(db):
+@pytest.mark.parametrize("old", ["1", "2"])  # 계약 0.1·0.2 시절 상태 파일
+def test_older_contract_store_asks_to_ingest_again(db, old):
     with SqliteStore(db):
         pass
     conn = sqlite3.connect(db)
     with conn:
-        conn.execute("UPDATE meta SET value = '1' WHERE key = 'format'")  # 계약 0.1 시절 상태 파일
+        conn.execute("UPDATE meta SET value = ? WHERE key = 'format'", (old,))
     conn.close()
     with pytest.raises(KoParserError, match="ingest again"):
         SqliteStore(db)
@@ -119,3 +121,23 @@ def test_tx_failed_commit_leaves_no_open_transaction(db):
                 conn.execute("INSERT INTO c VALUES (1)")  # COMMIT 시점에 외래 키 위반으로 실패한다
         assert not store._conn.in_transaction
         assert commit(store, "d1", "가") == 1
+
+
+def test_assets_table_keeps_one_row_per_hash_and_survives_reopen(db):
+    data = b"\x89PNG\r\n\x1a\n-figure-"
+    asset = "sha256:" + hashlib.sha256(data).hexdigest()
+    figure = {"kind": "figure", "text": "", "confidence": 0.7, "state": "det", "text_source": "native",
+              "locator": {"kind": "lines", "line_start": 1, "line_end": 1},
+              "figure": {"asset": asset, "mime": "image/png", "width_px": 2, "height_px": 2, "dpi": 72,
+                         "category": "chart"}}
+    with SqliteStore(db) as store:
+        for doc in ("d1", "d2"):
+            tree = build_tree(ParsedSource(mime="text/markdown", blocks=[figure]), doc, 1, SOURCE)
+            store.commit(tree, diff_trees(None, tree), ProcessingHistory(document_id=doc, version=1), {asset: data})
+    with SqliteStore(db) as store:
+        assert store.get_asset(asset) == data
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT COUNT(*), MIN(mime) FROM assets").fetchone() == (1, "image/png")
+    finally:
+        conn.close()

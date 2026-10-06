@@ -50,3 +50,11 @@ def test_engine_ingest_accepts_document_id_and_force():
     assert hints["document_id"] == str | None
     assert hints["force"] is bool
     assert hints["return"] is DocRef
+
+
+def test_engine_protocol_declares_get_asset():
+    """계약 0.3: 그림 이미지 바이트는 트리 밖 자산이라 엔진이 내용 해시로 돌려준다."""
+    params = inspect.signature(Engine.get_asset).parameters
+    assert list(params) == ["self", "asset"]
+    hints = get_type_hints(Engine.get_asset)
+    assert hints["asset"] is str and hints["return"] is bytes

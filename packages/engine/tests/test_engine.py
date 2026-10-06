@@ -6,9 +6,9 @@ import pytest
 
 from ko_parser import LocalEngine, MemoryStore, SqliteStore
 from ko_parser.core import build_tree, diff_trees
-from ko_parser.errors import ParseError, StoreConflict, UnsupportedFormat, VlmUnavailable
+from ko_parser.errors import AssetNotFound, ParseError, StoreConflict, UnsupportedFormat, VlmUnavailable
 from ko_parser.formats.base import ParsedSource
-from ko_parser_contracts import DocFilter, Engine, ProcessingHistory, SourceInfo
+from ko_parser_contracts import Attempt, DocFilter, Engine, ProcessingHistory, RegionRecord, SourceInfo
 
 
 class FakeParser:
@@ -254,3 +254,73 @@ def test_reingest_against_sqlite_keeps_unchanged_blocks_out_of_updated(tmp_path)
         engine.ingest(str(path), document_id="d")
         change = engine.changes(1).changes[0]
         assert change.updated == () and len(change.added) == 1  # JSON 왕복한 블록도 같다고 본다
+
+
+PNG = b"\x89PNG\r\n\x1a\n-fake-"
+PNG_ASSET = "sha256:" + hashlib.sha256(PNG).hexdigest()
+EXTRA = b"other"
+EXTRA_ASSET = "sha256:" + hashlib.sha256(EXTRA).hexdigest()
+
+
+class FigureParser:
+    """테스트용: 그림 블록 하나(글자 = 파일 내용) + 캡션 블록 하나와 그 이미지. caption이 참이면 짝짓는다."""
+
+    mimes = ("text/x-fig",)
+    extensions = (".fig",)
+
+    def __init__(self, assets=None, caption: bool = True, regions=()) -> None:
+        self.assets = {PNG_ASSET: PNG} if assets is None else assets
+        self.caption = caption
+        self.regions = regions
+
+    def parse(self, data: bytes, name: str) -> ParsedSource:
+        loc = {"kind": "lines", "line_start": 1, "line_end": 1}
+        figure = {"asset": PNG_ASSET, "mime": "image/png", "width_px": 4, "height_px": 3, "dpi": 200,
+                  "category": "chart", "caption_ref": 1 if self.caption else None}
+        return ParsedSource(mime="text/x-fig", assets=self.assets, regions=self.regions, blocks=[
+            {"kind": "figure", "text": data.decode("utf-8").strip(), "confidence": 0.7, "state": "det",
+             "text_source": "native", "locator": loc, "figure": figure},
+            {"kind": "caption", "text": "그림 1. 현황", "confidence": 0.7, "state": "det", "text_source": "native",
+             "locator": loc}])
+
+
+def test_ingest_stores_parser_assets_and_links_the_caption(tmp_path):
+    engine = LocalEngine(MemoryStore(), parsers=[FigureParser()])
+    ref = engine.ingest(str(write(tmp_path / "a.fig", "1분기\n")))
+    figure, caption = engine.get_tree(ref.document_id).blocks
+    assert figure.figure.caption_block_id == caption.block_id and caption.kind == "caption"
+    assert engine.get_asset(PNG_ASSET) == PNG
+    with pytest.raises(AssetNotFound):
+        engine.get_asset(EXTRA_ASSET)
+
+
+@pytest.mark.parametrize("assets,message", [
+    ({}, "missing from the parsed assets"),
+    ({PNG_ASSET: EXTRA}, "does not match its bytes"),
+    ({PNG_ASSET: PNG, EXTRA_ASSET: EXTRA}, "not referenced by any figure block"),
+])
+def test_parser_assets_must_match_the_figure_blocks(tmp_path, assets, message):
+    engine = LocalEngine(MemoryStore(), parsers=[FigureParser(assets=assets)])
+    with pytest.raises(ValueError, match=message):
+        engine.ingest(str(write(tmp_path / "a.fig", "가\n")))
+    assert engine.documents() == ()
+
+
+def test_parser_regions_go_to_the_processing_history(tmp_path):
+    region = RegionRecord(region_id="p1-table-in-figure-1", kind="table", chosen="det", attempts=[Attempt(layer="det")],
+                          locator={"kind": "page", "page": 1, "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.5, "y1": 0.3}},
+                          fallback_reason="ruled table inside a figure was dropped (figure wins)")
+    engine = LocalEngine(MemoryStore(), parsers=[FigureParser(regions=(region,))])
+    ref = engine.ingest(str(write(tmp_path / "a.fig", "가\n")))
+    assert engine.history(ref.document_id).regions == (region,)
+
+
+def test_caption_pairing_change_is_an_update_of_the_same_figure(tmp_path):
+    """캡션 짝은 해시에 들어가지 않는다: 짝이 바뀌면 같은 그림 블록이 updated."""
+    store = MemoryStore()
+    path = write(tmp_path / "a.fig", "가\n")
+    LocalEngine(store, parsers=[FigureParser()]).ingest(str(path), document_id="d")
+    ref = LocalEngine(store, parsers=[FigureParser(caption=False)]).ingest(str(path), document_id="d", force=True)
+    change = store.changes_after(1, 10).changes[0]
+    assert ref.version == 2 and change.updated == (store.get_tree("d", 1).blocks[0].block_id,)
+    assert change.added == change.removed == ()

@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "document_id": "fx-pdf",
   "version": 1,
   "layer_state": "det",
@@ -28,6 +28,7 @@
       "kind": "page_header",
       "text": "2026년 사업 계획",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -52,6 +53,7 @@
       "kind": "heading",
       "text": "예산 현황",
       "table": null,
+      "figure": null,
       "level": 1,
       "section_path": [],
       "locator": {
@@ -171,6 +173,7 @@
           }
         ]
       },
+      "figure": null,
       "level": null,
       "section_path": [
         "예산 현황"
@@ -197,6 +200,7 @@
       "kind": "caption",
       "text": "표 1. 예산 현황(단위: 원)",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [
         "예산 현황"
@@ -223,6 +227,7 @@
       "kind": "page_footer",
       "text": "- 1 -",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {

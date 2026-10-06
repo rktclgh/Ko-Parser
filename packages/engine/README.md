@@ -16,7 +16,7 @@ ko-parser 결정론 엔진. 형식별 파서가 원문을 전사하고, core가 
 
 ```
 ko-parser parse 문서.md [--id ID] [--force] [--no-ocr] [--format json|md] [--out PATH]
-ko-parser export DOC_ID [--version N] [--format json|md] [--out PATH]
+ko-parser export DOC_ID [--version N] [--format json|md] [--out PATH] [--assets DIR]
 ko-parser documents
 ko-parser changes [--cursor N] [--limit N]
 ko-parser history DOC_ID [--version N]
@@ -24,10 +24,11 @@ ko-parser view 문서.pdf [--id ID] [--out PATH] [--dpi N] [--no-ocr]
 ```
 
 - `view`: 수집(원본이 같으면 저장된 버전) 후 인터넷 없이 열리는 HTML 한 장(원본이 그대로면 저장된 버전과 그때 저장한 파일 이름을 보여 준다). 쪽 이미지(JPEG, 기본 110 DPI) 위 블록 영역, 블록 목록(표 블록은 병합 칸까지 격자로), 쪽 판정 근거(스캔 쪽은 OCR 블록이 있으면 "OCR로 읽음(검증 전)", 없으면 "OCR 필요(보이는 글자만 블록)", 글자 깨짐 쪽은 블록 없이 근거), 이전 버전 대비 변경. 기본 출력은 현재 폴더의 `<파일 이름(확장자 제외)>.view.html`. `--dpi`는 기본 110(1~600), 300 이상이면 쪽 수가 많은 문서의 HTML이 수십~수백 MB가 된다(60쪽 110 DPI 약 8MB).
+- `export --assets DIR`: 그림 블록의 이미지(PNG)를 `DIR/<sha256 앞 16자>.png`로 쓴다. `--format md`면 이미지가 있는 그림 블록이 `![캡션](DIR/이름.png)`과 그 아래 그림 글자가 된다(캡션이 없으면 대체 글자가 비고, 이미지가 없는 그림 블록은 글자만). `--assets` 없이 `--format md`로 내보내면 그림 블록은 글자만 쓰고, 글자가 없는 그림 블록은 건너뛴다. 링크의 `DIR`은 `--out` 파일 폴더 기준 상대 경로(표준 출력이면 현재 폴더 기준 입력 그대로)를 `/`로 잇고 퍼센트 인코딩한 것이다(Windows에서 드라이브가 달라 상대 경로가 없으면 `file://` 주소). 이미지는 상태 파일에 내용 해시로 한 번만 저장된다
 - 상태 파일: `--db PATH` > 환경변수 `KO_PARSER_DB` > 사용자 데이터 폴더의 `ko-parser/state.db`
-- 계약 0.2로 올라가며 이전 상태 파일은 지우고 다시 수집해야 한다
+- 계약 0.3(그림 참조)으로 올라가며 이전 상태 파일은 지우고 다시 수집해야 한다(상태 파일 형식 3: 그림 이미지 자산을 함께 저장)
 - 출력은 UTF-8, JSON은 계약 모델 그대로
-- 종료 코드: 0 성공, 1 그 밖의 오류(OCR 추가 설치가 깨진 경우 포함), 2 사용법, 3 지원하지 않는 형식, 4 파싱 실패, 5 문서·버전 없음
+- 종료 코드: 0 성공, 1 그 밖의 오류(OCR 추가 설치가 깨진 경우 포함), 2 사용법, 3 지원하지 않는 형식, 4 파싱 실패, 5 문서·버전·그림 이미지 없음
 
 ## 개발
 

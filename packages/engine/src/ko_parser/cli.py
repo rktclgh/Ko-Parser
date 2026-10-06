@@ -16,8 +16,8 @@ from platformdirs import user_data_dir
 from ko_parser_contracts import DocumentTree
 
 from .engine import LocalEngine
-from .errors import DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
-from .export import to_markdown
+from .errors import AssetNotFound, DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
+from .export import asset_name, to_markdown
 from .formats.detect import default_parsers
 from .formats.pdf.parser import MIME as PDF_MIME
 from .store.sqlite import SqliteStore
@@ -28,9 +28,11 @@ DB_ENV = "KO_PARSER_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
 OCR_HELP = "스캔 쪽 OCR을 끈다 (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)"
+ASSETS_HELP = ("그림 이미지를 이 폴더에 <sha256 앞 16자>.png로 쓴다(--format md면 마크다운이 그 파일을 가리킨다. 링크는 "
+               "--out 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준)")
 _EXIT_CODES: tuple[tuple[type[KoParserError], int], ...] = (
     (UnsupportedFormat, EXIT_UNSUPPORTED), (ParseError, EXIT_PARSE),
-    (DocumentNotFound, EXIT_NOT_FOUND), (VersionNotFound, EXIT_NOT_FOUND),
+    (DocumentNotFound, EXIT_NOT_FOUND), (VersionNotFound, EXIT_NOT_FOUND), (AssetNotFound, EXIT_NOT_FOUND),
 )
 
 
@@ -99,6 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
     export = sub.add_parser("export", parents=[common, output], help="저장된 문서 트리를 출력")
     export.add_argument("document_id")
     export.add_argument("--version", type=_positive)
+    export.add_argument("--assets", type=_non_empty, help=ASSETS_HELP)
     sub.add_parser("documents", parents=[common], help="문서마다 최신 버전")
     changes = sub.add_parser("changes", parents=[common], help="커서 뒤의 변경 내역")
     changes.add_argument("--cursor", type=_non_negative)
@@ -126,11 +129,90 @@ def _write(text: str, out: str | None) -> None:
         return
     path = Path(out)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+    _replace_file(path, text.encode("utf-8"))
 
 
-def _emit_tree(tree: DocumentTree, args: argparse.Namespace) -> None:
-    _write(to_markdown(tree) if args.format == "md" else _json(tree.model_dump(mode="json")), args.out)
+def _emit_tree(tree: DocumentTree, args: argparse.Namespace, assets_dir: str | None = None) -> None:
+    _write(to_markdown(tree, assets_dir) if args.format == "md" else _json(tree.model_dump(mode="json")), args.out)
+
+
+def _assets_link(assets: str, out: str | None) -> str:
+    """마크다운 링크의 폴더 부분('/' 구분). --out이 있으면 그 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준
+    입력 그대로. 상대 경로가 없거나(Windows 다른 드라이브) 드라이브가 붙은 경로를 표준 출력에 쓰면 file:// URI.
+    두 폴더는 실제 위치로(부모의 심볼릭 링크·'..'를 파일 시스템처럼 풀어) 비교한다. --out 파일 자체는 따라가지
+    않는다(심볼릭 링크여도 그 자리를 바꿔 쓴다)."""
+    folder = Path(assets)
+    try:
+        if out is not None:
+            return Path(os.path.relpath(folder.resolve(), Path(out).parent.resolve())).as_posix()
+        if not folder.drive:  # C:·UNC 경로가 C:/… 같은 스킴 모양 링크가 되지 않게
+            return folder.as_posix()
+    except ValueError:  # Windows: 드라이브가 다르면 상대 경로가 없다
+        pass
+    return folder.resolve().as_uri()
+
+
+_POSIX_MODES = sys.platform != "win32" and hasattr(os, "fchmod")
+
+
+def _new_file_mode() -> int:
+    """새 파일의 umask 기본 권한(mkstemp는 0600으로 만든다)."""
+    umask = os.umask(0)  # umask는 읽으려면 바꿔야 한다(CLI는 한 스레드라 바로 되돌린다)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
+def _path_key(path: Path) -> str:
+    """같은 파일인지 비교할 열쇠: 절대 경로(심볼릭 링크 풀기)를 NFC·대소문자 무시로. 대소문자·정규화를 가리는
+    파일 시스템에서는 다른 파일도 같다고 볼 수 있지만, 쓰기 전에 거절하는 쪽이 안전하다."""
+    return unicodedata.normalize("NFC", os.path.normcase(str(path.resolve()))).casefold()
+
+
+def _asset_paths(tree: DocumentTree, folder: Path, out: str | None) -> dict[str, Path]:
+    """그림 이미지마다 쓸 경로(같은 이미지는 한 번). --out이 폴더나 이미지 파일과 겹치면 아무것도 쓰기 전에 ValueError."""
+    paths = {asset: folder / asset_name(asset)
+             for asset in dict.fromkeys(b.figure.asset for b in tree.blocks if b.figure is not None)}
+    if out is not None:
+        key = _path_key(Path(out))
+        if key == _path_key(folder) or any(key == _path_key(path) for path in paths.values()):
+            raise ValueError(f"output path is also an asset file: {out}")
+    return paths
+
+
+def _write_assets(engine: LocalEngine, paths: dict[str, Path], folder: Path) -> None:
+    """그림 이미지를 쓴다. 없는 이미지는 AssetNotFound. 같은 폴더의 임시 파일에 쓴 뒤 바꿔 끼운다: 그 이름이
+    심볼릭 링크여도 링크가 가리키는 파일을 덮지 않고 링크 자리를 PNG로 바꾼다."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for asset, path in paths.items():
+        _replace_file(path, engine.get_asset(asset))
+
+
+def _replace_file(path: Path, data: bytes) -> None:
+    """같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 파일이 반쯤 덮이지
+    않고, 그 이름이 심볼릭 링크면 가리키는 파일을 덮지 않고 링크 자리를 바꾼다. 권한은 경로가 아니라 fd로 정한다:
+    이미 있던 보통 파일의 권한, 새 파일·심볼릭 링크 자리는 umask 기본 권한(mkstemp는 0600으로 만든다). Windows는
+    권한을 건드리지 않는다(읽기 전용 임시 파일이 남지 않게). 어떤 오류든 임시 파일을 지우고 다시 던진다."""
+    path = path.parent.resolve() / path.name  # 부모의 심볼릭 링크·'..'는 파일 시스템처럼 푼다(마지막 이름은 그대로)
+    mode = None
+    if _POSIX_MODES:
+        try:
+            st = os.lstat(path)
+            mode = stat.S_IMODE(st.st_mode) if stat.S_ISREG(st.st_mode) else _new_file_mode()
+        except FileNotFoundError:
+            mode = _new_file_mode()
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
+    try:
+        with os.fdopen(fd, "wb") as f:  # 나갈 때(오류여도) fd를 닫는다
+            if mode is not None:
+                os.fchmod(f.fileno(), mode)
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
+            pass
+        raise
 
 
 def view_path(file: str, out: str | None) -> Path:
@@ -151,29 +233,8 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
     out = view_path(args.file, args.out)
     html = render_html(tree, images, previous)
     out.parent.mkdir(parents=True, exist_ok=True)
-    # 같은 폴더의 새 임시 파일(배타적으로 만든 고유 이름)에 다 쓴 뒤 바꿔 끼운다: 실패해도 이전 HTML이 반쯤 덮이지 않는다
-    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=".ko-parser-view.", suffix=".tmp")  # 짧은 이름: 긴 출력 이름도 이름 길이 한도를 넘지 않게
-    try:
-        # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
-        with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as f:
-            f.write(html)
-        if out.exists():
-            mode = stat.S_IMODE(out.stat().st_mode)
-        else:
-            umask = os.umask(0)  # umask는 읽으려면 바꿔야 한다(CLI는 한 스레드라 바로 되돌린다)
-            os.umask(umask)
-            mode = 0o666 & ~umask
-        try:  # mkstemp는 0600으로 만든다: 이미 있던 HTML의 권한 또는 umask 기본 권한으로
-            os.chmod(tmp, mode)
-        except OSError:
-            pass
-        os.replace(tmp, out)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:  # 지우지 못해도 원래 오류를 가리지 않는다
-            pass
-        raise
+    # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
+    _replace_file(out, html.encode("utf-8", errors="replace"))
     _write(f"{out}\n", None)
 
 
@@ -183,7 +244,10 @@ def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
             ref = engine.ingest(args.file, document_id=args.document_id, force=args.force)
             _emit_tree(engine.get_tree(ref.document_id, ref.version), args)
         case "export":
-            _emit_tree(engine.get_tree(args.document_id, args.version), args)
+            tree = engine.get_tree(args.document_id, args.version)
+            if args.assets:
+                _write_assets(engine, _asset_paths(tree, Path(args.assets), args.out), Path(args.assets))
+            _emit_tree(tree, args, _assets_link(args.assets, args.out) if args.assets else None)
         case "documents":
             _write(_json([ref.model_dump(mode="json") for ref in engine.documents()]), None)
         case "changes":
@@ -201,8 +265,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:  # argparse: 사용법 오류 2, --help 0
         return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     try:
-        out = view_path(args.file, args.out) if args.command == "view" else args.out if args.command == "parse" else None
-        if out and Path(out).is_dir():  # 저장소를 건드리기 전에 막는다(view는 기본 출력 경로도)
+        out = (view_path(args.file, args.out) if args.command == "view"
+               else args.out if args.command in ("parse", "export") else None)
+        if out and Path(out).is_dir():  # 저장소·그림 파일을 건드리기 전에 막는다(view는 기본 출력 경로도)
             raise IsADirectoryError(f"output path is a directory: {out}")
         with SqliteStore(resolve_db(args.db)) as store:
             parsers = default_parsers(ocr=False) if getattr(args, "no_ocr", False) else None

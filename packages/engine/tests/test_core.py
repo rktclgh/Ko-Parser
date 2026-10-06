@@ -126,3 +126,21 @@ def test_matches_contract_lifecycle_golden():
     assert diff_trees(v1, v2) == c2  # 상태 변경 = 전부 updated
     ours = diff_trees(v2, v3)  # lineage는 만들지 않는다(D5)
     assert (ours.added, ours.updated, ours.removed) == (c3.added, c3.updated, c3.removed) and ours.lineage == ()
+
+
+def test_figure_image_change_replaces_the_block_but_pairing_metadata_updates_it():
+    """그림 이미지(asset)는 해시에 들어가 바뀌면 블록이 removed+added, 캡션 짝·dpi·종류만 바뀌면 같은 id로 updated."""
+    def figure(asset_hex: str, **kw) -> dict:
+        return spec("", 1, "figure", figure={"asset": "sha256:" + asset_hex * 64, "mime": "image/png", "width_px": 2,
+                                             "height_px": 2, "dpi": 72, "category": "image", **kw})
+    caption = spec("그림 1. 합성", 2, "caption")
+    v1 = tree(1, figure("a", caption_ref=1), caption)
+    v2 = tree(2, figure("b", caption_ref=1), caption)  # 이미지가 바뀜
+    change = diff_trees(v1, v2)
+    assert change.removed == (ids(v1)[0],) and change.added == (ids(v2)[0],) and change.updated == ()
+    v3 = tree(3, figure("b"), caption)  # 캡션 짝만 풀림
+    change = diff_trees(v2, v3)
+    assert ids(v3) == ids(v2) and v3.blocks[0].figure.caption_block_id is None
+    assert change.updated == (ids(v2)[0],) and change.added == change.removed == ()
+    v4 = tree(4, figure("b", dpi=144, category="chart"), caption)  # dpi·종류만 바뀜
+    assert ids(v4) == ids(v3) and diff_trees(v3, v4).updated == (ids(v3)[0],)

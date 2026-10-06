@@ -1,6 +1,6 @@
 [project]
 name = "ko-parser-contracts"
-version = "0.2.0"
+version = "0.3.0"
 description = "Data contracts for the ko-parser document parsing engine"
 readme = "README.md"
 requires-python = ">=3.12"

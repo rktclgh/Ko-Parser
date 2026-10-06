@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "document_id": "fx-pdf-header_footer",
   "version": 1,
   "layer_state": "det",
@@ -64,6 +64,7 @@
       "kind": "page_header",
       "text": "2026년 사업 계획 보고",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -88,6 +89,7 @@
       "kind": "paragraph",
       "text": "대외비",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -112,6 +114,7 @@
       "kind": "paragraph",
       "text": "첫째 쪽 본문이다. 사업 개요를 설명한다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -136,6 +139,7 @@
       "kind": "page_footer",
       "text": "- 1 -",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -160,6 +164,7 @@
       "kind": "page_header",
       "text": "2026년 사업 계획 보고",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -184,6 +189,7 @@
       "kind": "paragraph",
       "text": "둘째 쪽 본문이다. 추진 일정을 설명한다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -208,6 +214,7 @@
       "kind": "page_footer",
       "text": "- 2 -",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -232,6 +239,7 @@
       "kind": "page_header",
       "text": "2026년 사업 계획 보고",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -256,6 +264,7 @@
       "kind": "paragraph",
       "text": "셋째 쪽 본문이다. 예산 계획을 설명한다.",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {
@@ -280,6 +289,7 @@
       "kind": "page_footer",
       "text": "- 3 -",
       "table": null,
+      "figure": null,
       "level": null,
       "section_path": [],
       "locator": {

@@ -25,3 +25,10 @@ def test_parser_protocol_is_structural():
 
     parser: Parser = Dummy()
     assert parser.parse(b"", "a.dummy").mime == "text/x-dummy"
+
+
+def test_parsed_source_assets_and_regions_default_empty():
+    parsed = ParsedSource(mime="application/pdf")
+    assert parsed.assets == {} and parsed.regions == ()
+    with pytest.raises(ValidationError):
+        ParsedSource(mime="application/pdf", regions=[{"region_id": ""}])

@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-SCHEMA_VERSION = "0.2"
+SCHEMA_VERSION = "0.3"
 
 
 class ContractModel(BaseModel):
@@ -16,4 +16,4 @@ class ContractModel(BaseModel):
 class VersionedModel(ContractModel):
     """단독으로 주고받는 루트 객체. 0.x 동안 schema_version이 정확히 같아야 읽는다."""
 
-    schema_version: Literal["0.2"] = SCHEMA_VERSION
+    schema_version: Literal["0.3"] = SCHEMA_VERSION
