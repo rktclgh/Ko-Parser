@@ -50,6 +50,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/ko-parser-models
           key: models-${{ runner.os }}-${{ hashFiles('packages/engine/src/ko_parser/models/models.toml') }}
+          # 목록이 바뀌면 이전 캐시에서 시작한다: fetch가 맞는 파일은 두고 바뀐 파일만 받는다
+          restore-keys: models-${{ runner.os }}-
       - name: Fetch models
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: uv run ko-parser models fetch

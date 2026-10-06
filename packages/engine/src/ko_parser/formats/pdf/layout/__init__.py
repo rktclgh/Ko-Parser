@@ -54,7 +54,7 @@ def _missing() -> str | None:
     보지 않는다(깔렸는데 깨진 설치는 _build가 알린다)."""
     for module in MODULES:
         if not _installed(module):
-            return f"layout model is not installed (missing {module}); {INSTALL_HINT}"
+            return f"layout is not installed (missing {module}); {INSTALL_HINT}"
     for name in MODEL_NAMES:
         if models.find(name) is None:
             return f"layout model file {models.MANIFEST[name].path} not found; {models.fetch_hint(name)}"
