@@ -133,12 +133,16 @@ def test_postprocess_drops_low_unknown_nonfinite_and_empty_and_clips():
     assert boxes.postprocess(rows, 100, 80) == expected
     assert boxes.postprocess(np.hstack([rows, np.zeros((6, 1), np.float32)]), 100, 80) == expected  # 순서 열이 있어도
     assert boxes.postprocess(np.zeros((0, 6), np.float32), 100, 80) == []
+    with pytest.raises(ValueError, match="2-D"):  # 배치 축이 붙은 (1, N, 6)을 한 행으로 펴 상자를 잃지 않는다
+        boxes.postprocess(rows[None], 100, 80)
     assert boxes.LABELS[1] == "image" and boxes.LABELS[6] == "figure_title" and boxes.LABELS[16] == "chart"
 
 
 def test_read_labels_takes_the_label_list_block(tmp_path):
     config = tmp_path / "inference.yml"
     config.write_text("mode: paddle\nlabel_list:\n- paragraph_title\n- image\nHpi:\n  x:\n  - 1\n", encoding="utf-8")
+    assert boxes.read_labels(config) == ("paragraph_title", "image")
+    config.write_text("label_list:\n- paragraph_title\n\n- image\nHpi: 1\n", encoding="utf-8")  # 블록 안 빈 줄
     assert boxes.read_labels(config) == ("paragraph_title", "image")
     config.write_text("mode: paddle\n", encoding="utf-8")
     assert boxes.read_labels(config) == ()

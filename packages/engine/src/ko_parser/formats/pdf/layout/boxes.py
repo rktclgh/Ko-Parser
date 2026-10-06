@@ -1,6 +1,7 @@
 """레이아웃 모델 입출력 처리(numpy·Pillow만, onnxruntime 없음). 스파이크(.omc/research/layouteval/run_model.py의
 Paddle 경로)와 같다: 800×800 bicubic(비율 무시)·/255·CHW float32, 점수 바닥 → PaddleX 방식 NMS(같은 분류 IoU 0.6,
-다른 분류 0.98). 다른 점은 NMS 뒤 그림 안으로 자르고 넓이 0을 버리는 것뿐이다."""
+다른 분류 0.98). 다른 점은 NMS 뒤 그림 안으로 자르고 넓이 0을 버리는 것, 그리고 스파이크는 0.1pt로 반올림한 상자로
+NMS를 돌지만 여기는 화소 그대로 돈다는 것이다(IoU가 기준값에 딱 걸리는 상자만 갈릴 수 있고, 게이트 213쪽에는 없었다)."""
 
 from collections.abc import Iterable
 from pathlib import Path
@@ -28,7 +29,7 @@ def read_labels(config: Path) -> tuple[str, ...]:
             inside = True
         elif inside and line.startswith("- "):
             labels.append(line[2:].strip())
-        elif inside:
+        elif inside and line.strip():
             break
     return tuple(labels)
 
@@ -67,7 +68,8 @@ def postprocess(rows: np.ndarray, width: int, height: int) -> list[LayoutBox]:
     table = np.asarray(rows, dtype=np.float64)
     if table.size == 0:
         return []
-    table = table.reshape(table.shape[0], -1)
+    if table.ndim != 2:
+        raise ValueError(f"layout output has shape {table.shape}, expected a 2-D table of rows")
     if table.shape[1] < 6:
         raise ValueError(f"layout output has {table.shape[1]} columns, expected at least 6")
     found = []
