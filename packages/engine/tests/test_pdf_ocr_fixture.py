@@ -2,12 +2,13 @@
 CLI --no-ocr와 뷰어 안내도 이 파일로 본다. OCR 결과는 CPU마다 조금 달라 골든 바이트 비교를 하지 않는다."""
 
 import json
+import os
 import re
 from pathlib import Path
 
 import pytest
 
-from ko_parser import LocalEngine, MemoryStore
+from ko_parser import LocalEngine, MemoryStore, models
 from ko_parser.cli import main
 from ko_parser.errors import OcrUnavailable
 from ko_parser.formats.pdf import ocr
@@ -20,6 +21,15 @@ EXPECTED = [  # (출처, 글자, (x0, y0, x1, y1)) — 2026-10-05 macOS 실측 �
     ("ocr", "두 번째 문단은 한 줄이다.", (0.118, 0.241, 0.476, 0.265)),
     ("text_layer", "1", (0.488, 0.938, 0.499, 0.952)),
 ]
+
+
+def require_models(*names: str) -> None:
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    missing = [name for name in names if models.find(name) is None]
+    if missing:
+        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
+        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
 
 
 @pytest.fixture
@@ -36,6 +46,7 @@ def run(capsys, *argv) -> tuple[int, str, str]:
 
 def test_ocr_fixture_text_is_exact_and_boxes_within_tolerance():
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     engine = LocalEngine(MemoryStore())  # 계약 검증(build_tree)까지
     tree = engine.get_tree(engine.ingest(str(FIXTURE)).document_id)
     assert tree.pages[0].text_layer == "scanned"
@@ -56,6 +67,7 @@ def no_ocr_runtime(monkeypatch) -> None:
 
 def test_cli_parse_runs_ocr_by_default(capsys, db):
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     code, out, _ = run(capsys, "parse", FIXTURE, "--db", db)
     assert code == 0 and [b["text_source"] for b in json.loads(out)["blocks"]] == ["ocr", "ocr", "ocr", "text_layer"]
 
@@ -73,6 +85,7 @@ def notice(capsys, html: Path, *argv) -> str | None:
 
 def test_viewer_notice_says_ocr_read_the_page(capsys, db, tmp_path):
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     assert notice(capsys, tmp_path / "on.html", "--db", db) == "그림 속 글자는 OCR로 읽음(검증 전)"
 
 

@@ -2,6 +2,7 @@
 OCR 추가 설치가 없으면 OcrUnavailable인지. 그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴로 그린다."""
 
 import builtins
+import os
 import shutil
 import subprocess
 import sys
@@ -19,10 +20,15 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 import ko_parser_fonts
-import ko_parser_ocr_models
+from ko_parser import models
 from ko_parser.errors import KoParserError, OcrUnavailable
 from ko_parser.formats.pdf import ocr
-from ko_parser.formats.pdf.ocr import reader, rec
+from ko_parser.formats.pdf.ocr import charset, reader, rec
+
+if any(models.find(name) is None for name in ocr.MODEL_NAMES):  # 이 파일은 실제 OCR 모델이 필요하다
+    if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
+        raise RuntimeError("OCR model files not found; run `ko-parser models fetch ocr` or set KO_PARSER_MODEL_DIR")
+    pytest.skip("OCR model files not found (ko-parser models fetch ocr)", allow_module_level=True)
 
 LINES = ["스캔한 쪽의 글자를 읽는다.", "공공누리 2026년 10월 5일", "사업 계획 보고서"]
 
@@ -88,12 +94,14 @@ def test_zero_size_image_has_no_lines():
     assert ocr.read_lines(Image.new("RGB", (0, 5000))) == []
 
 
-def test_dict_is_the_recognition_model_alphabet():
-    """사전 파일과 인식 모델 안의 글자 목록이 같아야 글자 번호가 맞는다."""
-    root = ko_parser_ocr_models.model_dir()
-    session = ort.InferenceSession(str(root / ko_parser_ocr_models.REC_FILE), providers=["CPUExecutionProvider"])
-    inner = session.get_modelmeta().custom_metadata_map["character"].removesuffix("\n").split("\n")
-    assert ocr.get_reader().symbols == ["blank", *inner, " "]
+def test_character_list_matches_the_recognition_model():
+    """설정 파일의 글자 목록 + CTC 빈칸·공백이 인식 모델의 출력 갈래 수와 같아야 글자 번호가 맞는다."""
+    options = ort.SessionOptions()
+    options.log_severity_level = 3
+    session = ort.InferenceSession(str(models.resolve("ocr-rec")), options, providers=["CPUExecutionProvider"])
+    symbols = charset.load_symbols(models.resolve("ocr-rec-config"))
+    assert session.get_outputs()[0].shape[-1] == len(symbols) + 2 == 11947
+    assert ocr.get_reader().symbols == ["blank", *symbols, " "]
 
 
 def test_reader_is_built_once_across_threads(monkeypatch):
@@ -136,7 +144,7 @@ def test_concurrent_reads_give_the_same_lines():
     assert results == [expected] * 4
 
 
-@pytest.mark.parametrize("module", ["onnxruntime", "numpy", "pyclipper", "ko_parser_ocr_models"])
+@pytest.mark.parametrize("module", ["onnxruntime", "numpy", "pyclipper"])
 def test_missing_ocr_install_is_unavailable(monkeypatch, module):
     monkeypatch.setitem(sys.modules, module, None)  # import가 ImportError
     monkeypatch.setattr(ocr, "_reader", None)
@@ -165,40 +173,49 @@ def test_broken_native_install_is_unavailable(monkeypatch):
     assert ocr._reader is None
 
 
-def test_missing_model_file_is_a_broken_install(monkeypatch, tmp_path):
-    """모델 패키지가 깔렸으면 설치는 있다(available 참). 모델 파일이 없으면 깨진 설치: get_reader()가 파일을 알린다."""
-    monkeypatch.setattr(ko_parser_ocr_models, "model_dir", lambda: tmp_path)
+def test_missing_model_file_means_not_installed(monkeypatch):
+    """모델 파일을 찾을 수 없으면(받기 전) 설치가 없는 것과 같다: available 거짓(자동 모드는 조용히 끈다),
+    get_reader()는 models fetch 안내를 담은 OcrUnavailable."""
+    monkeypatch.setattr(models, "find", lambda name: None)
     monkeypatch.setattr(ocr, "_reader", None)
-    assert ocr.available() is True
-    with pytest.raises(OcrUnavailable, match=r"det\.onnx.* or run with --no-ocr"):
+    assert ocr.available() is False
+    with pytest.raises(OcrUnavailable, match=r"OCR model file ocr/det\.onnx not found; run `ko-parser models fetch ocr`"
+                                             r" or set KO_PARSER_MODEL_DIR, or run with --no-ocr"):
         ocr.get_reader()
     assert ocr._reader is None
 
 
 def test_broken_model_file_is_unavailable(monkeypatch, tmp_path):
-    for name in (ko_parser_ocr_models.DET_FILE, ko_parser_ocr_models.REC_FILE, ko_parser_ocr_models.DICT_FILE):
-        (tmp_path / name).write_bytes(b"not a model")
-    monkeypatch.setattr(ko_parser_ocr_models, "model_dir", lambda: tmp_path)
+    """찾은 모델 파일이 고정한 SHA-256과 다르면 깨진 설치: available은 참(파일은 있다), get_reader()가 크게 알린다."""
+    for name in ocr.MODEL_NAMES:
+        path = tmp_path / models.MANIFEST[name].path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"not a model")
+    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(ocr, "_reader", None)
-    assert ocr.available() is True  # 파일은 있다
-    with pytest.raises(OcrUnavailable, match=r"could not be loaded: .*det\.onnx.* or run with --no-ocr") as info:
+    assert ocr.available() is True
+    with pytest.raises(OcrUnavailable, match=r"does not match the pinned size and SHA-256 of ocr/det\.onnx.*"
+                                             r", or run with --no-ocr") as info:
         ocr.get_reader()
-    assert info.value.__cause__ is not None and ocr._reader is None
+    assert isinstance(info.value.__cause__, models.ModelError) and ocr._reader is None
 
 
-def test_dict_that_does_not_match_the_model_is_unavailable(monkeypatch, tmp_path):
-    """사전 글자 수가 인식 모델의 출력 갈래 수와 다르면 글자 번호가 어긋난다: 만들 때 알린다."""
-    root = ko_parser_ocr_models.model_dir()
-    for name in (ko_parser_ocr_models.DET_FILE, ko_parser_ocr_models.REC_FILE):
-        shutil.copyfile(root / name, tmp_path / name)
-    words = (root / ko_parser_ocr_models.DICT_FILE).read_text(encoding="utf-8").removesuffix("\n").split("\n")
-    (tmp_path / ko_parser_ocr_models.DICT_FILE).write_text("\n".join(words[:-1]) + "\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="dict.txt"):
-        reader.OcrReader(tmp_path, ko_parser_ocr_models.DET_FILE, ko_parser_ocr_models.REC_FILE,
-                         ko_parser_ocr_models.DICT_FILE)
-    monkeypatch.setattr(ko_parser_ocr_models, "model_dir", lambda: tmp_path)
+def test_character_list_that_does_not_match_the_model_is_unavailable(monkeypatch, tmp_path):
+    """글자 수가 인식 모델의 출력 갈래 수와 다르면 글자 번호가 어긋난다: 읽개가 만들 때 알린다. 고정한 설정과 다른 설정
+    (글자 하나를 뺀 목록)은 그 전에 SHA-256에서 걸린다."""
+    det, rec_path, config = (models.resolve(name) for name in ocr.MODEL_NAMES)
+    symbols = charset.load_symbols(config)
+    with pytest.raises(ValueError, match="character list gives 11946 classes but the recognition model has 11947"):
+        reader.OcrReader(det, rec_path, symbols[:-1])
+    lines = config.read_text(encoding="utf-8").split("\n")
+    del lines[lines.index("  character_dict:") + 1]
+    (tmp_path / "ocr").mkdir()
+    (tmp_path / "ocr" / "rec.yml").write_text("\n".join(lines), encoding="utf-8")
+    shutil.copyfile(det, tmp_path / "ocr" / "det.onnx")
+    shutil.copyfile(rec_path, tmp_path / "ocr" / "rec.onnx")
+    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(ocr, "_reader", None)
-    with pytest.raises(OcrUnavailable, match=r"could not be loaded: .*dict\.txt"):
+    with pytest.raises(OcrUnavailable, match=r"does not match the pinned size and SHA-256 of ocr/rec\.yml"):
         ocr.get_reader()
     assert ocr._reader is None
 
@@ -272,13 +289,12 @@ class FakeRec:
 
 @pytest.mark.parametrize(("character", "ok"), [("가\n나\n", True), ("가\n다\n", False), (None, True)])
 def test_dict_is_checked_against_model_metadata_when_classes_are_symbolic(monkeypatch, tmp_path, character, ok):
-    (tmp_path / "dict.txt").write_text("가\n나\n", encoding="utf-8")
     monkeypatch.setattr(reader, "_session", lambda path: FakeRec(character))
     if ok:
-        assert reader.OcrReader(tmp_path, "det", "rec", "dict.txt").symbols == ["blank", "가", "나", " "]
+        assert reader.OcrReader(tmp_path / "det", tmp_path / "rec", ["가", "나"]).symbols == ["blank", "가", "나", " "]
     else:
-        with pytest.raises(ValueError, match="dict.txt"):
-            reader.OcrReader(tmp_path, "det", "rec", "dict.txt")
+        with pytest.raises(ValueError, match="character list does not match"):
+            reader.OcrReader(tmp_path / "det", tmp_path / "rec", ["가", "나"])
 
 
 def test_out_of_memory_during_dependency_import_is_not_reported_as_missing(monkeypatch):

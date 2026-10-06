@@ -2,13 +2,13 @@
 
 from .engine import LocalEngine
 from .errors import (
-    AssetNotFound, DocumentNotFound, KoParserError, ParseError, StoreConflict, UnsupportedFormat, VersionNotFound,
-    VlmUnavailable,
+    AssetNotFound, DocumentNotFound, KoParserError, ModelError, ParseError, StoreConflict, UnsupportedFormat,
+    VersionNotFound, VlmUnavailable,
 )
 from .store import MemoryStore, SqliteStore, Store
 
 __all__ = [
     "LocalEngine", "Store", "MemoryStore", "SqliteStore",
     "KoParserError", "UnsupportedFormat", "ParseError", "DocumentNotFound", "VersionNotFound", "StoreConflict",
-    "VlmUnavailable", "AssetNotFound",
+    "VlmUnavailable", "AssetNotFound", "ModelError",
 ]

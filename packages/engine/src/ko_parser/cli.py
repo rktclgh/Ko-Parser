@@ -15,6 +15,7 @@ from platformdirs import user_data_dir
 
 from ko_parser_contracts import DocumentTree
 
+from . import models as model_files
 from .engine import LocalEngine
 from .errors import AssetNotFound, DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
 from .export import asset_name, to_markdown
@@ -28,6 +29,7 @@ DB_ENV = "KO_PARSER_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
 OCR_HELP = "스캔 쪽 OCR을 끈다 (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)"
+FETCH_TO_HELP = "받을 폴더 (기본: 사용자 캐시). 폐쇄망은 이 폴더를 옮겨 KO_PARSER_MODEL_DIR로 가리킨다"
 ASSETS_HELP = ("그림 이미지를 이 폴더에 <sha256 앞 16자>.png로 쓴다(--format md면 마크다운이 그 파일을 가리킨다. 링크는 "
                "--out 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준)")
 _EXIT_CODES: tuple[tuple[type[KoParserError], int], ...] = (
@@ -115,6 +117,12 @@ def _build_parser() -> argparse.ArgumentParser:
     view.add_argument("--out", type=_non_empty, help="HTML 경로 (기본: 현재 폴더/<파일 이름(확장자 제외)>.view.html)")
     view.add_argument("--dpi", type=_dpi, default=DEFAULT_DPI, help=f"쪽 이미지 해상도 (기본 {DEFAULT_DPI})")
     view.add_argument("--no-ocr", action="store_true", help=OCR_HELP)
+    models = sub.add_parser("models", help="모델 파일(OCR·레이아웃)")
+    models_sub = models.add_subparsers(dest="models_command", required=True)
+    fetch = models_sub.add_parser("fetch", help="모델 파일을 업스트림 고정 주소에서 받아 크기·SHA-256을 확인한다")
+    fetch.add_argument("variant", nargs="?", choices=(*model_files.variants(), "all"), default="all",
+                       help="받을 모델 (기본: all)")
+    fetch.add_argument("--to", metavar="DIR", type=_non_empty, help=FETCH_TO_HELP)
     return parser
 
 
@@ -238,6 +246,15 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
     _write(f"{out}\n", None)
 
 
+def _fetch_models(args: argparse.Namespace) -> None:
+    """받은(또는 이미 있던) 파일 경로를 한 줄씩. 받기 시작할 때마다 표준 오류에 한 줄."""
+    def report(entry: model_files.ModelFile, url: str) -> None:
+        print(f"{APP_NAME}: downloading {entry.path} ({entry.size:,} bytes) from {url}", file=sys.stderr, flush=True)
+
+    for path in model_files.fetch(None if args.variant == "all" else [args.variant], args.to, report):
+        _write(f"{path}\n", None)
+
+
 def _run(args: argparse.Namespace, engine: LocalEngine) -> None:
     match args.command:
         case "parse":
@@ -265,6 +282,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:  # argparse: 사용법 오류 2, --help 0
         return exc.code if isinstance(exc.code, int) else EXIT_USAGE
     try:
+        if args.command == "models":  # 모델 받기는 상태 파일을 열지 않는다
+            _fetch_models(args)
+            return EXIT_OK
         out = (view_path(args.file, args.out) if args.command == "view"
                else args.out if args.command in ("parse", "export") else None)
         if out and Path(out).is_dir():  # 저장소·그림 파일을 건드리기 전에 막는다(view는 기본 출력 경로도)

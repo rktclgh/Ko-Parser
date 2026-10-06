@@ -12,7 +12,6 @@ members = [
     "ko-parser-contracts",
     "ko-parser-engine",
     "ko-parser-fonts",
-    "ko-parser-ocr-models",
 ]
 
 [[package]]
@@ -226,7 +225,6 @@ dependencies = [
     { name = "ko-parser-engine" },
     { name = "ko-parser-engine", extra = ["ocr"], marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "ko-parser-fonts" },
-    { name = "ko-parser-ocr-models" },
 ]
 
 [package.dev-dependencies]
@@ -242,7 +240,6 @@ requires-dist = [
     { name = "ko-parser-engine", editable = "packages/engine" },
     { name = "ko-parser-engine", extras = ["ocr"], marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'", editable = "packages/engine" },
     { name = "ko-parser-fonts", editable = "packages/fonts" },
-    { name = "ko-parser-ocr-models", editable = "packages/ocr-models" },
 ]
 
 [package.metadata.requires-dev]
@@ -280,7 +277,6 @@ fonts = [
     { name = "ko-parser-fonts" },
 ]
 ocr = [
-    { name = "ko-parser-ocr-models" },
     { name = "numpy" },
     { name = "onnxruntime" },
     { name = "pyclipper" },
@@ -290,7 +286,6 @@ ocr = [
 requires-dist = [
     { name = "ko-parser-contracts", editable = "packages/contracts" },
     { name = "ko-parser-fonts", marker = "extra == 'fonts'", editable = "packages/fonts" },
-    { name = "ko-parser-ocr-models", marker = "extra == 'ocr'", editable = "packages/ocr-models" },
     { name = "markdown-it-py", specifier = ">=3,<5" },
     { name = "numpy", marker = "extra == 'ocr'", specifier = ">=1.26,<3" },
     { name = "onnxruntime", marker = "extra == 'ocr'", specifier = ">=1.20,<2" },
@@ -305,11 +300,6 @@ provides-extras = ["fonts", "ocr"]
 name = "ko-parser-fonts"
 version = "0.1.0"
 source = { editable = "packages/fonts" }
-
-[[package]]
-name = "ko-parser-ocr-models"
-version = "0.1.0"
-source = { editable = "packages/ocr-models" }
 
 [[package]]
 name = "markdown-it-py"

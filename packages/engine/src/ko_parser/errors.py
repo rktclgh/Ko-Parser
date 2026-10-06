@@ -44,3 +44,7 @@ class AssetNotFound(KoParserError):
     def __init__(self, asset: str) -> None:
         super().__init__(f"asset not found: {asset}")
         self.asset = asset
+
+
+class ModelError(KoParserError):
+    """모델 파일을 찾지 못했거나, 고정한 크기·SHA-256과 다르거나, 받지 못했다. 설정 오류(종료 코드 1)."""

@@ -3,6 +3,7 @@
 
 import importlib.machinery
 import io
+import os
 import subprocess
 import sys
 import types
@@ -16,6 +17,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
 import ko_parser_fonts
+from ko_parser import models
 from ko_parser.errors import OcrUnavailable
 from ko_parser.formats.pdf import PdfParser, ocr, scan
 
@@ -60,12 +62,31 @@ def pdf(*pages, size=(300.0, 400.0)) -> bytes:
     return buf.getvalue()
 
 
+def require_models(*names: str) -> None:
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    missing = [name for name in names if models.find(name) is None]
+    if missing:
+        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
+        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+
+
+def fake_model_files(monkeypatch, tmp_path) -> None:
+    """찾기만 되는 가짜 OCR 모델 파일(KO_PARSER_MODEL_DIR, 해시는 틀리다): 설치 확인이 모델 때문에 거짓이 되지 않게."""
+    for name in ocr.MODEL_NAMES:
+        path = tmp_path / "models" / models.MANIFEST[name].path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"not a model")
+    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path / "models"))
+
+
 def blocks(data: bytes, parser: PdfParser | None = None) -> list[tuple[str, str, str]]:
     return [(b["kind"], b["text_source"], b["text"]) for b in (parser or PdfParser()).parse(data, "s.pdf").blocks]
 
 
 def test_scanned_page_text_becomes_ocr_paragraph_blocks():
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     parsed = PdfParser().parse(pdf(lambda c: scanned_page(c, 300, 400, BODY)), "s.pdf")
     assert parsed.pages[0].text_layer == "scanned"
     assert [(b["kind"], b["text_source"], b["text"]) for b in parsed.blocks] == [
@@ -80,6 +101,7 @@ def test_scanned_page_text_becomes_ocr_paragraph_blocks():
 
 def test_only_scanned_pages_are_read(monkeypatch):
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     calls = []
     real = ocr.read_lines
     monkeypatch.setattr(ocr, "read_lines", lambda image: calls.append(image.size) or real(image))
@@ -144,6 +166,7 @@ def broken_module(monkeypatch, tmp_path, name: str = "onnxruntime") -> None:
     monkeypatch.syspath_prepend(str(root))
     monkeypatch.delitem(sys.modules, name, raising=False)
     monkeypatch.setattr(ocr, "_reader", None)
+    fake_model_files(monkeypatch, tmp_path)  # 모델은 찾히는데 모듈 import가 깨진 설치
 
 
 def test_installed_but_broken_module_is_available_and_get_reader_names_it(monkeypatch, tmp_path):
@@ -161,6 +184,7 @@ def test_leftover_namespace_module_without_its_api_is_a_broken_install(monkeypat
     가져오다 난 AttributeError도 날 오류로 새지 않고 OcrUnavailable(오류와 설치·--no-ocr 안내). onnxruntime 없이 돈다."""
     pytest.importorskip("numpy")
     pytest.importorskip("pyclipper")
+    require_models(*ocr.MODEL_NAMES)  # 모델 파일까지 맞아야 읽개 모듈에서 깨진다
     leftover = types.ModuleType("onnxruntime")
     leftover.__spec__ = importlib.machinery.ModuleSpec("onnxruntime", None, is_package=True)
     leftover.__path__ = []
@@ -174,29 +198,85 @@ def test_leftover_namespace_module_without_its_api_is_a_broken_install(monkeypat
     assert ocr._reader is None
 
 
-def models_without_files(monkeypatch, tmp_path):
-    """모델 패키지는 깔렸는데(찾힌다) 모델 파일이 없는 설치. 다른 의존성은 보지 않게 MODULES를 줄인다
-    (onnxruntime 없이 돈다)."""
-    models = pytest.importorskip("ko_parser_ocr_models")
-    monkeypatch.setattr(models, "model_dir", lambda: tmp_path)
-    monkeypatch.setattr(ocr, "MODULES", ("ko_parser_ocr_models",))
+def without_model_files(monkeypatch) -> None:
+    """OCR 모듈은 있는데 모델 파일을 하나도 찾을 수 없는 상태(받기 전). onnxruntime 없이 돈다."""
+    monkeypatch.setattr(models, "find", lambda name: None)
+    monkeypatch.setattr(ocr, "MODULES", ())
     monkeypatch.setattr(ocr, "_reader", None)
 
 
-def test_models_package_without_model_files_is_a_broken_install(monkeypatch, tmp_path):
-    """모델 패키지가 깔렸으면 설치는 있다(available 참). 모델 파일이 없으면 get_reader()가 그 파일을 알린다."""
-    models_without_files(monkeypatch, tmp_path)
-    assert ocr.available() is True
-    with pytest.raises(OcrUnavailable, match=r"det\.onnx.*ko-parser-engine\[ocr\].* or run with --no-ocr"):
+def test_ocr_without_model_files_is_not_installed(monkeypatch):
+    """모델 파일을 찾을 수 없으면 설치가 없는 것과 같다(available 거짓). get_reader()·ocr=True는 models fetch 안내."""
+    without_model_files(monkeypatch)
+    assert ocr.available() is False
+    with pytest.raises(OcrUnavailable, match=r"ocr/det\.onnx not found; run `ko-parser models fetch ocr`"):
         ocr.get_reader()
+    with pytest.raises(OcrUnavailable, match=r"models fetch ocr.*--no-ocr"):
+        PdfParser(ocr=True)
     assert ocr._reader is None
 
 
-def test_auto_mode_with_missing_model_files_raises(monkeypatch, tmp_path):
-    """자동 모드 + 모델 파일 없는 설치: scanned 쪽이 있으면 텍스트 레이어로 조용히 물러나지 않고 OcrUnavailable."""
-    models_without_files(monkeypatch, tmp_path)
-    with pytest.raises(OcrUnavailable, match=r"det\.onnx"):
+def test_auto_mode_without_ocr_model_files_behaves_as_not_installed(monkeypatch):
+    """자동 모드 + 모델 파일 없음: 파싱은 멈추지 않고 OCR 없이(텍스트 레이어만), 쪽도 그리지 않는다."""
+    without_model_files(monkeypatch)
+    data = (FIXTURES / "image_page.pdf").read_bytes()
+    expected = PdfParser(ocr=False).parse(data, "image_page.pdf").blocks
+    monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("OCR을 안 하면 쪽을 그리지 않는다"))
+    assert PdfParser().parse(data, "image_page.pdf").blocks == expected
+
+
+def test_auto_mode_with_a_wrong_ocr_model_file_raises(monkeypatch, tmp_path):
+    """자동 모드 + 찾은 모델 파일이 고정한 것과 다름(깨진 설치): 텍스트 레이어로 조용히 물러나지 않고 OcrUnavailable."""
+    fake_model_files(monkeypatch, tmp_path)
+    monkeypatch.setattr(ocr, "MODULES", ())
+    monkeypatch.setattr(ocr, "_reader", None)
+    monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("깨진 설치는 쪽을 그리기 전에 알린다"))
+    with pytest.raises(OcrUnavailable, match=r"does not match the pinned size and SHA-256.*--no-ocr"):
         PdfParser().parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
+
+
+@pytest.mark.skipif(sys.platform == "win32" or getattr(os, "geteuid", lambda: -1)() == 0,
+                    reason="chmod 000 does not stop reading on Windows or as root")
+def test_auto_mode_with_an_unreadable_ocr_model_file_raises_the_config_error(monkeypatch, tmp_path):
+    """자동 모드 + 찾은 모델 파일을 읽을 수 없음(권한): 날 PermissionError가 아니라 모델 경로·받기·--no-ocr 안내를
+    담은 OcrUnavailable(설정 오류). 고정한 크기의 빈 파일이라 크기 확인을 지나 해시를 읽다가 막힌다."""
+    fake_model_files(monkeypatch, tmp_path)
+    det = tmp_path / "models" / models.MANIFEST["ocr-det"].path
+    with det.open("wb") as f:
+        f.truncate(models.MANIFEST["ocr-det"].size)
+    monkeypatch.setattr(ocr, "MODULES", ())
+    monkeypatch.setattr(ocr, "_reader", None)
+    monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("깨진 설치는 쪽을 그리기 전에 알린다"))
+    det.chmod(0)
+    try:
+        with pytest.raises(OcrUnavailable, match=r"model file .*det\.onnx could not be read \(Permission denied\); "
+                                                  r".*`ko-parser models fetch ocr`.*, or run with --no-ocr$"):
+            PdfParser().parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
+    finally:
+        det.chmod(0o644)
+
+
+@pytest.mark.skipif(sys.platform == "win32" or getattr(os, "geteuid", lambda: -1)() == 0,
+                    reason="chmod 000 does not stop reading on Windows or as root")
+def test_auto_mode_with_an_unopenable_model_folder_behaves_as_not_installed(monkeypatch, tmp_path):
+    """자동 모드 + 모델 폴더를 열 수 없음(권한): 날 PermissionError 없이 모델 파일이 없을 때와 같다(available 거짓,
+    OCR 없이 파싱, 쪽을 그리지 않는다). ocr=True는 models fetch·--no-ocr 안내."""
+    fake_model_files(monkeypatch, tmp_path)
+    monkeypatch.setenv("KO_PARSER_CACHE_DIR", str(tmp_path / "empty-cache"))
+    monkeypatch.setattr(ocr, "MODULES", ())
+    monkeypatch.setattr(ocr, "_reader", None)
+    data = (FIXTURES / "image_page.pdf").read_bytes()
+    expected = PdfParser(ocr=False).parse(data, "image_page.pdf").blocks
+    folder = tmp_path / "models" / "ocr"
+    folder.chmod(0)
+    try:
+        assert ocr.available() is False
+        monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("OCR을 안 하면 쪽을 그리지 않는다"))
+        assert PdfParser().parse(data, "image_page.pdf").blocks == expected
+        with pytest.raises(OcrUnavailable, match=r"ocr/det\.onnx not found; .*models fetch ocr`.*--no-ocr"):
+            PdfParser(ocr=True)
+    finally:
+        folder.chmod(0o755)
 
 
 def test_module_that_cannot_be_found_is_not_installed(monkeypatch):
@@ -240,6 +320,7 @@ def test_visible_text_is_not_read_twice_and_blocks_merge_by_top():
     """보이는 글자(쪽 위 줄·아래 쪽 번호)도 렌더 그림에 그려져 OCR이 읽지만 텍스트 레이어가 우선이라 버린다.
     블록은 윗변 순서: 위 텍스트 레이어 → OCR 문단 → 아래 쪽 번호."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     visible = [(40, 370, 12, "보이는 글자 줄"), (148, 20, 9, "1")]
     data = pdf(lambda c: scanned_page(c, 300, 400, BODY, visible))
     assert blocks(data) == [("paragraph", "text_layer", "보이는 글자 줄"),
@@ -250,6 +331,7 @@ def test_visible_text_is_not_read_twice_and_blocks_merge_by_top():
 
 def test_ocr_blocks_follow_the_previous_heading():
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     def digital(c):
         put(c, 40, 340, 18, "1. 추진 배경")
         for i in range(4):
@@ -263,6 +345,7 @@ def test_ocr_blocks_follow_the_previous_heading():
 def test_rotated_scanned_page_has_visible_page_coordinates():
     """/Rotate 90 쪽: 그림을 PDF 좌표에서 돌려 넣어 보이는 쪽에서 바로 선다. 결과는 돌리지 않은 쪽과 같다."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     image = text_image(300, 400, BODY)
 
     def upright(c):
@@ -283,6 +366,8 @@ def test_rotated_scanned_page_has_visible_page_coordinates():
 
 
 def test_blank_scanned_page_has_no_ocr_blocks():
+    pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     data = pdf(lambda c: scanned_page(c, 300, 400, [], visible=[(148, 20, 9, "1")]))
     assert blocks(data) == [("paragraph", "text_layer", "1")]
 
@@ -291,6 +376,7 @@ def test_blank_scanned_page_has_no_ocr_blocks():
 def test_scanned_golden_inputs_are_the_same_with_ocr_on(name):
     """기존 scanned 골든 예제(보이는 쪽 번호만, 숨은 글자층): OCR을 켜도 쪽 번호를 두 번 내지 않는다."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     data = (FIXTURES / name).read_bytes()
     assert PdfParser(ocr=True).parse(data, name) == PdfParser(ocr=False).parse(data, name)
 
@@ -298,6 +384,7 @@ def test_scanned_golden_inputs_are_the_same_with_ocr_on(name):
 def test_parallel_parses_give_the_same_ocr_blocks():
     """여러 스레드가 동시에 스캔 쪽을 파싱해도(렌더는 PDFIUM_LOCK, OCR 세션은 공유) 결과가 같다."""
     pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
     from concurrent.futures import ThreadPoolExecutor
 
     data = pdf(lambda c: scanned_page(c, 300, 400, BODY))
