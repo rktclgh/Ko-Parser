@@ -2,5 +2,3 @@
 packages/engine/tests/fixtures/** -text
 *.otf binary
 *.onnx binary
-# OCR 모델 폴더는 SHA-256으로 고정한다: dict.txt·LICENSE도 줄바꿈 변환을 끈다
-packages/ocr-models/src/ko_parser_ocr_models/models/** binary

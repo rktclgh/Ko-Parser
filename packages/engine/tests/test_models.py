@@ -2,6 +2,7 @@
 캐시), 크기·SHA-256 확인과 해시 기억. 가짜 목록·가짜 파일로 돈다(네트워크·실제 모델 없음)."""
 
 import hashlib
+import importlib.metadata
 import os
 import re
 from pathlib import Path
@@ -120,3 +121,38 @@ def test_names_follow_the_list_order_and_the_chosen_variants(monkeypatch):
     assert models.variants() == ["layout", "ocr"] and models.names() == ["l", "m"]
     assert models.names(["ocr"]) == ["m"] and models.names([]) == []
     assert models.fetch_hint("l") == "run `ko-parser models fetch layout` or set KO_PARSER_MODEL_DIR"
+
+
+def require_models(*names: str) -> None:
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    missing = [name for name in names if models.find(name) is None]
+    if missing:
+        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
+        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+
+
+@pytest.mark.parametrize("name", list(models.MANIFEST))
+def test_found_model_file_is_the_pinned_one(name):
+    require_models(name)
+    path = models.resolve(name)  # 크기·SHA-256 확인
+    assert path.stat().st_size == models.MANIFEST[name].size
+
+
+def test_model_license_and_notice_ship_with_the_engine():
+    """모델 파일은 업스트림에서 받지만 출처·라이선스 고지는 엔진 패키지에 둔다(목록의 파일마다 고지가 있다)."""
+    root = Path(models.__file__).parent
+    text = (root / "LICENSE").read_text(encoding="utf-8")
+    assert "Apache License" in text and "Version 2.0, January 2004" in text
+    notice = (root / "NOTICE").read_text(encoding="utf-8")
+    assert all(entry.path in notice for entry in models.MANIFEST.values())
+    assert "PaddlePaddle/PP-OCRv5_mobile_det_onnx (commit e6f4fa85f00e168c862bc462aebca69eef9b3d3d)" in notice
+    assert "PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx (commit 5c6f574b8e2230adf4287b33e736d71b9fabd28e)" in notice
+
+
+def test_engine_extras_are_runtime_dependencies_only():
+    """모델 패키지는 없다: extra는 런타임 의존성만 깔고 모델 파일은 `ko-parser models fetch`가 받는다."""
+    requires = importlib.metadata.requires("ko-parser-engine")
+    ocr = sorted(r.split(";")[0] for r in requires if "extra == 'ocr'" in r)
+    assert ocr == ["numpy<3,>=1.26", "onnxruntime<2,>=1.20", "pyclipper<2,>=1.3"]
+    assert not [r for r in requires if "models" in r]

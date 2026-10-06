@@ -1,8 +1,9 @@
-"""스캔 쪽 OCR 실행부(onnxruntime + numpy + Pillow + pyclipper, 모델은 ko-parser-ocr-models).
+"""스캔 쪽 OCR 실행부(onnxruntime + numpy + Pillow + pyclipper). 모델 파일(검출·인식 모델과 인식 설정)은 ko_parser.models가
+찾는다(KO_PARSER_MODEL_DIR → `ko-parser models fetch` 캐시, SHA-256 확인). 인식 글자 목록은 설정 파일에서 읽는다(charset.py).
 
-OCR 추가 설치(ko-parser-engine[ocr])가 없어도 이 모듈은 import된다: numpy·onnxruntime은 get_reader()가 처음 불릴
-때 가져온다(available()은 모듈을 찾기만 한다). 세션(검출·인식)은 프로세스에 하나이고 만들 때만 잠금으로 보호한다.
-PDFium은 부르지 않는다."""
+OCR 추가 설치(ko-parser-engine[ocr])가 없어도 이 모듈은 import된다: numpy·onnxruntime은 get_reader()가 처음 불릴 때
+가져온다(available()은 모듈과 모델 파일을 찾기만 한다). 세션(검출·인식)은 프로세스에 하나이고 만들 때만 잠금으로
+보호한다. PDFium은 부르지 않는다."""
 
 import atexit
 import importlib.util
@@ -10,17 +11,20 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ....errors import OcrUnavailable
+from .... import models
+from ....errors import ModelError, OcrUnavailable
+from . import charset
 
 if TYPE_CHECKING:
     from PIL import Image
 
     from .reader import OcrReader
 
-__all__ = ["OcrLine", "OcrUnavailable", "available", "get_reader", "read_lines"]
+__all__ = ["MODEL_NAMES", "OcrLine", "OcrUnavailable", "available", "get_reader", "read_lines"]
 
 INSTALL_HINT = 'pip install "ko-parser-engine[ocr]"'
-MODULES = ("numpy", "onnxruntime", "pyclipper", "ko_parser_ocr_models")  # OCR 추가 설치가 까는 모듈
+MODULES = ("numpy", "onnxruntime", "pyclipper")  # OCR 추가 설치가 까는 모듈
+MODEL_NAMES = ("ocr-det", "ocr-rec", "ocr-rec-config")  # ko_parser.models 이름(검출·인식·인식 설정)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,24 +49,29 @@ def _installed(module: str) -> bool:
 
 
 def _missing() -> str | None:
-    """OCR 추가 설치에서 찾을 수 없는 모듈 이름. 다 찾히면 None. 찾기만 하고 import하지 않는다: 깔렸는데 import가
-    깨지거나 모델 파일이 없는 설치는 '있음'이고 _build가 크게 알린다(자동 모드가 조용히 물러나지 않게)."""
+    """OCR에 필요한데 찾을 수 없는 것을 알리는 문구(갖추는 방법 포함). 다 찾히면 None. 찾기만 하고 import하지 않으며
+    모델 해시도 보지 않는다: 깔렸는데 import가 깨지거나 찾은 모델 파일이 고정한 것과 다르면 '있음'이고 _build가
+    크게 알린다(자동 모드가 조용히 물러나지 않게)."""
     for module in MODULES:
         if not _installed(module):
-            return module
+            return f"OCR is not installed (missing {module}); {INSTALL_HINT}"
+    for name in MODEL_NAMES:
+        if models.find(name) is None:
+            return f"OCR model file {models.MANIFEST[name].path} not found; {models.fetch_hint(name)}"
     return None
 
 
 def available() -> bool:
-    """OCR 추가 설치가 있는가(필요한 모듈을 모두 찾을 수 있다). 아무것도 import하지 않고 세션도 만들지 않는다.
-    깔렸는데 깨진 설치(import 오류, 모델 파일 없음)도 참이다(get_reader()가 OcrUnavailable)."""
+    """OCR 추가 설치 모듈과 모델 파일을 모두 찾을 수 있는가. 아무것도 import하지 않고 세션도 만들지 않는다.
+    모델 파일이 없으면(받기 전) 거짓: 자동 모드는 설치가 없을 때와 같다. 깔렸는데 깨진 설치(import 오류, 찾은 모델
+    파일의 크기·SHA-256이 다름)는 참이고 get_reader()가 OcrUnavailable."""
     return _missing() is None
 
 
 def _build() -> "OcrReader":
     missing = _missing()
     if missing is not None:
-        raise OcrUnavailable(f"OCR is not installed (missing {missing}); {INSTALL_HINT} or run with --no-ocr")
+        raise OcrUnavailable(f"{missing}, or run with --no-ocr")
     for module in MODULES:  # 깔렸는데 import가 깨지는 의존성(공유 라이브러리·glibc 등): 모듈과 오류를 알린다
         try:
             __import__(module)
@@ -73,14 +82,13 @@ def _build() -> "OcrReader":
                 f"OCR dependency {module} is installed but could not be imported "
                 f"({type(exc).__name__}: {exc}); reinstall with {INSTALL_HINT} or run with --no-ocr"
             ) from exc
+    try:  # 찾은 모델 파일의 크기·SHA-256과 글자 목록(깨진 받기·다른 판의 파일): 읽개 모듈(onnxruntime)까지 가지 않고 알린다
+        det, rec, config = (models.resolve(name) for name in MODEL_NAMES)
+        symbols = charset.load_symbols(config)
+    except ModelError as exc:
+        raise OcrUnavailable(f"{exc}, or run with --no-ocr") from exc
     try:  # import는 되는데 쓸 것이 없는 의존성(덜 지운 onnxruntime = 빈 이름공간 패키지 등)도 크게 알린다
-        import ko_parser_ocr_models as models
-
-        root = models.model_dir()
-        files = (models.DET_FILE, models.REC_FILE, models.DICT_FILE)
-        absent = next((root / name for name in files if not (root / name).is_file()), None)
-        if absent is None:  # 모델 파일이 없으면 읽개 모듈(onnxruntime)까지 가지 않고 그 파일을 알린다
-            from .reader import OcrReader
+        from .reader import OcrReader
     except MemoryError:  # 메모리 부족은 설치 문제가 아니다
         raise
     except Exception as exc:
@@ -88,20 +96,18 @@ def _build() -> "OcrReader":
             f"OCR runtime could not be loaded ({type(exc).__name__}: {exc}); "
             f"reinstall with {INSTALL_HINT} or run with --no-ocr"
         ) from exc
-    if absent is not None:  # 모델 패키지는 깔렸는데 파일이 없다: 깨진 설치
-        raise OcrUnavailable(f"OCR model file {absent} is missing; reinstall with {INSTALL_HINT} or run with --no-ocr")
     try:
-        return OcrReader(root, *files)
+        return OcrReader(det, rec, symbols)
     except MemoryError:  # 메모리 부족은 설치 문제가 아니다
         raise
-    except Exception as exc:  # 깨진 모델 파일·사전·onnxruntime 오류: 설정 문제로 알린다(오류에 파일 경로가 있다)
+    except Exception as exc:  # 글자 목록·모델 불일치, onnxruntime 오류: 설정 문제로 알린다
         raise OcrUnavailable(
-            f"OCR models in {root} could not be loaded: {exc}; reinstall with {INSTALL_HINT} or run with --no-ocr"
+            f"OCR models could not be loaded: {exc}; reinstall with {INSTALL_HINT} or run with --no-ocr"
         ) from exc
 
 
 def get_reader() -> "OcrReader":
-    """프로세스에 하나뿐인 읽개. 처음 부를 때 세션을 만든다(동시에 불러도 한 번만). 설치가 없거나 깨졌으면
+    """프로세스에 하나뿐인 읽개. 처음 부를 때 세션을 만든다(동시에 불러도 한 번만). 설치·모델 파일이 없거나 깨졌으면
     OcrUnavailable. 부르는 쪽은 읽개를 인터프리터 종료 너머까지 붙잡아 두지 않는다(atexit의 _release가 놓을 수 있게)."""
     global _reader
     if _reader is None:

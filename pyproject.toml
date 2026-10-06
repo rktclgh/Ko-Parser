@@ -8,7 +8,6 @@ dependencies = [
     # onnxruntime은 macOS x86_64 휠이 없다: 그 컴퓨터에서만 OCR extra 없이 설치한다(PEP 508 표시에 not이 없어 드모르간으로 적는다)
     "ko-parser-engine[ocr]; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "ko-parser-fonts",
-    "ko-parser-ocr-models",
 ]
 
 [tool.uv]
@@ -18,7 +17,6 @@ package = false
 ko-parser-contracts = { workspace = true }
 ko-parser-engine = { workspace = true }
 ko-parser-fonts = { workspace = true }
-ko-parser-ocr-models = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -27,6 +25,6 @@ members = ["packages/*"]
 dev = ["pytest>=8.3", "jsonschema>=4.23,<5", "reportlab>=5,<6"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/contracts/tests", "packages/engine/tests", "packages/fonts/tests", "packages/ocr-models/tests"]
+testpaths = ["packages/contracts/tests", "packages/engine/tests", "packages/fonts/tests"]
 addopts = "--import-mode=importlib"
 filterwarnings = ["error::EncodingWarning", "ignore::EncodingWarning:pypdfium2_raw"]
