@@ -386,6 +386,7 @@ def test_export_links_are_relative_to_the_out_symlink_folder_not_its_target(caps
     assert out.read_text(encoding="utf-8") == f"![그림 1. 현황](img/{name})\n\n그림 1. 현황\n"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows resolves '..' lexically before following symlinks")
 def test_export_links_follow_a_symlinked_parent_before_dotdot(capsys, db, tmp_path):
     asset, _ = seed_figure(db)
     (tmp_path / "other" / "deep").mkdir(parents=True)
@@ -402,6 +403,7 @@ def test_export_links_follow_a_symlinked_parent_before_dotdot(capsys, db, tmp_pa
     assert (written.parent / "../img" / name).resolve().is_file()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows resolves '..' lexically before following symlinks")
 def test_export_out_under_a_symlinked_parent_and_dotdot_is_written_where_the_fs_puts_it(capsys, db, tmp_path):
     seed_figure(db)
     (tmp_path / "actual" / "deep").mkdir(parents=True)  # actual/nested는 없다: 내보내기가 만든다

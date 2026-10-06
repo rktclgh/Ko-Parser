@@ -4,7 +4,9 @@ from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Protocol
 
-from ko_parser_contracts import ChangeBatch, DocRef, DocumentChange, DocumentTree, ProcessingHistory
+from ko_parser_contracts import (
+    MAX_DOCUMENT_ASSET_BYTES, ChangeBatch, DocRef, DocumentChange, DocumentTree, ProcessingHistory,
+)
 
 from ..core.assets import asset_key
 from ..errors import StoreConflict
@@ -31,7 +33,8 @@ class Store(Protocol):
 
         tree.version이 저장된 최신 버전 + 1(첫 버전은 1)이 아니면 StoreConflict. assets(sha256 → PNG)는 트리의 그림이
         가리키는 것만 받고, 가리키는데 주지 않은 이미지는 이미 저장돼 있어야 한다(아니면 ValueError). 해시가 같은
-        이미지는 한 번만 저장한다(문서끼리도). 이미지는 지우지 않는다(참조 수로 정리하는 것은 저장 레이어 몫).
+        이미지는 한 번만 저장한다(문서끼리도). 트리가 가리키는 이미지(주는 것 + 이미 저장된 것) 총합이
+        MAX_DOCUMENT_ASSET_BYTES를 넘으면 ValueError. 이미지는 지우지 않는다(참조 수로 정리하는 것은 저장 레이어 몫).
         """
         ...
 
@@ -46,9 +49,10 @@ class Store(Protocol):
 
 def check_commit(tree: DocumentTree, change: DocumentChange, history: ProcessingHistory, current: int | None,
                  assets: Mapping[str, bytes] = NO_ASSETS,
-                 stored: Callable[[str], bool] = lambda asset: False) -> dict[str, str]:
-    """두 구현이 같이 쓰는 커밋 전 검사. current는 저장된 최신 버전(없으면 None), stored는 이미 저장된 이미지인지.
-    반환: 이 트리의 그림이 가리키는 이미지 → mime."""
+                 stored: Callable[[str], int | None] = lambda asset: None) -> dict[str, str]:
+    """두 구현이 같이 쓰는 커밋 전 검사. current는 저장된 최신 버전(없으면 None), stored는 이미 저장된 이미지의 바이트
+    수(없으면 None). 트리가 가리키는 이미지 총합(서로 다른 이미지마다 한 번)은 MAX_DOCUMENT_ASSET_BYTES 이하: 엔진을
+    거치지 않고 commit을 바로 불러도 상한을 지킨다. 반환: 이 트리의 그림이 가리키는 이미지 → mime."""
     expected = 1 if current is None else current + 1
     if tree.version != expected:
         raise StoreConflict(f"{tree.document_id}: expected version {expected}, got {tree.version}")
@@ -64,9 +68,12 @@ def check_commit(tree: DocumentTree, change: DocumentChange, history: Processing
             raise ValueError(f"asset {key} is not referenced by the tree")
         if key != asset_key(data):
             raise ValueError(f"asset {key} does not match its bytes")
-    missing = sorted(a for a in referenced if a not in assets and not stored(a))
+    sizes = {a: len(assets[a]) if a in assets else stored(a) for a in referenced}
+    missing = sorted(a for a, size in sizes.items() if size is None)
     if missing:
         raise ValueError(f"figure asset {missing[0]} is neither given nor stored")
+    if sum(size for size in sizes.values() if size is not None) > MAX_DOCUMENT_ASSET_BYTES:
+        raise ValueError(f"document assets exceed MAX_DOCUMENT_ASSET_BYTES ({MAX_DOCUMENT_ASSET_BYTES})")
     return referenced
 
 

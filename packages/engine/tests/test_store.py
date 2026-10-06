@@ -219,3 +219,39 @@ def test_later_version_may_reuse_a_stored_asset_without_resending(store):
     commit_figure(store, "d1", {ASSET: ASSET_BYTES})
     assert commit_figure(store, "d1", {}, "새 문단") == 2  # 이미 저장된 이미지는 다시 주지 않아도 된다
     assert store.get_tree("d1").version == 2 and store.get_asset(ASSET) == ASSET_BYTES
+
+
+OTHER_BYTES = b"\x89PNG\r\n\x1a\n-another-figure-"
+OTHER = "sha256:" + hashlib.sha256(OTHER_BYTES).hexdigest()
+
+
+def two_figure_tree(doc: str, version: int) -> DocumentTree:
+    """그림 블록 둘(이미지 ASSET, OTHER)."""
+    blocks = [{"kind": "figure", "text": "", "confidence": 0.7, "state": "det", "text_source": "native",
+               "locator": {"kind": "lines", "line_start": i + 1, "line_end": i + 1},
+               "figure": {"asset": asset, "mime": "image/png", "width_px": 2, "height_px": 2, "dpi": 72,
+                          "category": "image"}} for i, asset in enumerate((ASSET, OTHER))]
+    return build_tree(ParsedSource(mime="text/markdown", blocks=blocks), doc, version, SOURCE)
+
+
+def test_direct_commit_over_the_asset_cap_is_rejected_and_writes_nothing(store, monkeypatch):
+    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) - 1)
+    with pytest.raises(ValueError, match="exceed MAX_DOCUMENT_ASSET_BYTES"):
+        commit_figure(store, "d1", {ASSET: ASSET_BYTES})
+    assert store.latest("d1") is None and store.changes_after(None, 10).changes == ()
+    with pytest.raises(AssetNotFound):
+        store.get_asset(ASSET)
+
+
+def test_already_stored_assets_count_toward_the_cap(store, monkeypatch):
+    commit_figure(store, "d1", {ASSET: ASSET_BYTES})
+    tree = two_figure_tree("d2", 1)
+    args = (tree, diff_trees(None, tree), ProcessingHistory(document_id="d2", version=1), {OTHER: OTHER_BYTES})
+    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES) - 1)
+    with pytest.raises(ValueError, match="exceed MAX_DOCUMENT_ASSET_BYTES"):
+        store.commit(*args)  # 주는 것(OTHER)만으로는 상한 안이지만 이미 저장된 ASSET까지 세면 넘는다
+    assert store.latest("d2") is None
+    with pytest.raises(AssetNotFound):
+        store.get_asset(OTHER)
+    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES))
+    assert store.commit(*args) == 2 and store.get_asset(OTHER) == OTHER_BYTES  # 상한과 같으면 된다

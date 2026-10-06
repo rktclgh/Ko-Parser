@@ -97,8 +97,7 @@ class SqliteStore:
             row = conn.execute("SELECT current_version FROM documents WHERE document_id = ?",
                                (tree.document_id,)).fetchone()
             mimes = check_commit(tree, change, history, None if row is None else row[0], assets,
-                                 lambda asset: conn.execute("SELECT 1 FROM assets WHERE sha = ?",
-                                                            (asset,)).fetchone() is not None)
+                                 lambda asset: self._stored_size(conn, asset))
             conn.executemany("INSERT OR IGNORE INTO assets (sha, mime, bytes) VALUES (?, ?, ?)",
                              [(key, mimes[key], sqlite3.Binary(data)) for key, data in assets.items()])
             conn.execute("INSERT INTO versions (document_id, version, tree_json) VALUES (?, ?, ?)",
@@ -114,6 +113,12 @@ class SqliteStore:
                 (tree.document_id, tree.version, tree.layer_state))
         assert seq is not None
         return seq
+
+    @staticmethod
+    def _stored_size(conn: sqlite3.Connection, asset: str) -> int | None:
+        """이미 저장된 이미지의 바이트 수(없으면 None)."""
+        row = conn.execute("SELECT length(bytes) FROM assets WHERE sha = ?", (asset,)).fetchone()
+        return None if row is None else row[0]
 
     def get_asset(self, asset: str) -> bytes:
         row = self._conn.execute("SELECT bytes FROM assets WHERE sha = ?", (asset,)).fetchone()

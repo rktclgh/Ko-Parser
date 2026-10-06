@@ -30,7 +30,7 @@ class MemoryStore:
                assets: Mapping[str, bytes] = NO_ASSETS) -> int:
         current = self.latest(tree.document_id)
         check_commit(tree, change, history, None if current is None else current.version, assets,
-                     self._assets.__contains__)
+                     lambda asset: len(self._assets[asset]) if asset in self._assets else None)
         # 검사를 모두 마친 뒤에만 바꾼다(실패하면 아무것도 남지 않는다)
         self._trees.setdefault(tree.document_id, []).append(tree)
         self._histories.setdefault(tree.document_id, []).append(history)
