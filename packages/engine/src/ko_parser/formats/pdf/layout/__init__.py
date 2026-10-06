@@ -99,7 +99,11 @@ def _build() -> "LayoutDetector":
         return LayoutDetector(model, config)
     except MemoryError:
         raise
-    except Exception as exc:  # 다른 모델·분류 목록·onnxruntime 오류: 설정 문제로 알린다(오류에 파일 경로가 있다)
+    except ValueError as exc:  # 확인을 지난 파일의 분류 목록·입력 이름이 다르다: 이 빌드끼리 맞지 않는다(OCR 글자 목록과 같다)
+        raise LayoutUnavailable(
+            f"layout model could not be loaded: {exc}; reinstall ko-parser or report it, or run with --no-layout"
+        ) from exc
+    except Exception as exc:  # onnxruntime 오류: 설정 문제로 알린다(오류에 파일 경로가 있다)
         raise LayoutUnavailable(
             f"layout model could not be loaded: {exc}; reinstall with {INSTALL_HINT} or run with --no-layout"
         ) from exc

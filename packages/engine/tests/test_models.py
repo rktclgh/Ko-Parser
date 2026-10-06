@@ -243,7 +243,8 @@ def test_engine_extras_are_runtime_dependencies_only():
 
 def test_layout_files_are_the_official_paddle_onnx():
     """레이아웃 모델은 PaddlePaddle 공식 ONNX(fp32)와 설정을 Hugging Face 커밋으로 고정해 받는다(변환·fp16 없음)."""
-    base = "https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx/resolve/feb74619326f634e0e883218598096a3733ad9f7/"
+    base = ("https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx/resolve/"
+            "feb74619326f634e0e883218598096a3733ad9f7/")
     assert models.names(["layout"]) == ["layout", "layout-config"]
     model, config = models.MANIFEST["layout"], models.MANIFEST["layout-config"]
     assert (model.path, model.size, model.sources) == ("layout/inference.onnx", 129736329, (base + "inference.onnx",))

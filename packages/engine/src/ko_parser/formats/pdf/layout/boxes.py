@@ -36,7 +36,8 @@ def read_labels(config: Path) -> tuple[str, ...]:
 def preprocess(image: Image.Image) -> dict[str, np.ndarray]:
     """모델 입력: image(1×3×800×800, RGB/255), im_shape([[800, 800]]), scale_factor([[800/높이, 800/너비]])."""
     width, height = image.size
-    pixels = np.asarray(image.convert("RGB").resize((SIZE, SIZE), Image.Resampling.BICUBIC), dtype=np.float32) / 255.0
+    rgb = image if image.mode == "RGB" else image.convert("RGB")  # RGB면 통째 복사하지 않는다
+    pixels = np.asarray(rgb.resize((SIZE, SIZE), Image.Resampling.BICUBIC), dtype=np.float32) / 255.0
     return {"image": pixels.transpose(2, 0, 1)[None].astype(np.float32),
             "im_shape": np.array([[SIZE, SIZE]], np.float32),
             "scale_factor": np.array([[SIZE / height, SIZE / width]], np.float32)}

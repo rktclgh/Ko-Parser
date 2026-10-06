@@ -95,6 +95,21 @@ def test_preprocess_is_800_bicubic_rgb_scaled_to_0_1():
     assert np.allclose(boxes.preprocess(Image.new("L", (10, 10), 51))["image"], 0.2)  # 흑백도 RGB로
 
 
+def test_preprocess_does_not_copy_an_rgb_image(monkeypatch):
+    """RGB 쪽 그림은 convert로 통째 복사하지 않는다(렌더는 한 변 4000까지, 약 48MB). 다른 모드만 RGB로 바꾼다."""
+    converted = []
+    convert = Image.Image.convert
+
+    def spy(self, *args, **kwargs):
+        converted.append(self.mode)
+        return convert(self, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "convert", spy)
+    boxes.preprocess(Image.new("RGB", (40, 20)))
+    boxes.preprocess(Image.new("L", (40, 20)))
+    assert converted == ["L"]
+
+
 def test_nms_suppresses_same_class_above_06_and_other_classes_above_098():
     a = LayoutBox("chart", 0.9, (0, 0, 100, 100))
     over = LayoutBox("chart", 0.8, (0, 0, 100, 160))  # 같은 분류 IoU 0.625 > 0.6: 버림

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -118,3 +119,30 @@ def test_release_drops_the_detector_and_rebuilds_on_demand(monkeypatch):
     first = layout.get_detector()
     layout._release()
     assert layout._detector is None and layout.get_detector() is not first
+
+
+@pytest.mark.parametrize("wrong", ["labels", "inputs"])
+def test_detector_that_rejects_the_model_is_unavailable_and_retried(monkeypatch, tmp_path, wrong):
+    """LayoutDetector가 만들 때 낸 ValueError(분류 목록·입력 이름이 다르다)는 get_detector()에서 LayoutUnavailable이다.
+    고정한 파일과 이 빌드가 맞지 않는 것이라 추가 설치를 다시 깔라고 하지 않는다(OCR 글자 목록 불일치와 같은 문구).
+    실패는 붙잡아 두지 않는다: 다음 호출은 다시 만든다."""
+    pytest.importorskip("onnxruntime")
+    from ko_parser.formats.pdf.layout import detector
+
+    config = tmp_path / "inference.yml"
+    labels = ("text", "image") if wrong == "labels" else detector.LABELS
+    config.write_text("label_list:\n" + "".join(f"- {name}\n" for name in labels), encoding="utf-8")
+    session = SimpleNamespace(get_inputs=lambda: [SimpleNamespace(name="x")])  # 입력 이름이 다른 모델
+    monkeypatch.setattr(detector.ort, "InferenceSession", lambda *args, **kwargs: session)
+    monkeypatch.setattr(layout, "MODULES", ())
+    monkeypatch.setattr(models, "find", lambda name: tmp_path / name)
+    monkeypatch.setattr(models, "resolve", lambda name: config if name == "layout-config" else tmp_path / "x.onnx")
+    monkeypatch.setattr(layout, "_detector", None)
+    reason = "lists 2 labels that are not" if wrong == "labels" else r"is not a PP-DocLayout model \(inputs \['x'\]\)"
+    with pytest.raises(LayoutUnavailable, match=rf"layout model could not be loaded: .*{reason}.*; "
+                                                r"reinstall ko-parser or report it, or run with --no-layout$") as info:
+        layout.get_detector()
+    assert isinstance(info.value.__cause__, ValueError) and "[layout]" not in str(info.value)
+    assert layout._detector is None
+    monkeypatch.setattr(detector, "LayoutDetector", lambda model, config: "built")
+    assert layout.get_detector() == "built"
