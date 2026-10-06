@@ -5,10 +5,13 @@ platformdirs 사용자 캐시/models). 두 곳 모두 그 아래 상대 경로(o
 않는다. 찾은 파일은 resolve()가 크기와 SHA-256을 확인한다(같은 파일은 프로세스 안에서 한 번만 읽는다)."""
 
 import hashlib
+import http.client
 import os
+import shutil
 import threading
+import time
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,11 +20,14 @@ from platformdirs import user_cache_dir
 from ..errors import ModelError
 
 __all__ = ["CACHE_DIR_ENV", "MANIFEST", "MODEL_DIR_ENV", "ModelError", "ModelFile", "cache_dir", "candidates",
-           "fetch_hint", "find", "names", "resolve", "variants"]
+           "fetch", "fetch_hint", "find", "names", "resolve", "variants"]
 
 MODEL_DIR_ENV = "KO_PARSER_MODEL_DIR"
 CACHE_DIR_ENV = "KO_PARSER_CACHE_DIR"
 _CHUNK = 1 << 20
+TIMEOUT = 60  # 받기: 소켓 한 번을 기다리는 초
+BACKOFF = (2, 4, 8)  # 받기: 잠깐의 오류(HTTP 429·5xx, 연결·시간 초과·끊김)면 이만큼(초) 쉬고 같은 주소를 다시(3번)
+STALE_PART = 3600  # 받기: 이보다 오래(초) 된 같은 파일의 조각(죽은 프로세스가 남긴 것)은 지운다
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,3 +133,116 @@ def resolve(name: str) -> Path:
                          f"ko-parser may pin different model files); replace it with `ko-parser models fetch "
                          f"{entry.variant}` (add --to <folder> for {MODEL_DIR_ENV})")
     return path
+
+
+def _urlopen(url: str):
+    """받기 연결(표준 라이브러리 urllib, 리디렉션을 따라간다). 받을 때만 urllib.request를 가져온다(찾기·파싱은 쓰지 않는다).
+    테스트가 바꿔 끼운다."""
+    import urllib.request
+
+    return urllib.request.urlopen(url, timeout=TIMEOUT)
+
+
+def _sleep(seconds: float) -> None:
+    """다시 받기 전 쉬기(테스트가 바꿔 끼운다)."""
+    time.sleep(seconds)
+
+
+def _transient(exc: BaseException) -> bool:
+    """같은 주소를 다시 받을 만한 오류인가: HTTP 429·5xx, 연결 오류, 시간 초과, 받다가 끊김. 그 밖의 HTTP 오류(404 등)·
+    디스크 오류는 다시 받아도 같다."""
+    import urllib.error
+
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or 500 <= exc.code < 600
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead))
+
+
+def _download(entry: ModelFile, url: str, part: Path) -> None:
+    """url을 part에 받는다. 고정한 크기를 넘으면 그 자리에서 멈추고, 다 받으면 크기·SHA-256을 본다. 다르면 ModelError."""
+    digest, size = hashlib.sha256(), 0
+    with _urlopen(url) as response, part.open("wb") as f:
+        while chunk := response.read(_CHUNK):
+            size += len(chunk)
+            if size > entry.size:
+                raise ModelError(f"more than the pinned {entry.size} bytes")
+            digest.update(chunk)
+            f.write(chunk)
+    if size != entry.size or digest.hexdigest() != entry.sha256:
+        raise ModelError(f"{size} bytes that do not match the pinned size and SHA-256")
+
+
+def _sweep_parts(target: Path) -> None:
+    """같은 파일의 조각(`<이름>.<pid>.<tid>.part`) 중 STALE_PART초보다 오래된 것을 지운다(끊긴 프로세스가 남긴 것).
+    지우지 못하면 넘어간다(다른 프로세스가 받는 중일 수 있다)."""
+    now = time.time()
+    for old in target.parent.glob(f"{target.name}.*.part"):
+        try:
+            if now - old.stat().st_mtime > STALE_PART:
+                old.unlink()
+        except OSError:
+            pass
+
+
+def _fetch_one(entry: ModelFile, target: Path, report: Callable[[ModelFile, str], None] | None) -> None:
+    """주소를 목록 순서대로 시도한다. 잠깐의 오류는 같은 주소를 BACKOFF만큼 쉬며 3번 더 시도하고, 그래도 안 되거나
+    다시 받아도 같은 오류(404·다른 바이트 등)면 다음 주소. `<이름>.<pid>.<tid>.part`에 받아 맞을 때만 target으로
+    이름을 바꾼다(끊기거나 바이트가 달라도 깨진 파일이 남지 않는다). 모두 실패하면 주소마다 이유를 담은 ModelError.
+    target을 바꾸지 못하면(Windows에서 다른 프로세스가 연 파일) 받기 실패가 아니라 쓰는 중이라고 알린다."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _sweep_parts(target)
+    part = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.part")
+    reasons = []
+    for url in entry.sources:
+        for attempt in range(len(BACKOFF) + 1):
+            if report is not None:
+                report(entry, url)
+            try:
+                _download(entry, url, part)
+            except ModelError as exc:  # 다른 바이트·너무 큼: 다시 받아도 같다
+                reasons.append(f"{url}: {exc}")
+                break
+            except (OSError, http.client.HTTPException) as exc:  # URLError·HTTPError·끊김·디스크
+                if attempt < len(BACKOFF) and _transient(exc):
+                    _sleep(BACKOFF[attempt])
+                    continue
+                reasons.append(f"{url}: {exc}")
+                break
+            else:
+                try:
+                    os.replace(part, target)
+                except PermissionError as exc:
+                    raise ModelError(f"{target} is in use and cannot be replaced; close other ko-parser processes "
+                                     f"and run `ko-parser models fetch` again") from exc
+                return
+            finally:
+                part.unlink(missing_ok=True)
+    raise ModelError(f"could not download {entry.path} ({'; '.join(reasons)})")
+
+
+def _free_space(root: Path) -> int:
+    """root(아직 없으면 가장 가까운 있는 위 폴더)가 있는 디스크의 빈 바이트."""
+    probe = root
+    while not probe.exists() and probe.parent != probe:
+        probe = probe.parent
+    return shutil.disk_usage(probe).free
+
+
+def fetch(selected: Iterable[str] | None = None, to: Path | str | None = None,
+          report: Callable[[ModelFile, str], None] | None = None) -> list[Path]:
+    """고른 변형(None이면 모두)의 파일을 to(None이면 사용자 캐시) 아래 상대 경로로 받는다. 이미 있고 크기·SHA-256이
+    맞으면 건너뛰고, 다르면 새로 받아 바꾼다(있는 파일은 기억한 해시를 쓰지 않고 다시 읽는다: 같은 크기·mtime으로 바뀐
+    파일도 잡는다). 받을 파일 크기의 합보다 디스크 빈 곳이 적으면 받기 전에 ModelError. report(파일, 주소)는 받기를
+    시작할 때마다 부른다(CLI 진행 표시). 반환: 목록 순서의 파일 경로. 실행 중 자동으로 부르지 않는다(`ko-parser models
+    fetch`·CI만)."""
+    root = cache_dir() if to is None else Path(to)
+    plan = [(MANIFEST[name], root / MANIFEST[name].path) for name in names(selected)]
+    todo = [(entry, target) for entry, target in plan
+            if not (target.is_file() and target.stat().st_size == entry.size and _digest(target) == entry.sha256)]
+    need = sum(entry.size for entry, _ in todo)
+    if todo and _free_space(root) < need:
+        raise ModelError(f"not enough disk space for the model files under {root}: {need:,} bytes needed, "
+                         f"{_free_space(root):,} free")
+    for entry, target in todo:
+        _fetch_one(entry, target, report)
+    return [target for _, target in plan]

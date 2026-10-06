@@ -11,6 +11,7 @@
 
 ```
 uv sync
+uv run ko-parser models fetch      # OCR 모델 파일(업스트림 고정 주소, SHA-256 확인)
 uv run ko-parser parse 문서.md --format md
 uv run ko-parser view 문서.pdf
 uv run ko-parser changes
