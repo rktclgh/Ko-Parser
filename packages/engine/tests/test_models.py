@@ -226,6 +226,7 @@ def test_model_license_and_notice_ship_with_the_engine():
     assert all(entry.path in notice for entry in models.MANIFEST.values())
     assert "PaddlePaddle/PP-OCRv5_mobile_det_onnx (commit e6f4fa85f00e168c862bc462aebca69eef9b3d3d)" in notice
     assert "PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx (commit 5c6f574b8e2230adf4287b33e736d71b9fabd28e)" in notice
+    assert "PaddlePaddle/PP-DocLayout_plus-L_onnx (commit feb74619326f634e0e883218598096a3733ad9f7)" in notice
 
 
 def test_engine_extras_are_runtime_dependencies_only():
@@ -233,4 +234,19 @@ def test_engine_extras_are_runtime_dependencies_only():
     requires = importlib.metadata.requires("ko-parser-engine")
     ocr = sorted(r.split(";")[0] for r in requires if "extra == 'ocr'" in r)
     assert ocr == ["numpy<3,>=1.26", "onnxruntime<2,>=1.20", "pyclipper<2,>=1.3"]
+    layout = sorted(r.split(";")[0] for r in requires if "extra == 'layout'" in r)
+    assert layout == ["numpy<3,>=1.26", "onnxruntime<2,>=1.20"]
+    assert sorted(r.split(";")[0] for r in requires if "extra == 'all'" in r) == [  # 빌드가 fonts·ocr·layout을 펼친다
+        "ko-parser-fonts<0.2,>=0.1", "numpy<3,>=1.26", "onnxruntime<2,>=1.20", "pyclipper<2,>=1.3"]
     assert not [r for r in requires if "models" in r]
+
+
+def test_layout_files_are_the_official_paddle_onnx():
+    """레이아웃 모델은 PaddlePaddle 공식 ONNX(fp32)와 설정을 Hugging Face 커밋으로 고정해 받는다(변환·fp16 없음)."""
+    base = "https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx/resolve/feb74619326f634e0e883218598096a3733ad9f7/"
+    assert models.names(["layout"]) == ["layout", "layout-config"]
+    model, config = models.MANIFEST["layout"], models.MANIFEST["layout-config"]
+    assert (model.path, model.size, model.sources) == ("layout/inference.onnx", 129736329, (base + "inference.onnx",))
+    assert model.sha256 == "77afb2caa74dd13240d087d2eced91d7fcd2caebd16006a0a66162fc8707ff0e"
+    assert (config.path, config.size, config.sources) == ("layout/inference.yml", 1838, (base + "inference.yml",))
+    assert config.sha256 == "d60f782a16f96afb27e8280399899a94c3e9ffc694ffb2f913ea00af1c522f1e"

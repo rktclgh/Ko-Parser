@@ -13,6 +13,8 @@ dependencies = [
 [project.optional-dependencies]
 fonts = ["ko-parser-fonts>=0.1,<0.2"]
 ocr = ["onnxruntime>=1.20,<2", "numpy>=1.26,<3", "pyclipper>=1.3,<2"]  # 모델 파일은 `ko-parser models fetch`
+layout = ["onnxruntime>=1.20,<2", "numpy>=1.26,<3"]
+all = ["ko-parser-engine[fonts,ocr,layout]"]
 
 [project.scripts]
 ko-parser = "ko_parser.cli:main"
