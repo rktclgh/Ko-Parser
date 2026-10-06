@@ -5,6 +5,7 @@ import hashlib
 import importlib.metadata
 import os
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,80 @@ def test_resolve_without_any_file_names_fetch_and_the_env_var(fake):
         models.resolve("m")
 
 
+@pytest.mark.skipif(sys.platform == "win32" or getattr(os, "geteuid", lambda: -1)() == 0,
+                    reason="chmod 000 does not stop reading on Windows or as root")
+def test_resolve_reports_an_unreadable_file_as_a_model_error(fake):
+    """찾았지만 읽을 수 없는 파일(권한): 날 PermissionError가 아니라 경로와 받기 안내를 담은 ModelError."""
+    env, _ = fake
+    path = put(env, "ocr/m.onnx")
+    path.chmod(0)
+    try:
+        with pytest.raises(ModelError, match=r"model file .*m\.onnx could not be read \(Permission denied\); check its "
+                                             r"permissions, or run `ko-parser models fetch ocr` or set "
+                                             r"KO_PARSER_MODEL_DIR$") as info:
+            models.resolve("m")
+    finally:
+        path.chmod(0o644)
+    assert isinstance(info.value.__cause__, PermissionError)
+
+
+@pytest.mark.skipif(sys.platform == "win32" or getattr(os, "geteuid", lambda: -1)() == 0,
+                    reason="chmod 000 does not stop reading on Windows or as root")
+def test_find_skips_a_folder_it_cannot_open(fake):
+    """열 수 없는 모델 폴더(권한)는 날 PermissionError가 아니라 '없음': 다음 후보(캐시)로 넘어가고, 어디에도 없으면
+    None(find는 '보이는가'만 본다)."""
+    env, cache = fake
+    put(env, "ocr/m.onnx")
+    (env / "ocr").chmod(0)
+    try:
+        assert models.find("m") is None
+        with pytest.raises(ModelError, match=r"ocr/m\.onnx not found; run `ko-parser models fetch ocr`"):
+            models.resolve("m")
+        put(cache, "ocr/m.onnx")
+        assert models.find("m") == cache / "ocr" / "m.onnx" and models.resolve("m") == cache / "ocr" / "m.onnx"
+    finally:
+        (env / "ocr").chmod(0o755)
+
+
+def test_resolve_reports_a_file_that_vanished_after_find_as_a_model_error(fake, monkeypatch):
+    """찾은 뒤 사라진 파일(다른 프로세스가 지움)도 ModelError. 어느 OS에서나 돈다."""
+    env, _ = fake
+    monkeypatch.setattr(models, "find", lambda name: env / "ocr" / "gone.onnx")
+    with pytest.raises(ModelError, match=r"gone\.onnx could not be read \(.+\); .*models fetch ocr`") as info:
+        models.resolve("m")
+    assert isinstance(info.value.__cause__, FileNotFoundError)
+
+
+def test_unknown_names_and_variants_are_model_errors(fake):
+    """목록에 없는 이름·변형은 KeyError나 빈 결과가 아니라 ModelError. 변형 하나를 문자열로 주면("ocr" → o·c·r)
+    조용히 아무것도 고르지 않는 대신 알린다."""
+    for call in (lambda: models.resolve("nope"), lambda: models.find("nope"), lambda: models.candidates("nope"),
+                 lambda: models.fetch_hint("nope")):
+        with pytest.raises(ModelError, match=r"unknown model file 'nope'; known: m"):
+            call()
+    for call in (lambda: models.names(["layout"]), lambda: models.fetch(["layout"]),
+                 lambda: models.names(["ocr", "nope"])):
+        with pytest.raises(ModelError, match=r"unknown model variant"):
+            call()
+    with pytest.raises(ModelError, match=r"unknown model variant 'layout', 'nope'; known: ocr"):
+        models.names(["nope", "layout"])
+    for call in (lambda: models.names("ocr"), lambda: models.fetch("ocr")):
+        with pytest.raises(ModelError, match=r"model variants must be a list such as \['ocr'\], not a string"):
+            call()
+
+
+def test_model_and_cache_dirs_expand_the_home_folder(fake, monkeypatch, tmp_path):
+    """.env·Docker ENV·systemd처럼 셸을 거치지 않은 `~`도 홈 폴더로 푼다."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows의 expanduser
+    monkeypatch.setenv("KO_PARSER_MODEL_DIR", "~/env")
+    monkeypatch.setenv("KO_PARSER_CACHE_DIR", "~/cache")
+    assert models.cache_dir() == tmp_path / "cache"
+    assert models.candidates("m") == [tmp_path / "env" / "ocr" / "m.onnx", tmp_path / "cache" / "ocr" / "m.onnx"]
+    put(tmp_path / "env", "ocr/m.onnx")
+    assert models.find("m") == tmp_path / "env" / "ocr" / "m.onnx" and models.resolve("m") == models.find("m")
+
+
 def test_names_follow_the_list_order_and_the_chosen_variants(monkeypatch):
     other = models.ModelFile(name="l", variant="layout", path="layout/l.onnx", size=1, sha256="0" * 64,
                              sources=("https://example.invalid/l.onnx",))
@@ -144,6 +219,9 @@ def test_model_license_and_notice_ship_with_the_engine():
     root = Path(models.__file__).parent
     text = (root / "LICENSE").read_text(encoding="utf-8")
     assert "Apache License" in text and "Version 2.0, January 2004" in text
+    # 고지 바이트 그대로(.gitattributes -text: Windows autocrlf 체크아웃도 바꾸지 않는다)
+    assert hashlib.sha256((root / "LICENSE").read_bytes()).hexdigest() == (
+        "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e")
     notice = (root / "NOTICE").read_text(encoding="utf-8")
     assert all(entry.path in notice for entry in models.MANIFEST.values())
     assert "PaddlePaddle/PP-OCRv5_mobile_det_onnx (commit e6f4fa85f00e168c862bc462aebca69eef9b3d3d)" in notice

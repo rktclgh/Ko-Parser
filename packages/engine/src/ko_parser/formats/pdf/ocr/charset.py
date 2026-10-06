@@ -32,11 +32,12 @@ def read_character_dict(text: str) -> list[str]:
 
 
 def load_symbols(config: Path) -> list[str]:
-    """인식 모델 설정 파일의 글자 목록. 이은 바이트의 SHA-256이 DICT_SHA256과 다르면 ModelError(깨진 모델 파일과 같은
-    설정 오류)."""
+    """인식 모델 설정 파일(models.resolve()가 크기·SHA-256을 확인한 것)의 글자 목록. 이은 바이트의 SHA-256이
+    DICT_SHA256과 다르면 ModelError(설정 오류). 확인을 지난 파일이라 다시 받아도 같다: 이 빌드의 models.toml과
+    DICT_SHA256이 서로 맞지 않는 것이다."""
     symbols = read_character_dict(config.read_text(encoding="utf-8"))
     if hashlib.sha256(("\n".join(symbols) + "\n").encode("utf-8")).hexdigest() != DICT_SHA256:
-        raise ModelError(f"character list in {config} ({len(symbols)} symbols) does not match the pinned SHA-256 (a "
-                         f"newer ko-parser may pin different model files); replace it with `ko-parser models fetch ocr` "
-                         f"(add --to <folder> for KO_PARSER_MODEL_DIR)")
+        raise ModelError(f"character list in {config} ({len(symbols)} symbols) does not match the pinned SHA-256: "
+                         f"this ko-parser build pins a recognition config (models.toml) and a character list "
+                         f"(charset.DICT_SHA256) that disagree; reinstall ko-parser or report it")
     return symbols

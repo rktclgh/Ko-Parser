@@ -7,7 +7,8 @@ import os
 import pytest
 
 from ko_parser import models
-from ko_parser.errors import ModelError
+from ko_parser.errors import ModelError, OcrUnavailable
+from ko_parser.formats.pdf import ocr
 from ko_parser.formats.pdf.ocr import charset
 
 # 실제 설정 파일에 나오는 모양: 그대로 쓴 글자(백슬래시 포함), 작은따옴표로 감싼 글자(작은따옴표 자신은 '''',
@@ -31,6 +32,11 @@ PreProcess:
   - DecodeImage:
 """
 SYMBOLS = ["ᄀ", "가", "!", '"', "'", "#", "\\", "0", "힣"]
+# 설정 파일은 resolve()가 크기·SHA-256을 확인한 뒤에 읽는다: 글자 목록이 다르면 다시 받을 일이 아니라 이 빌드의
+# models.toml과 DICT_SHA256이 서로 맞지 않는 것이다
+MISMATCH = (r"character list in .*inference\.yml \(9 symbols\) does not match the pinned SHA-256: this ko-parser "
+            r"build pins a recognition config \(models\.toml\) and a character list \(charset\.DICT_SHA256\) that "
+            r"disagree; reinstall ko-parser or report it")
 
 
 def require_models(*names: str) -> None:
@@ -52,12 +58,27 @@ def test_reads_the_character_dict_block_with_its_quoting_forms():
 def test_load_symbols_checks_the_pinned_sha256(tmp_path, monkeypatch):
     config = tmp_path / "inference.yml"
     config.write_text(CONFIG, encoding="utf-8")
-    with pytest.raises(ModelError, match=r"character list in .*inference\.yml \(9 symbols\) does not match the pinned "
-                                         r"SHA-256 \(a newer ko-parser may pin .*`ko-parser models fetch ocr`"):
+    with pytest.raises(ModelError, match=MISMATCH):
         charset.load_symbols(config)
     pinned = hashlib.sha256(("\n".join(SYMBOLS) + "\n").encode("utf-8")).hexdigest()
     monkeypatch.setattr(charset, "DICT_SHA256", pinned)
     assert charset.load_symbols(config) == SYMBOLS
+
+
+def test_charset_mismatch_while_building_the_reader_is_ocr_unavailable(tmp_path, monkeypatch):
+    """읽개를 만들다 글자 목록이 다르면(모델 파일 확인은 지났다) 날 ModelError가 아니라 --no-ocr 안내를 담은
+    OcrUnavailable이고 읽개 모듈(onnxruntime)까지 가지 않는다. 실제 모델·onnxruntime 없이 돈다."""
+    config = tmp_path / "ocr" / "inference.yml"
+    config.parent.mkdir()
+    config.write_text(CONFIG, encoding="utf-8")
+    monkeypatch.setattr(ocr, "MODULES", ())
+    monkeypatch.setattr(ocr, "_reader", None)
+    monkeypatch.setattr(models, "find", lambda name: config)
+    monkeypatch.setattr(models, "resolve", lambda name: config)
+    monkeypatch.setattr(charset, "DICT_SHA256", "0" * 64)
+    with pytest.raises(OcrUnavailable, match=MISMATCH + r", or run with --no-ocr") as info:
+        ocr.get_reader()
+    assert isinstance(info.value.__cause__, ModelError) and ocr._reader is None
 
 
 def test_real_config_gives_the_pinned_dictionary():

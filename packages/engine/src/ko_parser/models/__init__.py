@@ -60,37 +60,56 @@ def variants() -> list[str]:
     return sorted({e.variant for e in MANIFEST.values()})
 
 
+def _entry(name: str) -> ModelFile:
+    """목록의 모델 파일. 목록에 없는 이름이면 ModelError(KeyError가 아니다)."""
+    entry = MANIFEST.get(name)
+    if entry is None:
+        raise ModelError(f"unknown model file {name!r}; known: {', '.join(MANIFEST)}")
+    return entry
+
+
 def names(selected: Iterable[str] | None = None) -> list[str]:
-    """고른 변형(None이면 모두)의 모델 이름, 목록 순서."""
+    """고른 변형(None이면 모두)의 모델 이름, 목록 순서. 목록에 없는 변형, 변형 하나를 그냥 문자열로 준 것("ocr"은
+    o·c·r로 풀린다)은 ModelError(조용히 아무것도 고르지 않는 대신)."""
+    if isinstance(selected, str):
+        raise ModelError(f"model variants must be a list such as [{selected!r}], not a string")
     wanted = None if selected is None else set(selected)
+    unknown = sorted(wanted - set(variants())) if wanted else []
+    if unknown:
+        raise ModelError(f"unknown model variant {', '.join(map(repr, unknown))}; known: {', '.join(variants())}")
     return [name for name, e in MANIFEST.items() if wanted is None or e.variant in wanted]
 
 
 def fetch_hint(name: str) -> str:
     """그 모델 파일을 갖추는 방법(오류 문구에 넣는다)."""
-    return f"run `ko-parser models fetch {MANIFEST[name].variant}` or set {MODEL_DIR_ENV}"
+    return f"run `ko-parser models fetch {_entry(name).variant}` or set {MODEL_DIR_ENV}"
 
 
 def cache_dir() -> Path:
-    """`models fetch`가 받는 사용자 캐시 폴더(KO_PARSER_CACHE_DIR로 바꿀 수 있다)."""
+    """`models fetch`가 받는 사용자 캐시 폴더(KO_PARSER_CACHE_DIR로 바꿀 수 있다, `~`는 홈 폴더로 푼다)."""
     env = os.environ.get(CACHE_DIR_ENV)
-    return Path(env) if env else Path(user_cache_dir("ko-parser", appauthor=False)) / "models"
+    return Path(env).expanduser() if env else Path(user_cache_dir("ko-parser", appauthor=False)) / "models"
 
 
 def candidates(name: str) -> list[Path]:
     """찾는 순서대로의 후보 경로: KO_PARSER_MODEL_DIR(있으면) → 사용자 캐시. 파일마다 따로 찾는다: 일부만 둔
-    KO_PARSER_MODEL_DIR은 없는 파일을 캐시에서 채운다(스펙 §5 순서)."""
-    entry = MANIFEST[name]
+    KO_PARSER_MODEL_DIR은 없는 파일을 캐시에서 채운다(스펙 §5 순서). `~`는 홈 폴더로 푼다(.env·Docker ENV는 셸이
+    풀지 않는다)."""
+    entry = _entry(name)
     env = os.environ.get(MODEL_DIR_ENV)
-    roots = [Path(env)] if env else []
+    roots = [Path(env).expanduser()] if env else []
     return [root / entry.path for root in (*roots, cache_dir())]
 
 
 def find(name: str) -> Path | None:
-    """처음 있는 후보 파일. 크기·해시는 보지 않는다(available()이 쓴다: 빠르게). 없으면 None."""
+    """처음 있는 후보 파일. 크기·해시는 보지 않는다(available()이 쓴다: 빠르게). 없으면 None. 열 수 없는 폴더(권한)는
+    없는 것으로 보고 다음 후보로 넘어간다(Python 3.12의 is_file()은 PermissionError를 그대로 낸다)."""
     for path in candidates(name):
-        if path.is_file():
-            return path
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            continue
     return None
 
 
@@ -122,12 +141,18 @@ def _matches(entry: ModelFile, path: Path) -> bool:
 
 
 def resolve(name: str) -> Path:
-    """찾은 파일의 크기·SHA-256을 확인해 돌려준다. 못 찾으면, 또는 고정한 파일과 다르면 ModelError(설정 오류)."""
-    entry = MANIFEST[name]
+    """찾은 파일의 크기·SHA-256을 확인해 돌려준다. 못 찾으면, 읽을 수 없으면(권한, 찾은 뒤 사라짐), 또는 고정한
+    파일과 다르면 ModelError(설정 오류)."""
+    entry = _entry(name)
     path = find(name)
     if path is None:
         raise ModelError(f"model file {entry.path} not found; {fetch_hint(name)}")
-    if not _matches(entry, path):
+    try:
+        matches = _matches(entry, path)
+    except OSError as exc:
+        raise ModelError(f"model file {path} could not be read ({exc.strerror or exc}); check its permissions, or "
+                         f"{fetch_hint(name)}") from exc
+    if not matches:
         raise ModelError(f"model file {path} does not match the pinned size and SHA-256 of {entry.path} (a newer "
                          f"ko-parser may pin different model files); replace it with `ko-parser models fetch "
                          f"{entry.variant}` (add --to <folder> for {MODEL_DIR_ENV})")
