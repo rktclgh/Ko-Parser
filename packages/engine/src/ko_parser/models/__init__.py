@@ -5,7 +5,6 @@ platformdirs 사용자 캐시/models). 두 곳 모두 그 아래 상대 경로(o
 않는다. 찾은 파일은 resolve()가 크기와 SHA-256을 확인한다(같은 파일은 프로세스 안에서 한 번만 읽는다)."""
 
 import hashlib
-import http.client
 import os
 import shutil
 import threading
@@ -149,27 +148,54 @@ def _sleep(seconds: float) -> None:
 
 
 def _transient(exc: BaseException) -> bool:
-    """같은 주소를 다시 받을 만한 오류인가: HTTP 429·5xx, 연결 오류, 시간 초과, 받다가 끊김. 그 밖의 HTTP 오류(404 등)·
-    디스크 오류는 다시 받아도 같다."""
+    """같은 주소를 다시 받을 만한 오류인가: HTTP 429·5xx, 연결 오류, 시간 초과, 받다가 끊김(TLS EOF 포함). 그 밖의 HTTP
+    오류(404 등)·인증서 오류·디스크 오류는 다시 받아도 같다."""
+    import http.client
     import urllib.error
 
     if isinstance(exc, urllib.error.HTTPError):
         return exc.code == 429 or 500 <= exc.code < 600
-    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead))
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead)):
+        return True
+    try:
+        import ssl
+    except ImportError:  # ssl 없이 빌드한 Python
+        return False
+    if isinstance(exc, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
+        return True
+    return isinstance(exc, ssl.SSLError) and "EOF" in str(getattr(exc, "reason", None) or "")
+
+
+def _expected_length(response, pinned: int) -> int:
+    """받을 바이트 수: 응답의 Content-Length(있고 읽히면), 없으면 고정한 크기."""
+    headers = getattr(response, "headers", None)
+    value = headers.get("Content-Length") if headers is not None else None
+    try:
+        return int(value) if value is not None else pinned
+    except ValueError:
+        return pinned
 
 
 def _download(entry: ModelFile, url: str, part: Path) -> None:
-    """url을 part에 받는다. 고정한 크기를 넘으면 그 자리에서 멈추고, 다 받으면 크기·SHA-256을 본다. 다르면 ModelError."""
+    """url을 part에 받는다. 고정한 크기를 넘으면 그 자리에서 멈추고, 다 받으면 크기·SHA-256을 본다. 다르면 ModelError.
+    기대한 길이(Content-Length, 없으면 고정 크기)보다 적게 받고 끝나면 연결이 끊긴 것이라 IncompleteRead(다시 받는다):
+    Content-Length가 있으면 http.client는 끊겨도 예외 없이 b""를 준다."""
+    import http.client
+
     digest, size = hashlib.sha256(), 0
     with _urlopen(url) as response, part.open("wb") as f:
+        expected = _expected_length(response, entry.size)
         while chunk := response.read(_CHUNK):
             size += len(chunk)
             if size > entry.size:
                 raise ModelError(f"more than the pinned {entry.size} bytes")
             digest.update(chunk)
             f.write(chunk)
+    if size < expected:
+        raise http.client.IncompleteRead(b"", expected - size)
     if size != entry.size or digest.hexdigest() != entry.sha256:
-        raise ModelError(f"{size} bytes that do not match the pinned size and SHA-256")
+        raise ModelError(f"{size} bytes with SHA-256 {digest.hexdigest()} that do not match the pinned {entry.size} "
+                         f"bytes and SHA-256 {entry.sha256}")
 
 
 def _sweep_parts(target: Path) -> None:
@@ -188,7 +214,9 @@ def _fetch_one(entry: ModelFile, target: Path, report: Callable[[ModelFile, str]
     """주소를 목록 순서대로 시도한다. 잠깐의 오류는 같은 주소를 BACKOFF만큼 쉬며 3번 더 시도하고, 그래도 안 되거나
     다시 받아도 같은 오류(404·다른 바이트 등)면 다음 주소. `<이름>.<pid>.<tid>.part`에 받아 맞을 때만 target으로
     이름을 바꾼다(끊기거나 바이트가 달라도 깨진 파일이 남지 않는다). 모두 실패하면 주소마다 이유를 담은 ModelError.
-    target을 바꾸지 못하면(Windows에서 다른 프로세스가 연 파일) 받기 실패가 아니라 쓰는 중이라고 알린다."""
+    target을 바꾸지 못하면(Windows에서 다른 프로세스가 연 파일·쓰기 금지) 받기 실패가 아니라 쓰는 중·쓰기 금지라고 알린다."""
+    import http.client
+
     target.parent.mkdir(parents=True, exist_ok=True)
     _sweep_parts(target)
     part = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.part")
@@ -212,11 +240,15 @@ def _fetch_one(entry: ModelFile, target: Path, report: Callable[[ModelFile, str]
                 try:
                     os.replace(part, target)
                 except PermissionError as exc:
-                    raise ModelError(f"{target} is in use and cannot be replaced; close other ko-parser processes "
-                                     f"and run `ko-parser models fetch` again") from exc
+                    raise ModelError(f"{target} is in use or not writable and cannot be replaced; close other "
+                                     f"ko-parser processes (or check its permissions) and run `ko-parser models "
+                                     f"fetch` again") from exc
                 return
             finally:
-                part.unlink(missing_ok=True)
+                try:  # 지우지 못해도(Windows 백신 잠금) 원래 오류를 가리지 않는다. 남은 조각은 _sweep_parts가 치운다
+                    part.unlink(missing_ok=True)
+                except OSError:
+                    pass
     raise ModelError(f"could not download {entry.path} ({'; '.join(reasons)})")
 
 

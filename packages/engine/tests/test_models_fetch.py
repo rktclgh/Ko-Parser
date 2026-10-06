@@ -6,6 +6,9 @@ import http.client
 import io
 import os
 import shutil
+import ssl
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -52,7 +55,7 @@ def web(monkeypatch, tmp_path):
             found = found.pop(0)
         if isinstance(found, Exception):
             raise found
-        return found if isinstance(found, Response) else Response(found)
+        return Response(found) if isinstance(found, bytes) else found
 
     monkeypatch.setattr(models, "_urlopen", urlopen)
     monkeypatch.setattr(models, "_sleep", sleeps.append)
@@ -202,6 +205,88 @@ def test_fetch_says_a_model_file_in_use_cannot_be_replaced(web, monkeypatch, tmp
         return real(src, dst)
 
     monkeypatch.setattr(os, "replace", locked)
-    with pytest.raises(ModelError, match=r"a\.onnx is in use and cannot be replaced; close other ko-parser processes"):
+    with pytest.raises(ModelError, match=r"a\.onnx is in use or not writable and cannot be replaced; close other ko-parser processes"):
         models.fetch(["ocr"])
     assert list((tmp_path / "cache").rglob("*.part")) == []
+
+
+class FakeSocket:
+    """http.client.HTTPResponse가 읽는 소켓 흉내(makefile만)."""
+
+    def __init__(self, raw: bytes) -> None:
+        self.raw = raw
+
+    def makefile(self, mode: str) -> io.BytesIO:
+        return io.BytesIO(self.raw)
+
+
+def real_response(body: bytes, length: int) -> http.client.HTTPResponse:
+    """진짜 HTTPResponse. Content-Length가 body보다 길면 연결이 끊긴 것: read는 예외 없이 b""를 준다."""
+    response = http.client.HTTPResponse(FakeSocket(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % length + body))
+    response.begin()
+    return response
+
+
+def test_a_real_cut_with_content_length_is_retried_then_fails(web, tmp_path):
+    """받다가 끊기면(Content-Length보다 적게 받고 b"") 잠깐의 오류로 보고 2·4·8초 쉬며 다시 받는다. 끝내 끊기면 실패,
+    파일·조각은 남지 않는다."""
+    served, requests, sleeps = web
+    served[GOOD_A] = [real_response(A[:5], len(A)) for _ in range(4)]
+    with pytest.raises(ModelError, match=r"could not download ocr/a\.onnx \(https://up\.invalid/a\.onnx: IncompleteRead"):
+        models.fetch(["ocr"])
+    assert requests == [GOOD_A] * 4 and sleeps == [2, 4, 8]
+    assert not (tmp_path / "cache" / "ocr" / "a.onnx").exists() and leftovers(tmp_path / "cache") == []
+
+
+def test_a_real_cut_succeeds_on_the_second_attempt(web):
+    served, requests, sleeps = web
+    served[GOOD_A] = [real_response(A[:5], len(A)), real_response(A, len(A))]
+    assert models.fetch(["ocr"])[0].read_bytes() == A
+    assert requests == [GOOD_A] * 2 and sleeps == [2]
+
+
+def test_a_complete_shorter_file_is_a_mismatch_not_a_cut(web):
+    """Content-Length만큼 다 받았는데 고정 크기보다 짧으면(다른 파일) 다시 받지 않는다. 오류에 받은 SHA-256이 있다."""
+    served, requests, sleeps = web
+    served[GOOD_A] = real_response(A[:5], 5)
+    with pytest.raises(ModelError, match=rf"5 bytes with SHA-256 {hashlib.sha256(A[:5]).hexdigest()}"):
+        models.fetch(["ocr"])
+    assert requests == [GOOD_A] and sleeps == []
+
+
+def test_mismatch_error_names_the_received_sha256(web):
+    served, _, _ = web
+    served[GOOD_A] = b"model A BYTES"
+    with pytest.raises(ModelError, match=rf"13 bytes with SHA-256 {hashlib.sha256(b'model A BYTES').hexdigest()} "):
+        models.fetch(["ocr"])
+
+
+def test_tls_eof_is_temporary_but_a_certificate_error_is_not():
+    assert models._transient(ssl.SSLEOFError(8, "EOF occurred in violation of protocol"))
+    assert not models._transient(ssl.SSLCertVerificationError(1, "certificate verify failed"))
+
+
+def test_a_failing_part_cleanup_does_not_hide_the_download_error(web, monkeypatch):
+    """Windows: 백신이 잡은 조각을 지우지 못해도(PermissionError) 원래 오류(받기 실패)가 그대로 나온다."""
+    served, _, _ = web
+    served[GOOD_A] = b"model A BYTES"
+    real = models.Path.unlink
+
+    def locked(self, missing_ok=False):
+        if self.name.endswith(".part"):
+            raise PermissionError(13, "locked")
+        return real(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(models.Path, "unlink", locked)
+    with pytest.raises(ModelError, match=r"could not download ocr/a\.onnx"):
+        models.fetch(["ocr"])
+
+
+def test_cli_import_loads_no_network_modules():
+    """CLI를 가져와도 urllib.request·http.client는 가져오지 않는다(받을 때만, 하위 프로세스에서 본다)."""
+    code = ("import sys\n"
+            "import ko_parser.cli\n"
+            "print(sorted(m for m in ('http.client', 'urllib.request') if m in sys.modules))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
