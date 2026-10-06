@@ -174,21 +174,26 @@ def _sleep(seconds: float) -> None:
 
 def _transient(exc: BaseException) -> bool:
     """같은 주소를 다시 받을 만한 오류인가: HTTP 429·5xx, 연결 오류, 시간 초과, 받다가 끊김(TLS EOF 포함). 그 밖의 HTTP
-    오류(404 등)·인증서 오류·디스크 오류는 다시 받아도 같다."""
+    오류(404 등)·인증서 오류 등 TLS 오류·디스크 오류는 다시 받아도 같다. urlopen은 연결 중 TLS 오류를
+    URLError(reason=SSLError)로 감싸므로 감싼 오류로 판단한다."""
     import http.client
     import urllib.error
 
-    if isinstance(exc, urllib.error.HTTPError):
-        return exc.code == 429 or 500 <= exc.code < 600
-    if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead)):
-        return True
     try:
         import ssl
     except ImportError:  # ssl 없이 빌드한 Python
+        ssl = None
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or 500 <= exc.code < 600
+    if isinstance(exc, urllib.error.URLError) and ssl is not None and isinstance(exc.reason, ssl.SSLError):
+        exc = exc.reason
+    elif isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead)):
+        return True
+    if ssl is None or not isinstance(exc, ssl.SSLError):
         return False
     if isinstance(exc, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
         return True
-    return isinstance(exc, ssl.SSLError) and "EOF" in str(getattr(exc, "reason", None) or "")
+    return "EOF" in str(getattr(exc, "reason", None) or "")
 
 
 def _expected_length(response, pinned: int) -> int:
@@ -225,7 +230,8 @@ def _download(entry: ModelFile, url: str, part: Path) -> None:
 
 def _sweep_parts(target: Path) -> None:
     """같은 파일의 조각(`<이름>.<pid>.<tid>.part`) 중 STALE_PART초보다 오래된 것을 지운다(끊긴 프로세스가 남긴 것).
-    지우지 못하면 넘어간다(다른 프로세스가 받는 중일 수 있다)."""
+    지우지 못하면 넘어간다(Windows에서 다른 프로세스가 연 조각). 아직 받는 중인 아주 느린 조각을 지우면 그 받기는
+    바꾸기에서 조각이 없음을 보고 다시 받는다(_fetch_one)."""
     now = time.time()
     for old in target.parent.glob(f"{target.name}.*.part"):
         try:
@@ -264,6 +270,15 @@ def _fetch_one(entry: ModelFile, target: Path, report: Callable[[ModelFile, str]
             else:
                 try:
                     os.replace(part, target)
+                except FileNotFoundError as exc:
+                    if part.exists():
+                        raise
+                    # 조각이 사라졌다: 한 시간 넘게 받는 사이 다른 프로세스의 _sweep_parts가 지웠다. 잠깐의 오류처럼 다시
+                    if attempt < len(BACKOFF):
+                        _sleep(BACKOFF[attempt])
+                        continue
+                    reasons.append(f"{url}: {exc}")
+                    break
                 except PermissionError as exc:
                     raise ModelError(f"{target} is in use or not writable and cannot be replaced; close other "
                                      f"ko-parser processes (or check its permissions) and run `ko-parser models "

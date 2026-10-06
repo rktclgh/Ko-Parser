@@ -262,8 +262,61 @@ def test_mismatch_error_names_the_received_sha256(web):
 
 
 def test_tls_eof_is_temporary_but_a_certificate_error_is_not():
-    assert models._transient(ssl.SSLEOFError(8, "EOF occurred in violation of protocol"))
-    assert not models._transient(ssl.SSLCertVerificationError(1, "certificate verify failed"))
+    """urlopen은 연결 중 TLS 오류를 URLError(reason=SSLError)로 감싼다: 감싼 채로도 EOF만 잠깐의 오류다."""
+    eof = ssl.SSLEOFError(8, "EOF occurred in violation of protocol")
+    cert = ssl.SSLCertVerificationError(1, "certificate verify failed")
+    other = ssl.SSLError(1, "[SSL: WRONG_VERSION_NUMBER] wrong version number")
+    assert models._transient(eof) and models._transient(urllib.error.URLError(eof))
+    assert not models._transient(cert) and not models._transient(urllib.error.URLError(cert))
+    assert not models._transient(other) and not models._transient(urllib.error.URLError(other))
+    assert models._transient(urllib.error.URLError("connection refused"))
+
+
+def test_a_certificate_error_from_urlopen_is_not_retried(web):
+    """인증서 오류(URLError로 감싼 SSLCertVerificationError)는 다시 받아도 같다: 한 번만 시도하고 쉬지 않으며, 이유가
+    오류에 남는다."""
+    served, requests, sleeps = web
+    served[GOOD_A] = urllib.error.URLError(ssl.SSLCertVerificationError(1, "certificate verify failed"))
+    with pytest.raises(ModelError, match=r"could not download ocr/a\.onnx \(https://up\.invalid/a\.onnx: .*"
+                                         r"certificate verify failed"):
+        models.fetch(["ocr"])
+    assert requests == [GOOD_A] and sleeps == []
+
+
+def test_a_part_swept_by_another_process_is_downloaded_again(web, tmp_path, monkeypatch):
+    """아주 느린 받기의 조각이 한 시간을 넘으면 다른 프로세스의 _sweep_parts가 지울 수 있다(잠금 없음). 바꾸기 직전에
+    조각이 사라졌으면(FileNotFoundError) 잠깐의 오류로 보고 다시 받는다."""
+    _, requests, sleeps = web
+    real, calls = os.replace, []
+
+    def swept(src, dst):
+        calls.append(src)
+        if len(calls) == 1:
+            os.unlink(src)  # 다른 프로세스가 지웠다
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", swept)
+    target = models.fetch(["ocr"])[0]
+    assert target == tmp_path / "cache" / "ocr" / "a.onnx" and target.read_bytes() == A
+    assert requests == [GOOD_A] * 2 and sleeps == [2] and len(calls) == 2 and leftovers(tmp_path / "cache") == []
+
+
+def test_a_stale_part_that_cannot_be_deleted_is_left_alone(web, tmp_path, monkeypatch):
+    """Windows: 다른 프로세스가 아직 연 오래된 조각은 지울 수 없다(PermissionError). 그 조각은 두고 받기는 그대로 된다."""
+    folder = tmp_path / "cache" / "ocr"
+    folder.mkdir(parents=True)
+    old = folder / "a.onnx.11.22.part"
+    old.write_bytes(b"x")
+    os.utime(old, (time.time() - 7200, time.time() - 7200))
+    real = models.Path.unlink
+
+    def locked(self, missing_ok=False):
+        if self.name == old.name:
+            raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+        return real(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(models.Path, "unlink", locked)
+    assert models.fetch(["ocr"])[0].read_bytes() == A and old.exists()
 
 
 def test_a_failing_part_cleanup_does_not_hide_the_download_error(web, monkeypatch):
