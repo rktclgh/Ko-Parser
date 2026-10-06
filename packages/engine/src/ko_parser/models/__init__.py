@@ -300,6 +300,14 @@ def _free_space(root: Path) -> int:
     return shutil.disk_usage(probe).free
 
 
+def _fetched(entry: ModelFile, target: Path) -> bool:
+    """target이 이미 받은 그 파일인가(기억한 해시 없이 다시 읽는다). 읽지 못하면(권한 등) 아니라고 보고 새로 받는다."""
+    try:
+        return target.is_file() and target.stat().st_size == entry.size and _digest(target) == entry.sha256
+    except OSError:
+        return False
+
+
 def fetch(selected: Iterable[str] | None = None, to: Path | str | None = None,
           report: Callable[[ModelFile, str], None] | None = None) -> list[Path]:
     """고른 변형(None이면 모두)의 파일을 to(None이면 사용자 캐시) 아래 상대 경로로 받는다. 이미 있고 크기·SHA-256이
@@ -309,8 +317,7 @@ def fetch(selected: Iterable[str] | None = None, to: Path | str | None = None,
     fetch`·CI만)."""
     root = cache_dir() if to is None else Path(to)
     plan = [(MANIFEST[name], root / MANIFEST[name].path) for name in names(selected)]
-    todo = [(entry, target) for entry, target in plan
-            if not (target.is_file() and target.stat().st_size == entry.size and _digest(target) == entry.sha256)]
+    todo = [(entry, target) for entry, target in plan if not _fetched(entry, target)]
     need = sum(entry.size for entry, _ in todo)
     if todo and _free_space(root) < need:
         raise ModelError(f"not enough disk space for the model files under {root}: {need:,} bytes needed, "

@@ -96,6 +96,22 @@ def test_fetch_skips_verified_files_and_replaces_a_wrong_one(web, tmp_path):
     assert models.fetch(["ocr"])[0].read_bytes() == A and requests == [GOOD_A]
 
 
+def test_fetch_downloads_again_when_the_existing_file_cannot_be_read(web, monkeypatch, tmp_path):
+    """있는 파일을 읽지 못하면(권한이 바뀐 파일 등) 맨 OSError로 멈추지 않고 새로 받아 바꾼다."""
+    _, requests, _ = web
+    target = models.fetch(["ocr"])[0]
+    requests.clear()
+    real = models._digest
+
+    def unreadable(path):
+        if path == target:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path)
+
+    monkeypatch.setattr(models, "_digest", unreadable)
+    assert models.fetch(["ocr"])[0].read_bytes() == A and requests == [GOOD_A]
+
+
 def test_fetch_tries_the_next_source(web, monkeypatch, tmp_path):
     """앞 주소가 실패하거나(연결·HTTP 오류) 다른 바이트를 주면 다음 주소. 실패한 주소의 조각은 남지 않는다."""
     served, requests, _ = web
