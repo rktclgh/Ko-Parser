@@ -5,8 +5,9 @@ requires-python = ">=3.12"
 dependencies = [
     "ko-parser-contracts",
     "ko-parser-engine",
-    # onnxruntime은 macOS x86_64 휠이 없다: 그 컴퓨터에서만 OCR extra 없이 설치한다(PEP 508 표시에 not이 없어 드모르간으로 적는다)
-    "ko-parser-engine[ocr]; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    # onnxruntime은 macOS x86_64 휠이 없다: 그 컴퓨터에서만 OCR·레이아웃 extra 없이 설치한다(PEP 508 표시에 not이 없어
+    # 드모르간으로 적는다)
+    "ko-parser-engine[ocr,layout]; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "ko-parser-fonts",
 ]
 

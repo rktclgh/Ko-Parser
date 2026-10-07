@@ -50,12 +50,17 @@ jobs:
         with:
           path: ${{ runner.temp }}/ko-parser-models
           key: models-${{ runner.os }}-${{ hashFiles('packages/engine/src/ko_parser/models/models.toml') }}
+          # 목록이 바뀌면 이전 캐시에서 시작한다: fetch가 맞는 파일은 두고 바뀐 파일만 받는다
+          restore-keys: models-${{ runner.os }}-
       - name: Fetch models
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: uv run ko-parser models fetch
-      # 워크스페이스는 OCR 추가 설치(ko-parser-engine[ocr])까지 깐다: onnxruntime 휠이 세 OS에 있고 모델이 열리는지 본다
+      # 워크스페이스는 OCR·레이아웃 추가 설치(ko-parser-engine[ocr,layout])까지 깐다: onnxruntime 휠이 세 OS에 있고 모델이 열리는지 본다
       - name: OCR runtime loads
         run: uv run python -W error::EncodingWarning -c "from ko_parser.formats.pdf import ocr; ocr.get_reader(); print('ocr ok')"
+      # 레이아웃 추가 설치(ko-parser-engine[layout])와 모델(위 Fetch models가 받은 공식 ONNX 130MB)이 세 OS에서 열리는지 본다
+      - name: Layout runtime loads
+        run: uv run python -W error::EncodingWarning -c "from ko_parser.formats.pdf import layout; layout.get_detector(); print('layout ok')"
       - name: Tests
         # EncodingWarning 오류화는 pyproject filterwarnings가 한다. 명령줄 -W는 그 안의 pypdfium2 예외 필터를 덮어쓰므로 쓰지 않는다
         env:

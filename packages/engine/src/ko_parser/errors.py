@@ -48,3 +48,8 @@ class AssetNotFound(KoParserError):
 
 class ModelError(KoParserError):
     """모델 파일을 찾지 못했거나, 고정한 크기·SHA-256과 다르거나, 받지 못했다. 설정 오류(종료 코드 1)."""
+
+
+class LayoutUnavailable(KoParserError):
+    """레이아웃 모델을 켜라고 했는데(또는 자동 모드에서 모델을 돌릴 쪽이 있는데) 레이아웃 추가 설치
+    (ko-parser-engine[layout])나 모델 파일이 없거나 깨졌다. 설정 오류(종료 코드 1)."""
