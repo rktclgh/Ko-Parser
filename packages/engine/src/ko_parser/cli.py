@@ -20,6 +20,7 @@ from .engine import LocalEngine
 from .errors import AssetNotFound, DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
 from .export import asset_name, to_markdown
 from .formats.detect import default_parsers
+from .formats.pdf import layout as layout_runtime
 from .formats.pdf.parser import MIME as PDF_MIME
 from .store.sqlite import SqliteStore
 from .viewer import DEFAULT_DPI, render_html, render_page_images
@@ -29,6 +30,8 @@ DB_ENV = "KO_PARSER_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
 OCR_HELP = "스캔 쪽 OCR을 끈다 (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)"
+LAYOUT_HELP = ("레이아웃 모델(선·도형 그림·캡션)을 끈다. 사진(이미지 객체)은 그대로 그림 (기본: 레이아웃 추가 설치가 있으면 "
+               "켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)")
 FETCH_TO_HELP = "받을 폴더 (기본: 사용자 캐시). 폐쇄망은 이 폴더를 옮겨 KO_PARSER_MODEL_DIR로 가리킨다"
 ASSETS_HELP = ("그림 이미지를 이 폴더에 <sha256 앞 16자>.png로 쓴다(--format md면 마크다운이 그 파일을 가리킨다. 링크는 "
                "--out 파일 폴더 기준 상대 경로, 표준 출력이면 현재 폴더 기준)")
@@ -100,6 +103,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parse.add_argument("--id", dest="document_id", type=_non_empty, help="문서 ID (기본: doc_ + 원본 sha256 앞 24자리)")
     parse.add_argument("--force", action="store_true", help="원본이 같아도 다시 파싱")
     parse.add_argument("--no-ocr", action="store_true", help=OCR_HELP)
+    parse.add_argument("--no-layout", action="store_true", help=LAYOUT_HELP)
     export = sub.add_parser("export", parents=[common, output], help="저장된 문서 트리를 출력")
     export.add_argument("document_id")
     export.add_argument("--version", type=_positive)
@@ -117,6 +121,7 @@ def _build_parser() -> argparse.ArgumentParser:
     view.add_argument("--out", type=_non_empty, help="HTML 경로 (기본: 현재 폴더/<파일 이름(확장자 제외)>.view.html)")
     view.add_argument("--dpi", type=_dpi, default=DEFAULT_DPI, help=f"쪽 이미지 해상도 (기본 {DEFAULT_DPI})")
     view.add_argument("--no-ocr", action="store_true", help=OCR_HELP)
+    view.add_argument("--no-layout", action="store_true", help=LAYOUT_HELP)
     models = sub.add_parser("models", help="모델 파일(OCR·레이아웃)")
     models_sub = models.add_subparsers(dest="models_command", required=True)
     fetch = models_sub.add_parser("fetch", help="모델 파일을 업스트림 고정 주소에서 받아 크기·SHA-256을 확인한다")
@@ -239,7 +244,8 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
     if tree.source.mime == PDF_MIME:
         images = render_page_images(data, tree.source.name, args.dpi)
     out = view_path(args.file, args.out)
-    html = render_html(tree, images, previous)
+    notice = tree.source.mime == PDF_MIME and not args.no_layout and not layout_runtime.available()
+    html = render_html(tree, images, previous, layout_notice=notice)
     out.parent.mkdir(parents=True, exist_ok=True)
     # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
     _replace_file(out, html.encode("utf-8", errors="replace"))
@@ -290,7 +296,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if out and Path(out).is_dir():  # 저장소·그림 파일을 건드리기 전에 막는다(view는 기본 출력 경로도)
             raise IsADirectoryError(f"output path is a directory: {out}")
         with SqliteStore(resolve_db(args.db)) as store:
-            parsers = default_parsers(ocr=False) if getattr(args, "no_ocr", False) else None
+            no_ocr, no_layout = getattr(args, "no_ocr", False), getattr(args, "no_layout", False)
+            parsers = (default_parsers(ocr=False if no_ocr else None, layout=False if no_layout else None)
+                       if no_ocr or no_layout else None)
             _run(args, LocalEngine(store, parsers))
     except KoParserError as exc:
         print(f"{APP_NAME}: {exc}", file=sys.stderr)

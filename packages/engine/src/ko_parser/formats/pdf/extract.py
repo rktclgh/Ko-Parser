@@ -9,6 +9,7 @@ PDFium은 스레드 안전하지 않다. 문서가 달라도 동시에 부르면
 """
 
 import ctypes
+import itertools
 import math
 import re
 import threading
@@ -26,6 +27,7 @@ from ...errors import ParseError
 from . import fonts  # pypdfium2를 위 경고 억제 블록에서 먼저 import한 뒤에 import한다
 
 Box = tuple[float, float, float, float]  # left, bottom, right, top (PDF 쪽 좌표)
+Box01 = tuple[float, float, float, float]  # x0, y0, x1, y1 (보이는 쪽 기준 0~1, 원점 왼쪽 위, 회전 보정 후)
 Axes = tuple[int, int]  # (진행 방향, 줄 아래 방향). 보이는 쪽의 +x·+y·−x·−y = 0·1·2·3
 UPRIGHT: Axes = (0, 1)
 
@@ -43,6 +45,9 @@ DASH_DRIFT = 0.05  # 이은 점선의 위치 흐름이 AXIS_TOL보다 크면 길
 WHITE = 250  # 빨강·초록·파랑이 모두 이 이상이면 하얀색(배경과 같은 색)으로 보고 버린다(98% 이상 밝은 회색 칠도 버린다)
 MAX_RULE_SEGMENTS = 200_000  # 쪽마다 훑는 path 구간(점선 조각도) 상한. 넘으면 그 쪽 선은 없다(악성 PDF가 잠금·메모리를
 # 오래 쥐지 않게). 공공누리 정답 표 문서 8개의 쪽 최대는 15,560(path 객체 7,777)으로 약 13배 여유
+MAX_PATH_COUNT = 10_000  # 쪽마다 path 객체는 이만큼까지만 센다(레이아웃 모델을 돌릴지 정하는 데만 쓴다)
+MAX_IMAGE_OBJECTS = 10_000  # 쪽마다 PageText.images에 담는 그림 상자 상한. 넘는 그림은 빠진다(악성 PDF가 작은 파일로
+# 메모리를 크게 쥐지 않게). 아이콘 수백 개 쪽도 넉넉하다. image_coverage에는 적용하지 않는다(스캔 판정은 그대로)
 
 _BOLD_NAME = re.compile(r"bold|black|heavy", re.IGNORECASE)
 _BOLD_WEIGHT = 600
@@ -90,7 +95,7 @@ class Rule:
     kind: RuleKind = "stroke"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)  # 약한 참조: figures 쪽 기억이 쪽을 붙잡지 않는다
 class PageText:
     page: int
     width_pt: float  # 회전 보정 후
@@ -99,6 +104,9 @@ class PageText:
     chars: tuple[Char, ...]
     image_coverage: tuple[float, ...]  # 그림마다 쪽 면적 대비 비율
     rules: tuple[Rule, ...] = ()  # 가로·세로 선분(표 검출 입력), 그린 순서
+    images: tuple[Box01, ...] = ()  # 그림(이미지 객체)마다 쪽 안에 보이는 부분(보이는 쪽 0~1), 그린 순서. 쪽 밖·넓이 0은
+    # 빠지고 MAX_IMAGE_OBJECTS까지만 담는다(image_coverage와 순서가 맞지 않는다)
+    paths: int = 0  # path 객체 수(폼 안 포함, MAX_PATH_COUNT까지)
 
 
 def open_pdf(data: bytes, name: str) -> pdfium.PdfDocument:
@@ -210,9 +218,12 @@ def _page(pdf: pdfium.PdfDocument, index: int, location: str, check: "_HangulChe
         finally:
             textpage.close()
         check.add_page(pdf, page, seen, hangul_fonts, location)
+        boxes = list(_image_boxes(page))  # 한 번만 훑어 image_coverage·images가 같이 쓴다
         return PageText(page=index + 1, width_pt=width, height_pt=height, rotation=rotation, chars=chars,
-                        image_coverage=tuple(_image_coverage(page, box)),
-                        rules=_rules(page, box, rotation, width, height))
+                        image_coverage=tuple(_image_coverage(boxes, box)),
+                        rules=_rules(page, box, rotation, width, height),
+                        images=tuple(itertools.islice(_image_rects(boxes, box, rotation), MAX_IMAGE_OBJECTS)),
+                        paths=_path_count(page))
     finally:
         page.close()
 
@@ -424,13 +435,25 @@ def _image_boxes(page: pdfium.PdfPage, form: pdfium.PdfObject | None = None, mat
             yield from _image_boxes(page, obj, inner, visible, depth + 1)
 
 
-def _image_coverage(page: pdfium.PdfPage, box: Box) -> Iterator[float]:
-    """그림마다 쪽 상자 안에 보이는 면적 / 쪽 면적."""
+def _image_coverage(images: list[Box], box: Box) -> Iterator[float]:
+    """그림(_image_boxes)마다 쪽 상자 안에 보이는 면적 / 쪽 면적."""
     left, bottom, right, top = box
     area = (right - left) * (top - bottom)
-    for x0, y0, x1, y1 in _image_boxes(page):
+    for x0, y0, x1, y1 in images:
         overlap = max(0.0, min(x1, right) - max(x0, left)) * max(0.0, min(y1, top) - max(y0, bottom))
         yield min(1.0, overlap / area)
+
+
+def _image_rects(images: list[Box], box: Box, rotation: int) -> Iterator[Box01]:
+    """그림(_image_boxes)마다 쪽 상자 안에 보이는 부분을 보이는 쪽 0~1로(렌더 그림과 같은 틀: 회전·CropBox 반영).
+    쪽 밖·넓이 0은 뺀다."""
+    for rect in images:
+        left, bottom, right, top = _intersect(rect, box)
+        if right <= left or top <= bottom:
+            continue
+        (x0, y0), (x1, y1) = normalize_point(left, bottom, box, rotation), normalize_point(right, top, box, rotation)
+        yield (min(max(min(x0, x1), 0.0), 1.0), min(max(min(y0, y1), 0.0), 1.0),
+               min(max(max(x0, x1), 0.0), 1.0), min(max(max(y0, y1), 0.0), 1.0))
 
 
 Matrix = tuple[float, float, float, float, float, float]  # a b c d e f: (x, y) → (ax + cy + e, bx + dy + f)
@@ -466,6 +489,11 @@ def _path_objects(parent: object, form: bool, matrix: Matrix, depth: int = 0) ->
             yield obj, _then(_object_matrix(obj), matrix)
         elif kind == pdfium_c.FPDF_PAGEOBJ_FORM and depth < _MAX_FORM_DEPTH:
             yield from _path_objects(obj, True, _then(_object_matrix(obj), matrix), depth + 1)
+
+
+def _path_count(page: pdfium.PdfPage) -> int:
+    """path 객체 수(폼 안 포함). MAX_PATH_COUNT에서 멈춘다(레이아웃 모델을 돌릴지 정하는 데만 쓴다)."""
+    return sum(1 for _ in itertools.islice(_path_objects(page.raw, False, _IDENTITY), MAX_PATH_COUNT))
 
 
 def _visible_color(getter: Callable[..., int], obj: object) -> bool:

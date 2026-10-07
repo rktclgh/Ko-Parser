@@ -40,7 +40,7 @@ def test_fixtures_are_up_to_date():
 
 @pytest.mark.parametrize("name", NAMES)
 def test_engine_ingest_matches_golden(name):
-    engine = LocalEngine(MemoryStore(), default_parsers(ocr=False))
+    engine = LocalEngine(MemoryStore(), default_parsers(ocr=False, layout=False))
     ref = engine.ingest(str(ROOT / "inputs" / name), document_id=BUILDER.document_id(name))
     assert engine.get_tree(ref.document_id) == _expected(name)
 

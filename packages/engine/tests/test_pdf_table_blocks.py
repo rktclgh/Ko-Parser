@@ -110,7 +110,7 @@ def test_scanned_page_gets_tables_from_its_visible_text():
     draw(canvas)
     canvas.showPage()
     canvas.save()
-    parsed = PdfParser().parse(buf.getvalue(), "t.pdf")
+    parsed = PdfParser(layout=False).parse(buf.getvalue(), "t.pdf")  # 레이아웃은 회색 사각형을 그림으로 본다
     assert parsed.pages[0].text_layer == "scanned"
     assert [s["kind"] for s in parsed.blocks] == ["table"]
 

@@ -227,3 +227,15 @@ def test_table_with_span_over_browser_limit_falls_back_to_text():
 def test_only_column_and_row_header_cells_are_th():
     page = render_html(table_tree(1))
     assert 'el(c.header === "column" || c.header === "row" ? "th" : "td", "", c.text)' in page
+
+
+def test_figure_and_caption_blocks_carry_category_pairing_and_the_layout_notice():
+    image = {"asset": "sha256:" + "a" * 64, "mime": "image/png", "width_px": 10, "height_px": 10, "dpi": 200,
+             "category": "chart", "caption_ref": 1}
+    tree = pdf_tree(1, spec("", 0.3, "figure", figure=image), spec("그림 1. 현황", 0.35, "caption"))
+    page = render_html(tree, {1: b"\xff\xd8jpeg-1"}, layout_notice=True)
+    fig, cap = data_of(page)["blocks"]
+    assert fig["figure"] == {"category": "chart", "caption": cap["id"]} and fig["figure_of"] is None
+    assert cap["figure"] is None and cap["figure_of"] == fig["id"]
+    assert data_of(page)["document"]["layout_notice"].startswith("선·도형 그림·캡션은 레이아웃 추가 설치가 필요")
+    assert "function thumb(" in page and data_of(render_html(tree))["document"]["layout_notice"] is None
