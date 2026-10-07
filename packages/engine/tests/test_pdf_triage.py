@@ -1,7 +1,7 @@
 import pytest
 
 from hanji.formats.pdf.extract import Char, PageText
-from hanji.formats.pdf.triage import classify, page_mode, page_stats
+from hanji.formats.pdf.triage import classify, hidden_chars, page_mode, page_stats
 from hanji_contracts import TextLayerStats
 
 
@@ -66,3 +66,8 @@ def test_scanned_rules_come_before_unreliable():
 def test_page_mode_reads_unreliable_pages_from_the_text_layer():
     """처리 모드는 쪽 상태와 따로다: scanned만 scan, digital과 unreliable(OCR 없이 둔 쪽)은 layer."""
     assert [page_mode(s) for s in ("digital", "scanned", "unreliable")] == ["layer", "scan", "layer"]
+
+
+def test_hidden_chars_count_invisible_non_space_on_any_page():
+    chars = [char("가"), char("나", invisible=True), char(" ", invisible=True), char("다", invisible=True)]
+    assert hidden_chars(page(chars)) == 2 and hidden_chars(page()) == 0

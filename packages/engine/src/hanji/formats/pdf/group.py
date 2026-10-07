@@ -6,7 +6,7 @@
 import re
 import unicodedata
 from collections import Counter, defaultdict, deque
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -87,6 +87,15 @@ class FigureBlock:
         caption = self.figure.caption
         y = caption.box[1] if caption is not None and caption.above else self.figure.box[1]
         return y / page.height_pt
+
+
+@dataclass(frozen=True, slots=True)
+class Ledger:
+    """쪽 하나에서 블록이 된 텍스트 레이어 글자(보이는, 공백이 아닌 글자). in_blocks는 서로 다른 글자 수, doubled는
+    이미 다른 블록에 든 글자를 또 넣은 횟수(표·그림·캡션이 같은 글자를 나눠 가졌다: 버그 신호)."""
+
+    in_blocks: int = 0
+    doubled: int = 0
 
 
 def step(size: float) -> float:
@@ -338,7 +347,19 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                 ocr: Sequence[Sequence[OcrParagraph]] | None = None,
                 figures: Sequence[Sequence[FigureBlock]] | None = None,
                 modes: Sequence[PageMode] | None = None) -> list[dict[str, Any]]:
-    """블록 명세(계약 build_blocks 입력). 모든 쪽에서 보이는 글자로 블록을 만든다(숨은 글자는 fragments가 버린다).
+    """build_page_specs의 블록 명세만."""
+    return build_page_specs(pages, states, tables, ocr, figures, modes)[0]
+
+
+def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
+                     tables: Sequence[Sequence["TableSpec"]] | None = None,
+                     ocr: Sequence[Sequence[OcrParagraph]] | None = None,
+                     figures: Sequence[Sequence[FigureBlock]] | None = None,
+                     modes: Sequence[PageMode] | None = None,
+                     ) -> tuple[list[dict[str, Any]], dict[int, Ledger]]:
+    """(블록 명세, 쪽 번호 → 글자 장부). 장부는 명세를 만들 때 센다: 표·그림·캡션은 char_ids(그림과 짝 캡션은 따로),
+    줄·조각은 블록이 된 조각의 글자 수(표·그림 글자를 뺀 쪽에서 묶어 서로 겹치지 않는다). 숨은 글자·공백은 세지
+    않는다. 블록 명세(계약 build_blocks 입력). 모든 쪽에서 보이는 글자로 블록을 만든다(숨은 글자는 fragments가 버린다).
     unreliable 쪽(깨진 글자층)도 같은 경로지만 그 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않고(섞인 문서의
     digital 쪽 블록이 바뀌지 않게. digital·scanned 글자가 없는 문서만 본문 크기를 그 쪽 글자로 정한다), 제목·머리말을
     만들지 않으며(section_path를 바꾸지 않는다), 그 쪽 블록 신뢰도는 UNRELIABLE_CONFIDENCE 이하다.
@@ -409,10 +430,24 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                    reverse=True)
     specs: list[dict[str, Any]] = []
     stack: list[tuple[int, str]] = []  # (단계, 제목 글자)
+    owned: dict[int, set[int]] = defaultdict(set)  # 쪽 번호 → 블록이 된 표·그림·캡션 글자(page.chars 순번)
+    doubled: Counter[int] = Counter()
+    loose: Counter[int] = Counter()  # 쪽 번호 → 블록이 된 조각 글자 수
+
+    def own(page: PageText, char_ids: Iterable[int]) -> None:
+        for i in char_ids:
+            if page.chars[i].invisible or page.chars[i].text.isspace():
+                continue
+            doubled[page.page] += i in owned[page.page]
+            owned[page.page].add(i)
+
     for page, margin, group in items:
         extra: dict[str, Any] = {}
         if isinstance(group, FigureBlock):
             specs.extend(_figure_specs(group, page, tuple(t for _, t in stack), len(specs)))
+            own(page, group.figure.char_ids)
+            if group.figure.caption is not None:
+                own(page, group.figure.caption.char_ids)
             continue
         if isinstance(group, OcrParagraph):
             text = unicodedata.normalize("NFC", group.text)
@@ -432,6 +467,7 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                           "state": "det", "text_source": "text_layer",
                           "locator": {"kind": "page", "page": page.page,
                                       "bbox": {"x0": x0, "y0": y0, "x1": x1, "y1": y1}}})
+            own(page, group.char_ids)
             continue
         if margin is not None:
             kind, text, path = margin, group[0].text, ()
@@ -451,7 +487,9 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
         specs.append({"kind": kind, "text": text, "section_path": path, "confidence": CONFIDENCE[kind],
                       "state": "det", "text_source": "text_layer",
                       "locator": {"kind": "page", "page": page.page, "bbox": _box(group, page)}, **extra})
+        loose[page.page] += sum(len(f.chars) for f in (group[:1] if margin is not None else group))
     for spec in specs:
         if spec["locator"]["page"] in rough:
             spec["confidence"] = min(spec["confidence"], UNRELIABLE_CONFIDENCE)
-    return specs
+    ledgers = {page.page: Ledger(len(owned[page.page]) + loose[page.page], doubled[page.page]) for page in pages}
+    return specs, ledgers

@@ -4,9 +4,13 @@ import pytest
 
 from hanji.formats.pdf.extract import Char, PageText
 from hanji.formats.pdf.figures import Caption, Figure
-from hanji.formats.pdf.group import LIST_MARKER, FigureBlock, body_size, build_specs, fragments, unit_box
+from hanji.formats.pdf.group import (
+    LIST_MARKER, FigureBlock, Ledger, body_size, build_page_specs, build_specs, fragments, unit_box,
+)
 from hanji.formats.pdf.scan import OcrParagraph
-from hanji_contracts import build_blocks
+from hanji.formats.pdf.tables import TableSpec
+from hanji.formats.pdf.triage import page_stats
+from hanji_contracts import Cell, Table, build_blocks
 
 W, H = 595.0, 842.0
 
@@ -430,3 +434,41 @@ def test_build_specs_takes_page_modes_apart_from_states():
     assert build_specs([p], ["scanned"], modes=["scan"]) == specs(p, states=["scanned"])
     with pytest.raises(ValueError, match="one PageMode per page"):
         build_specs([p], ["digital"], modes=[])
+
+
+def ledger_page(table_ids=range(7, 11), figure_ids=(15, 16), caption_ids=range(11, 15)):
+    """글자 장부용 쪽: 문단(0~6), 표 칸 글자(7~10), 캡션(11~14), 그림 속 글자(15~16), 숨은 글자(17~18). 공백이 셋."""
+    p = page(line("본문 문단이다", 72, 100), line("칸 글자", 80, 320), line("그림 1", 72, 500), line("눈금", 100, 600),
+             line("숨은", 72, 760, invisible=True))
+    cells = [Cell(row=r, col=k, text="칸 글자" if (r, k) == (0, 0) else "", text_source="text_layer")
+             for r in range(2) for k in range(2)]
+    table = TableSpec(bbox=(0.1, 0.35, 0.5, 0.42), table=Table(n_rows=2, n_cols=2, cells=cells),
+                      char_ids=frozenset(table_ids) | {17})  # 숨은 글자 순번이 섞여도 세지 않는다
+    caption = Caption(box=(72.0, 490.0, 200.0, 503.0), text="그림 1", char_ids=frozenset(caption_ids),
+                      line_ids=frozenset(), above=True)
+    fig = Figure(box=(72.0, 520.0, 400.0, 700.0), category="chart", text="눈금", char_ids=frozenset(figure_ids),
+                 caption=caption)
+    return p, [[table]], [[FigureBlock(fig, "text_layer", None)]]
+
+
+def test_ledger_counts_each_visible_char_once_whichever_block_has_it():
+    """문단 6 + 표 3 + 캡션 3 + 그림 2 = 14 = 보이는 공백 아닌 글자 수. 공백·숨은 글자는 세지 않는다."""
+    p, tables, figures = ledger_page()
+    result, ledgers = build_page_specs([p], ["digital"], tables, None, figures)
+    assert [s["kind"] for s in result] == ["paragraph", "table", "caption", "figure"]
+    assert ledgers == {1: Ledger(in_blocks=14, doubled=0)} and page_stats(p).chars == 14
+    assert build_specs([p], ["digital"], tables, None, figures) == result
+
+
+def test_ledger_counts_margin_lines_and_every_page():
+    pages = footer_pages(3)
+    _, ledgers = build_page_specs(pages, ["digital"] * 3)
+    assert ledgers == {p.page: Ledger(in_blocks=page_stats(p).chars) for p in pages}
+
+
+@pytest.mark.parametrize("ids", [{"table_ids": range(7, 12)}, {"figure_ids": (14, 15, 16)}])
+def test_ledger_flags_a_char_given_to_two_blocks(ids):
+    """표와 캡션, 그림과 짝 캡션이 같은 글자를 함께 가져가면(FigureBlock.char_ids 합집합은 겹침을 숨긴다) doubled."""
+    p, tables, figures = ledger_page(**ids)
+    _, ledgers = build_page_specs([p], ["digital"], tables, None, figures)
+    assert ledgers == {1: Ledger(in_blocks=14, doubled=1)}

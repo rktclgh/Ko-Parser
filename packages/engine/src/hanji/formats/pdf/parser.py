@@ -3,12 +3,13 @@
 (text_source="ocr")으로 더한다. 그림은 digital 쪽 이미지 객체(사진)와 레이아웃 모델(선·도형 그림·스캔 쪽 그림·캡션)로
 찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다. unreliable 쪽(글자층이 깨진 쪽)은 digital과 같은
 경로로 깨진 글자층에서 블록을 만들고(신뢰도 상한 group.UNRELIABLE_CONFIDENCE) 처리 이력에 한 줄 남긴다.
+쪽마다 글자 장부(PageInfo.coverage)를 센다. 장부가 맞지 않으면 그 쪽 coverage는 None이고 처리 이력에 한 줄 남긴다.
 쪽 렌더는 필요한 쪽만 한 번(PDFIUM_LOCK 안), OCR·모델·PNG 인코딩은 잠금 밖에서 한다."""
 
 from dataclasses import dataclass, field
 from typing import Any
 
-from hanji_contracts import Attempt, BBox, PageInfo, PageLocator, RegionRecord
+from hanji_contracts import Attempt, BBox, PageInfo, PageLocator, RegionRecord, TextCoverage, TextLayerStats
 from PIL import Image
 
 from ..base import ParsedSource
@@ -16,10 +17,10 @@ from . import figures, scan
 from . import layout as layout_runtime
 from . import ocr as ocr_runtime
 from .extract import PageText, extract_pages
-from .group import FigureBlock, build_specs, unit_box
+from .group import FigureBlock, Ledger, build_page_specs, unit_box
 from .scan import OcrParagraph
 from .tables import TableSpec, find_tables
-from .triage import PageMode, classify, page_mode, page_stats
+from .triage import PageMode, classify, hidden_chars, page_mode, page_stats
 
 MIME = "application/pdf"
 RENDER_DPI = 144
@@ -30,6 +31,7 @@ NO_IMAGE_MODEL = ("layout-model figure image not stored "
 NO_IMAGE_PHOTO = ("image-object figure image not stored "
                   "(empty crop or document figure bytes over MAX_DOCUMENT_ASSET_BYTES)")
 UNRELIABLE_KEPT = "unreliable_text_layer_kept"  # unreliable 쪽을 OCR 없이 깨진 글자층으로 블록을 만들었다
+COVERAGE_MISMATCH = "coverage_mismatch"  # 글자 장부가 맞지 않는다(보이는 글자가 블록에 정확히 한 번씩 들지 않았다: 버그)
 FULL_PAGE = (0.0, 0.0, 1.0, 1.0)  # 쪽 단위 처리 이력의 상자(보이는 쪽 0~1)
 
 
@@ -63,9 +65,6 @@ class PdfParser:
         pages = extract_pages(data, name)
         stats = [page_stats(page) for page in pages]
         states = [classify(s) for s in stats]
-        infos = tuple(PageInfo(page=page.page, width_pt=page.width_pt, height_pt=page.height_pt,
-                               rotation=page.rotation, render_dpi=RENDER_DPI, text_layer=state, text_stats=s)
-                      for page, s, state in zip(pages, stats, states, strict=True))
         use_ocr = "scanned" in states and bool(self.ocr or (self.ocr is None and ocr_runtime.available()))
         if use_ocr:
             ocr_runtime.get_reader()  # 깨진 설치는 쪽을 그리기 전에 알린다
@@ -90,10 +89,27 @@ class PdfParser:
                                                  UNRELIABLE_KEPT, False))
             results[index] = result
         done = [results[k] for k in range(len(pages))]
-        blocks = build_specs(pages, states, [d.tables for d in done], [d.paras for d in done],
-                             [d.figures for d in done], modes=modes)
-        return ParsedSource(mime=MIME, pages=infos, blocks=tuple(blocks), assets=budget.assets,
+        blocks, ledgers = build_page_specs(pages, states, [d.tables for d in done], [d.paras for d in done],
+                                           [d.figures for d in done], modes=modes)
+        infos = []
+        for page, s, state, result in zip(pages, stats, states, done, strict=True):
+            coverage = _coverage(page, s, ledgers[page.page])
+            if coverage is None:
+                result.regions.append(_region(page, "coverage", FULL_PAGE, "paragraph", COVERAGE_MISMATCH, False))
+            infos.append(PageInfo(page=page.page, width_pt=page.width_pt, height_pt=page.height_pt,
+                                  rotation=page.rotation, render_dpi=RENDER_DPI, text_layer=state, text_stats=s,
+                                  coverage=coverage))
+        return ParsedSource(mime=MIME, pages=tuple(infos), blocks=tuple(blocks), assets=budget.assets,
                             regions=tuple(r for d in done for r in d.regions))
+
+
+def _coverage(page: PageText, stats: TextLayerStats, ledger: Ledger) -> TextCoverage | None:
+    """쪽 글자 장부. 보이는 공백 아닌 글자(stats.chars)가 블록에 정확히 한 번씩 들었을 때만, 아니면 None(버그 신호:
+    파싱을 실패시키지 않고 처리 이력에 coverage_mismatch를 남긴다). replaced·rescued는 아직 늘 0이다."""
+    if ledger.in_blocks != stats.chars or ledger.doubled:
+        return None
+    hidden = hidden_chars(page)
+    return TextCoverage(layer_chars=stats.chars + hidden, in_blocks=ledger.in_blocks, hidden=hidden)
 
 
 def _page(data: bytes, name: str, index: int, page: PageText, mode: PageMode, tables: list[TableSpec],

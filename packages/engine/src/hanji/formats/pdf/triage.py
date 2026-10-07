@@ -49,6 +49,11 @@ def classify(stats: TextLayerStats) -> TextLayerState:
     return "digital"
 
 
+def hidden_chars(page: PageText) -> int:
+    """숨은(렌더 모드 3) 공백 아닌 글자 수. 쪽 상태와 상관없이 블록에 넣지 않는다(글자 장부의 hidden)."""
+    return sum(1 for c in page.chars if c.invisible and not c.text.isspace())
+
+
 def page_mode(state: TextLayerState) -> PageMode:
     """쪽 상태 → 처리 모드. scanned만 scan이고 digital·unreliable은 텍스트 레이어로 읽는다."""
     return "scan" if state == "scanned" else "layer"

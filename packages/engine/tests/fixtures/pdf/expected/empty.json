@@ -24,7 +24,13 @@
         "pua_ratio": 0.0,
         "max_image_coverage": 0.0
       },
-      "coverage": null
+      "coverage": {
+        "layer_chars": 0,
+        "in_blocks": 0,
+        "hidden": 0,
+        "replaced": 0,
+        "rescued": 0
+      }
     }
   ],
   "blocks": []

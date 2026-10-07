@@ -503,3 +503,6 @@ def test_unreliable_page_keeps_capped_figures_and_takes_only_the_asset_budget_le
     assert "figure" not in capped.blocks[1] and {b["confidence"] for b in capped.blocks[:4]} == {0.2}
     assert [(r.region_id, r.fallback_reason) for r in capped.regions] == [
         ("p1-unreliable-text-layer", "unreliable_text_layer_kept"), ("p1-figure-1", pdf_parser.NO_IMAGE_MODEL)]
+    for parsed in (full, capped):  # 글자 장부: 이미지가 있든 없든 그림·캡션·문단 글자가 쪽마다 정확히 한 번
+        assert [(p.coverage.in_blocks, p.coverage.hidden) for p in parsed.pages] == [
+            (p.text_stats.chars, 0) for p in parsed.pages]
