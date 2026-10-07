@@ -81,13 +81,13 @@ def fake_model_files(monkeypatch, tmp_path) -> None:
 
 
 def blocks(data: bytes, parser: PdfParser | None = None) -> list[tuple[str, str, str]]:
-    return [(b["kind"], b["text_source"], b["text"]) for b in (parser or PdfParser()).parse(data, "s.pdf").blocks]
+    return [(b["kind"], b["text_source"], b["text"]) for b in (parser or PdfParser(layout=False)).parse(data, "s.pdf").blocks]
 
 
 def test_scanned_page_text_becomes_ocr_paragraph_blocks():
     pytest.importorskip("onnxruntime")
     require_models(*ocr.MODEL_NAMES)
-    parsed = PdfParser().parse(pdf(lambda c: scanned_page(c, 300, 400, BODY)), "s.pdf")
+    parsed = PdfParser(layout=False).parse(pdf(lambda c: scanned_page(c, 300, 400, BODY)), "s.pdf")
     assert parsed.pages[0].text_layer == "scanned"
     assert [(b["kind"], b["text_source"], b["text"]) for b in parsed.blocks] == [
         ("paragraph", "ocr", "스캔한 쪽의 글자를 읽는다.\n두 줄로 된 문단이다."),
@@ -120,9 +120,9 @@ def test_ocr_off_or_not_installed_keeps_text_layer_only(monkeypatch):
     data = pdf(lambda c: scanned_page(c, 300, 400, BODY, visible=[(148, 20, 9, "1")]))
     expected = [("paragraph", "text_layer", "1")]
     monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("OCR을 끄면 쪽을 그리지 않는다"))
-    assert blocks(data, PdfParser(ocr=False)) == expected
+    assert blocks(data, PdfParser(ocr=False, layout=False)) == expected  # 레이아웃을 켜면 scanned 쪽을 그린다
     monkeypatch.setattr(ocr, "available", lambda: False)
-    assert blocks(data, PdfParser()) == expected
+    assert blocks(data, PdfParser(layout=False)) == expected
 
 
 def test_ocr_true_without_the_install_fails_at_construction(monkeypatch):
@@ -136,7 +136,7 @@ def test_ocr_true_without_the_install_fails_at_construction(monkeypatch):
 def test_auto_mode_does_not_check_the_install_without_scanned_pages(monkeypatch):
     """자동 모드: scanned 쪽이 없는 문서는 OCR 추가 설치를 확인하지 않는다(디지털 문서 파싱에 import 비용 없음)."""
     monkeypatch.setattr(ocr, "available", lambda: pytest.fail("scanned 쪽이 없으면 설치를 확인하지 않는다"))
-    parsed = PdfParser().parse((FIXTURES / "report.pdf").read_bytes(), "report.pdf")
+    parsed = PdfParser(layout=False).parse((FIXTURES / "report.pdf").read_bytes(), "report.pdf")
     assert {p.text_layer for p in parsed.pages} == {"digital"} and parsed.blocks
 
 
@@ -150,10 +150,10 @@ def test_auto_mode_with_a_broken_install_raises_instead_of_falling_back(monkeypa
     monkeypatch.setattr(ocr, "available", lambda: True)
     monkeypatch.setattr(ocr, "get_reader", broken)
     data = (FIXTURES / name).read_bytes()
-    assert [p.text_layer for p in PdfParser(ocr=False).parse(data, name).pages] == ["scanned"]
+    assert [p.text_layer for p in PdfParser(ocr=False, layout=False).parse(data, name).pages] == ["scanned"]
     monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("깨진 설치는 쪽을 그리기 전에 알린다"))
     with pytest.raises(OcrUnavailable, match="--no-ocr"):
-        PdfParser().parse(data, name)
+        PdfParser(layout=False).parse(data, name)
 
 
 def broken_module(monkeypatch, tmp_path, name: str = "onnxruntime") -> None:
@@ -220,9 +220,9 @@ def test_auto_mode_without_ocr_model_files_behaves_as_not_installed(monkeypatch)
     """자동 모드 + 모델 파일 없음: 파싱은 멈추지 않고 OCR 없이(텍스트 레이어만), 쪽도 그리지 않는다."""
     without_model_files(monkeypatch)
     data = (FIXTURES / "image_page.pdf").read_bytes()
-    expected = PdfParser(ocr=False).parse(data, "image_page.pdf").blocks
+    expected = PdfParser(ocr=False, layout=False).parse(data, "image_page.pdf").blocks
     monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("OCR을 안 하면 쪽을 그리지 않는다"))
-    assert PdfParser().parse(data, "image_page.pdf").blocks == expected
+    assert PdfParser(layout=False).parse(data, "image_page.pdf").blocks == expected
 
 
 def test_auto_mode_with_a_wrong_ocr_model_file_raises(monkeypatch, tmp_path):
@@ -232,7 +232,7 @@ def test_auto_mode_with_a_wrong_ocr_model_file_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(ocr, "_reader", None)
     monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("깨진 설치는 쪽을 그리기 전에 알린다"))
     with pytest.raises(OcrUnavailable, match=r"does not match the pinned size and SHA-256.*--no-ocr"):
-        PdfParser().parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
+        PdfParser(layout=False).parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
 
 
 @pytest.mark.skipif(sys.platform == "win32" or getattr(os, "geteuid", lambda: -1)() == 0,
@@ -251,7 +251,7 @@ def test_auto_mode_with_an_unreadable_ocr_model_file_raises_the_config_error(mon
     try:
         with pytest.raises(OcrUnavailable, match=r"model file .*det\.onnx could not be read \(Permission denied\); "
                                                   r".*`ko-parser models fetch ocr`.*, or run with --no-ocr$"):
-            PdfParser().parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
+            PdfParser(layout=False).parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
     finally:
         det.chmod(0o644)
 
@@ -266,13 +266,13 @@ def test_auto_mode_with_an_unopenable_model_folder_behaves_as_not_installed(monk
     monkeypatch.setattr(ocr, "MODULES", ())
     monkeypatch.setattr(ocr, "_reader", None)
     data = (FIXTURES / "image_page.pdf").read_bytes()
-    expected = PdfParser(ocr=False).parse(data, "image_page.pdf").blocks
+    expected = PdfParser(ocr=False, layout=False).parse(data, "image_page.pdf").blocks
     folder = tmp_path / "models" / "ocr"
     folder.chmod(0)
     try:
         assert ocr.available() is False
         monkeypatch.setattr(scan, "render", lambda *a: pytest.fail("OCR을 안 하면 쪽을 그리지 않는다"))
-        assert PdfParser().parse(data, "image_page.pdf").blocks == expected
+        assert PdfParser(layout=False).parse(data, "image_page.pdf").blocks == expected
         with pytest.raises(OcrUnavailable, match=r"ocr/det\.onnx not found; .*models fetch ocr`.*--no-ocr"):
             PdfParser(ocr=True)
     finally:
@@ -313,7 +313,7 @@ def test_auto_mode_with_a_broken_module_raises(monkeypatch, tmp_path, name):
     않고 OcrUnavailable(설정 오류)."""
     broken_module(monkeypatch, tmp_path)
     with pytest.raises(OcrUnavailable, match=r"onnxruntime .*libstub"):
-        PdfParser().parse((FIXTURES / name).read_bytes(), name)
+        PdfParser(layout=False).parse((FIXTURES / name).read_bytes(), name)
 
 
 def test_visible_text_is_not_read_twice_and_blocks_merge_by_top():
@@ -337,7 +337,7 @@ def test_ocr_blocks_follow_the_previous_heading():
         for i in range(4):
             put(c, 40, 300 - 16 * i, 11, "본문 크기를 정하는 디지털 쪽의 글자다.")
 
-    parsed = PdfParser().parse(pdf(digital, lambda c: scanned_page(c, 300, 400, BODY[2:])), "s.pdf")
+    parsed = PdfParser(layout=False).parse(pdf(digital, lambda c: scanned_page(c, 300, 400, BODY[2:])), "s.pdf")
     ocr_blocks = [b for b in parsed.blocks if b["text_source"] == "ocr"]
     assert [(b["text"], b["section_path"]) for b in ocr_blocks] == [("다음 문단은 한 줄이다.", ("1. 추진 배경",))]
 
@@ -357,8 +357,8 @@ def test_rotated_scanned_page_has_visible_page_coordinates():
         c.rotate(90)
         c.drawImage(ImageReader(image), 0, 0, width=300, height=400)
 
-    plain = PdfParser().parse(pdf(upright), "u.pdf")
-    turned = PdfParser().parse(pdf(rotated), "r.pdf")
+    plain = PdfParser(layout=False).parse(pdf(upright), "u.pdf")
+    turned = PdfParser(layout=False).parse(pdf(rotated), "r.pdf")
     assert turned.pages[0].rotation == 90 and (turned.pages[0].width_pt, turned.pages[0].height_pt) == (300, 400)
     assert [b["text"] for b in turned.blocks] == [b["text"] for b in plain.blocks] and len(plain.blocks) == 2
     for a, b in zip(plain.blocks, turned.blocks):
@@ -378,7 +378,7 @@ def test_scanned_golden_inputs_are_the_same_with_ocr_on(name):
     pytest.importorskip("onnxruntime")
     require_models(*ocr.MODEL_NAMES)
     data = (FIXTURES / name).read_bytes()
-    assert PdfParser(ocr=True).parse(data, name) == PdfParser(ocr=False).parse(data, name)
+    assert PdfParser(ocr=True, layout=False).parse(data, name) == PdfParser(ocr=False, layout=False).parse(data, name)
 
 
 def test_parallel_parses_give_the_same_ocr_blocks():
@@ -388,7 +388,7 @@ def test_parallel_parses_give_the_same_ocr_blocks():
     from concurrent.futures import ThreadPoolExecutor
 
     data = pdf(lambda c: scanned_page(c, 300, 400, BODY))
-    expected = PdfParser().parse(data, "s.pdf")
+    expected = PdfParser(layout=False).parse(data, "s.pdf")
     with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(lambda _: PdfParser().parse(data, "s.pdf"), range(8)))
+        results = list(pool.map(lambda _: PdfParser(layout=False).parse(data, "s.pdf"), range(8)))
     assert all(r == expected for r in results) and len(expected.blocks) == 2

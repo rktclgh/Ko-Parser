@@ -11,7 +11,7 @@ import pytest
 from ko_parser import LocalEngine, MemoryStore, models
 from ko_parser.cli import main
 from ko_parser.errors import OcrUnavailable
-from ko_parser.formats.pdf import ocr
+from ko_parser.formats.pdf import layout, ocr
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "ocr" / "scanned.pdf"
 DATA = re.compile(r'<script type="application/json" id="ko-data">(.*?)</script>', re.DOTALL)
@@ -30,6 +30,12 @@ def require_models(*names: str) -> None:
         if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
             pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
         pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+
+
+@pytest.fixture(autouse=True)
+def no_layout(monkeypatch):
+    """OCR 예제만 본다: 레이아웃 모델은 설치가 없을 때처럼 끈다(모델 상자는 test_pdf_layout*.py가 본다)."""
+    monkeypatch.setattr(layout, "available", lambda: False)
 
 
 @pytest.fixture

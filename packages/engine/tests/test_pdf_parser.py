@@ -123,7 +123,7 @@ def test_reingest_keeps_block_ids(tmp_path):
 
 def test_page_state_change_without_block_change_is_a_new_version(tmp_path):
     path = write(tmp_path / "a.pdf", make_pdf([[(770, "숨은 글자층이다.", 3)]]))
-    engine = LocalEngine(MemoryStore())
+    engine = LocalEngine(MemoryStore(), default_parsers(layout=False))  # 레이아웃을 켜면 회색 사각형이 그림 블록이 된다
     engine.ingest(str(path), document_id="d")
     write(path, draw_pdf(lambda c: (put(c, 72, 770, 11, "다른 숨은 글자층이다.", 3),
                                     c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 72, 72, width=100, height=100))))
@@ -184,7 +184,7 @@ def test_scanned_image_page_keeps_visible_text_as_blocks():
         c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 97.5, 300, width=400, height=370)
         put(c, 282, 30, 9, "- 3 -")
 
-    parsed = PdfParser().parse(draw_pdf(draw), "scan.pdf")
+    parsed = PdfParser(layout=False).parse(draw_pdf(draw), "scan.pdf")  # 레이아웃은 회색 사각형을 그림으로 본다
     assert parsed.pages[0].text_layer == "scanned"
     assert [(b["text"], b["text_source"], b["locator"]["page"]) for b in parsed.blocks] == [("- 3 -", "text_layer", 1)]
 

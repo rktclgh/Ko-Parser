@@ -213,17 +213,22 @@ def paragraphs(lines: Sequence[OcrText], page: PageText) -> list[OcrParagraph]:
             for g in groups]
 
 
+def page_lines(image: Image.Image, page: PageText) -> list[OcrText]:
+    """쪽 그림 한 장 → 거른 OCR 줄(보이는 쪽 pt, 텍스트 레이어 우선·점수 거르기). 잠금 밖에서 부른다."""
+    return [t for t in to_page(ocr.read_lines(image), image.size, page) if keep(t, page)]
+
+
 def page_paragraphs(data: bytes, name: str, index: int, page: PageText) -> list[OcrParagraph]:
     """쪽 하나: 렌더(잠금 안) → OCR(잠금 밖) → 거르기 → 순서 → 문단."""
     image = render(data, name, index)
-    lines = [t for t in to_page(ocr.read_lines(image), image.size, page) if keep(t, page)]
-    return paragraphs(reading_order(lines), page)
+    return paragraphs(reading_order(page_lines(image, page)), page)
 
 
 def ocr_pages(data: bytes, name: str, pages: Sequence[PageText],
               states: Sequence[TextLayerState]) -> list[list[OcrParagraph]]:
     """쪽마다 OCR 문단. scanned 쪽만 읽고 나머지는 빈 목록. 읽을 쪽이 있으면 읽개를 먼저 만든다: 깨진 설치는
-    쪽을 그리기 전에 OcrUnavailable."""
+    쪽을 그리기 전에 OcrUnavailable. 파서는 쓰지 않는다(쪽 렌더를 OCR·레이아웃이 함께 쓰려고 page_lines를 쓴다):
+    회전·CropBox 쪽 OCR 좌표 테스트(test_pdf_scan)가 쓰는 한 쪽 읽기 경로로 남긴다."""
     if "scanned" in states:
         ocr.get_reader()
     return [page_paragraphs(data, name, i, page) if state == "scanned" else []
