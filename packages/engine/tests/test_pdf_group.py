@@ -2,11 +2,11 @@ import unicodedata
 
 import pytest
 
-from ko_parser.formats.pdf.extract import Char, PageText
-from ko_parser.formats.pdf.figures import Caption, Figure
-from ko_parser.formats.pdf.group import LIST_MARKER, FigureBlock, body_size, build_specs, fragments, unit_box
-from ko_parser.formats.pdf.scan import OcrParagraph
-from ko_parser_contracts import build_blocks
+from hanji.formats.pdf.extract import Char, PageText
+from hanji.formats.pdf.figures import Caption, Figure
+from hanji.formats.pdf.group import LIST_MARKER, FigureBlock, body_size, build_specs, fragments, unit_box
+from hanji.formats.pdf.scan import OcrParagraph
+from hanji_contracts import build_blocks
 
 W, H = 595.0, 842.0
 

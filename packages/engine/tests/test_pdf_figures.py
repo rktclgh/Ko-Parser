@@ -8,12 +8,12 @@ import time
 
 from PIL import Image
 
-from ko_parser.formats.pdf import figures
-from ko_parser.formats.pdf.extract import Char, PageText
-from ko_parser.formats.pdf.figures import Region
-from ko_parser.formats.pdf.scan import OcrText
-from ko_parser.formats.pdf.tables import TableSpec
-from ko_parser_contracts import Cell, Table
+from hanji.formats.pdf import figures
+from hanji.formats.pdf.extract import Char, PageText
+from hanji.formats.pdf.figures import Region
+from hanji.formats.pdf.scan import OcrText
+from hanji.formats.pdf.tables import TableSpec
+from hanji_contracts import Cell, Table
 
 W, H = 595.0, 842.0
 

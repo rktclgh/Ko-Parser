@@ -2,12 +2,12 @@ import asyncio
 
 import pytest
 
-from ko_parser_contracts.geometry import BBox
-from ko_parser_contracts.provenance import ErrorInfo
-from ko_parser_contracts.testing import (
+from hanji_contracts.geometry import BBox
+from hanji_contracts.provenance import ErrorInfo
+from hanji_contracts.testing import (
     Recording, RecordingMeta, ReplayDriver, ReplayMiss, ScriptedDriver, request_fingerprint, tiny_png,
 )
-from ko_parser_contracts.vlm import ImagePayload, PageRef, VlmDriver, VlmError, VlmRequest, VlmResult
+from hanji_contracts.vlm import ImagePayload, PageRef, VlmDriver, VlmError, VlmRequest, VlmResult
 
 BOX = BBox(x0=0, y0=0, x1=1, y1=1)
 

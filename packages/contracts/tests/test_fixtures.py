@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ko_parser_contracts import ChangeBatch, DocumentTree, ProcessingHistory, VlmRequest, VlmResult
-from ko_parser_contracts.testing import Recording, ReplayDriver
+from hanji_contracts import ChangeBatch, DocumentTree, ProcessingHistory, VlmRequest, VlmResult
+from hanji_contracts.testing import Recording, ReplayDriver
 
 ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 MODEL_BY_GLOB = {

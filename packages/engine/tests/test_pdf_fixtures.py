@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from ko_parser import LocalEngine, MemoryStore
-from ko_parser.formats.detect import default_parsers
-from ko_parser_contracts import DocumentTree
+from hanji import LocalEngine, MemoryStore
+from hanji.formats.detect import default_parsers
+from hanji_contracts import DocumentTree
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE / "fixtures" / "pdf"

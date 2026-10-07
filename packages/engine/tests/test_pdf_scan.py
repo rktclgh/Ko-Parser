@@ -6,10 +6,10 @@ import os
 import pytest
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser import models
-from ko_parser.formats.pdf import scan
-from ko_parser.formats.pdf.extract import Char, PageText
-from ko_parser.formats.pdf.ocr import MODEL_NAMES, OcrLine
+from hanji import models
+from hanji.formats.pdf import scan
+from hanji.formats.pdf.extract import Char, PageText
+from hanji.formats.pdf.ocr import MODEL_NAMES, OcrLine
 
 W, H = 600.0, 800.0
 
@@ -127,12 +127,12 @@ def test_render_is_200_dpi_in_the_visible_frame():
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 def test_huge_page_render_is_capped():
@@ -146,13 +146,13 @@ def test_ocr_boxes_on_a_page_with_offset_cropbox_are_in_visible_page_coordinates
     쪽만 그리므로 OCR 블록 상자는 보이는 쪽 0~1에서 글자가 실제로 있는 자리에 온다."""
     pytest.importorskip("onnxruntime")
     require_models(*MODEL_NAMES)
-    ko_parser_fonts = pytest.importorskip("ko_parser_fonts")
+    hanji_fonts = pytest.importorskip("hanji_fonts")
     from PIL import Image, ImageDraw, ImageFont
     from reportlab.lib.utils import ImageReader
 
-    from ko_parser.formats.pdf.extract import extract_pages
+    from hanji.formats.pdf.extract import extract_pages
 
-    font = ImageFont.truetype(str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE), 40)
+    font = ImageFont.truetype(str(hanji_fonts.font_dir() / hanji_fonts.FONT_FILE), 40)
     image = Image.new("RGB", (1000, 200), "white")
     ImageDraw.Draw(image).text((60, 60), "스캔한 쪽의 글자를 읽는다.", font=font, fill="black")
     ink = Image.eval(image.convert("L"), lambda v: 255 - v).getbbox()  # 글자 잉크 상자(화소)
@@ -180,13 +180,13 @@ def test_ocr_boxes_on_a_rotated_scanned_page_are_in_visible_page_coordinates():
     블록 상자는 보이는 쪽 0~1에서 글자가 실제로 있는 자리에 온다(PDF 점 (x, y)는 보이는 (y, x))."""
     pytest.importorskip("onnxruntime")
     require_models(*MODEL_NAMES)
-    ko_parser_fonts = pytest.importorskip("ko_parser_fonts")
+    hanji_fonts = pytest.importorskip("hanji_fonts")
     from PIL import Image, ImageDraw, ImageFont
     from reportlab.lib.utils import ImageReader
 
-    from ko_parser.formats.pdf.extract import extract_pages
+    from hanji.formats.pdf.extract import extract_pages
 
-    font = ImageFont.truetype(str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE), 40)
+    font = ImageFont.truetype(str(hanji_fonts.font_dir() / hanji_fonts.FONT_FILE), 40)
     upright = Image.new("RGB", (1000, 200), "white")
     ImageDraw.Draw(upright).text((60, 60), "돌린 쪽의 글자도 바로 읽는다.", font=font, fill="black")
     image = upright.rotate(90, expand=True)  # 200×1000, 반시계로 눕힘(쪽 회전 90°가 시계 방향으로 세운다)

@@ -15,7 +15,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser.formats.pdf.scan import render
+from hanji.formats.pdf.scan import render
 
 OUT = Path(__file__).resolve().parent / "fixtures" / "ocr" / "scanned.pdf"
 FONT = "HYGothic-Medium"

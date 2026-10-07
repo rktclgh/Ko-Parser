@@ -1,0 +1,19 @@
+hanji model files
+
+hanji does not include or redistribute model weights. `hanji models fetch` downloads the files listed in
+models.toml from the Hugging Face repositories below (pinned by commit) and checks each file's size and SHA-256.
+The model files are licensed under the Apache License 2.0 (license: apache-2.0 in each model card; see LICENSE in
+this folder for the license text). Model weights: PaddlePaddle Authors.
+
+OCR detection: ocr/det.onnx
+  PaddleOCR PP-OCRv5 mobile text detection, official ONNX export.
+  Source: https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx (commit e6f4fa85f00e168c862bc462aebca69eef9b3d3d)
+
+OCR recognition: ocr/rec.onnx, ocr/rec.yml
+  PaddleOCR PP-OCRv5 Korean mobile text recognition, official ONNX export and its inference config (the character
+  list is read from PostProcess.character_dict).
+  Source: https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx (commit 5c6f574b8e2230adf4287b33e736d71b9fabd28e)
+
+Layout: layout/inference.onnx, layout/inference.yml
+  PaddlePaddle PP-DocLayout_plus-L, official ONNX export and its inference config (label_list).
+  Source: https://huggingface.co/PaddlePaddle/PP-DocLayout_plus-L_onnx (commit feb74619326f634e0e883218598096a3733ad9f7)

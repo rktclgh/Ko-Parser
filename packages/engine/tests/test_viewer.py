@@ -3,10 +3,10 @@ import re
 
 import pytest
 
-from ko_parser.core import build_tree
-from ko_parser.formats.base import ParsedSource
-from ko_parser.viewer import render_html
-from ko_parser_contracts import DocumentTree, PageInfo, SourceInfo, TextLayerStats
+from hanji.core import build_tree
+from hanji.formats.base import ParsedSource
+from hanji.viewer import render_html
+from hanji_contracts import DocumentTree, PageInfo, SourceInfo, TextLayerStats
 
 DATA = re.compile(r'<script type="application/json" id="ko-data">(.*?)</script>', re.DOTALL)
 A4 = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
@@ -41,7 +41,7 @@ def test_structure_pages_blocks_and_page_states():
     tree = pdf_tree(1, spec("제목", 0.1, "heading", level=1), spec("본문", 0.2), spec("- 2 -", 0.9, page=2))
     page = render_html(tree, {1: b"\xff\xd8jpeg-1", 2: b"\xff\xd8jpeg-2"})
     data = data_of(page)
-    assert page.startswith("<!doctype html>") and "<title>보고서.pdf — ko-parser 뷰어</title>" in page
+    assert page.startswith("<!doctype html>") and "<title>보고서.pdf — hanji 뷰어</title>" in page
     assert [p["page"] for p in data["pages"]] == [1, 2] and len(data["blocks"]) == 3
     assert data["pages"][0]["image"] == "data:image/jpeg;base64,/9hqcGVnLTE="
     assert data["pages"][1]["state"] == "scanned" and data["pages"][1]["stats"]["max_image_coverage"] == 0.6
@@ -128,7 +128,7 @@ def test_no_external_resources_and_deterministic():
 
 
 def test_table_block_shows_markdown_table():
-    from ko_parser_contracts import Cell, Table
+    from hanji_contracts import Cell, Table
 
     table = Table(n_rows=2, n_cols=2, cells=[
         Cell(row=0, col=0, text="구분", header="column", text_source="text_layer"),
@@ -150,7 +150,7 @@ def test_page_notice_is_not_overlaid_on_page_image():
 
 
 def merged_table(text: str = "실적"):
-    from ko_parser_contracts import Cell, Table
+    from hanji_contracts import Cell, Table
 
     return Table(n_rows=2, n_cols=3, cells=[  # 칸 순서를 일부러 섞는다
         Cell(row=1, col=2, text="나", text_source="text_layer"),
@@ -208,7 +208,7 @@ def test_grid_keeps_words_whole_scrolls_wide_tables_and_scopes_header_cells():
 
 def test_table_with_span_over_browser_limit_falls_back_to_text():
     """브라우저는 colSpan을 1000, rowSpan을 65534로 자른다. 넘는 칸이 있으면 격자 대신 마크다운 글자(textContent)로."""
-    from ko_parser_contracts import Cell, Table
+    from hanji_contracts import Cell, Table
 
     table = Table(n_rows=2, n_cols=1001, cells=[Cell(row=0, col=0, colspan=1001, text="머리", text_source="text_layer"),
                                                 *(Cell(row=1, col=k, text=str(k), text_source="text_layer")

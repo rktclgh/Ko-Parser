@@ -12,7 +12,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser.cli import main
+from hanji.cli import main
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -21,7 +21,7 @@ DATA = re.compile(r'<script type="application/json" id="ko-data">(.*?)</script>'
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    monkeypatch.delenv("KO_PARSER_DB", raising=False)
+    monkeypatch.delenv("HANJI_DB", raising=False)
     return tmp_path / "상태" / "state.db"
 
 
@@ -104,7 +104,7 @@ def test_view_marks_changes_against_previous_version(capsys, db, tmp_path):
                                   ["view", "a.pdf", "--out", ""]])
 def test_view_usage_errors_exit_2(capsys, tmp_path, monkeypatch, argv):
     state = tmp_path / "state.db"
-    monkeypatch.setenv("KO_PARSER_DB", str(state))
+    monkeypatch.setenv("HANJI_DB", str(state))
     assert run(capsys, *argv)[0] == 2
     assert not state.exists()
 
@@ -140,12 +140,12 @@ def test_view_reuses_version_for_byte_different_pdf_with_same_tree(capsys, db, t
 
 def test_view_renders_exactly_the_ingested_bytes(capsys, db, tmp_path, monkeypatch):
     """수집 뒤 파일이 바뀌어도 수집한 바이트 그대로 쪽 그림을 만든다(파일은 한 번만 읽는다)."""
-    import ko_parser.cli
-    from ko_parser.engine import LocalEngine
+    import hanji.cli
+    from hanji.engine import LocalEngine
 
     pdf = write(tmp_path / "a.pdf", make_pdf("본문"))
     seen = {}
-    ingest_bytes, render = LocalEngine.ingest_bytes, ko_parser.cli.render_page_images
+    ingest_bytes, render = LocalEngine.ingest_bytes, hanji.cli.render_page_images
 
     def ingest_then_change(self, data, *args, **kwargs):
         seen["ingested"] = data
@@ -158,7 +158,7 @@ def test_view_renders_exactly_the_ingested_bytes(capsys, db, tmp_path, monkeypat
         return render(data, *args, **kwargs)
 
     monkeypatch.setattr(LocalEngine, "ingest_bytes", ingest_then_change)
-    monkeypatch.setattr(ko_parser.cli, "render_page_images", record_render)
+    monkeypatch.setattr(hanji.cli, "render_page_images", record_render)
     out = tmp_path / "a.html"
     assert run(capsys, "view", pdf, "--db", db, "--out", out)[0] == 0
     assert seen["rendered"] is seen["ingested"] and [b["text"] for b in view_data(out)["blocks"]] == ["본문"]
@@ -166,7 +166,7 @@ def test_view_renders_exactly_the_ingested_bytes(capsys, db, tmp_path, monkeypat
 
 def test_view_writes_lone_surrogate_text_as_replacement(capsys, db, tmp_path, monkeypatch):
     """짝 없는 서로게이트가 든 블록 글자도 HTML을 쓴다(인코딩 못 하는 글자는 '?')."""
-    from ko_parser.engine import LocalEngine
+    from hanji.engine import LocalEngine
 
     get_tree = LocalEngine.get_tree
 
@@ -195,7 +195,7 @@ def test_view_default_output_directory_fails_before_store(capsys, db, tmp_path, 
 
 def test_view_failure_keeps_existing_html_and_leaves_no_temp(capsys, db, tmp_path, monkeypatch):
     """실패하면 이전 HTML은 바이트 그대로, 임시 파일은 남지 않는다."""
-    import ko_parser.cli
+    import hanji.cli
 
     out_dir = tmp_path / "결과"
     out = write(out_dir / "a.html", b"old html\n")
@@ -205,7 +205,7 @@ def test_view_failure_keeps_existing_html_and_leaves_no_temp(capsys, db, tmp_pat
         raise RuntimeError("render failed")
 
     with monkeypatch.context() as m:
-        m.setattr(ko_parser.cli, "render_html", fail_render)
+        m.setattr(hanji.cli, "render_html", fail_render)
         code, stdout, err = run(capsys, "view", pdf, "--db", db, "--out", out)
     assert (code, stdout) == (1, "") and "render failed" in err
     assert out.read_bytes() == b"old html\n" and sorted(out_dir.iterdir()) == [out]
@@ -217,7 +217,7 @@ def test_view_failure_keeps_existing_html_and_leaves_no_temp(capsys, db, tmp_pat
             raise OSError("replace failed")
         return replace(src, dst, *args, **kwargs)
 
-    monkeypatch.setattr(ko_parser.cli.os, "replace", fail_for_temp)
+    monkeypatch.setattr(hanji.cli.os, "replace", fail_for_temp)
     code, stdout, err = run(capsys, "view", pdf, "--db", db, "--out", out)
     assert (code, stdout) == (1, "") and "replace failed" in err
     assert out.read_bytes() == b"old html\n" and sorted(out_dir.iterdir()) == [out]

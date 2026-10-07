@@ -2,8 +2,8 @@ import codecs
 
 import pytest
 
-from ko_parser.errors import ParseError
-from ko_parser.formats.text import decode_text
+from hanji.errors import ParseError
+from hanji.formats.text import decode_text
 
 
 def test_utf8_plain_and_bom():

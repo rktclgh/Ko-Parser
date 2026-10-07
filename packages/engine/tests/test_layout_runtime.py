@@ -1,5 +1,5 @@
 """레이아웃 실행부의 설치 확인·세션 캐시. onnxruntime·실제 모델 없이 돈다(설치 확인과 만들기를 바꿔 끼우고, 모델은
-KO_PARSER_MODEL_DIR의 가짜 파일)."""
+HANJI_MODEL_DIR의 가짜 파일)."""
 
 import subprocess
 import sys
@@ -9,18 +9,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from ko_parser import models
-from ko_parser.errors import LayoutUnavailable
-from ko_parser.formats.pdf import layout
+from hanji import models
+from hanji.errors import LayoutUnavailable
+from hanji.formats.pdf import layout
 
 
 def fake_model(monkeypatch, tmp_path) -> None:
-    """찾기만 되는 가짜 레이아웃 모델·설정 파일(KO_PARSER_MODEL_DIR, 해시는 틀리다)."""
+    """찾기만 되는 가짜 레이아웃 모델·설정 파일(HANJI_MODEL_DIR, 해시는 틀리다)."""
     for name in layout.MODEL_NAMES:
         path = tmp_path / "models" / models.MANIFEST[name].path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"not a model")
-    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("HANJI_MODEL_DIR", str(tmp_path / "models"))
 
 
 def broken_module(monkeypatch, tmp_path, name: str = "onnxruntime") -> None:
@@ -39,7 +39,7 @@ def broken_module(monkeypatch, tmp_path, name: str = "onnxruntime") -> None:
 def test_available_does_not_import_the_runtime():
     """설치 확인은 numpy·onnxruntime을 import하지 않는다(하위 프로세스에서 본다)."""
     code = ("import sys\n"
-            "from ko_parser.formats.pdf import layout\n"
+            "from hanji.formats.pdf import layout\n"
             "layout.available()\n"
             "print(sorted(m for m in ('numpy', 'onnxruntime') if m in sys.modules))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)
@@ -52,7 +52,7 @@ def test_missing_install_is_unavailable_with_the_install_hint(monkeypatch):
     monkeypatch.setattr(layout, "_detector", None)
     assert layout.available() is False
     with pytest.raises(LayoutUnavailable,
-                       match=r"not installed \(missing no_such_layout_module\).*ko-parser-engine\[layout\].*--no-layout"):
+                       match=r"not installed \(missing no_such_layout_module\).*hanji\[layout\].*--no-layout"):
         layout.get_detector()
 
 
@@ -62,7 +62,7 @@ def test_installed_but_broken_module_is_available_and_get_detector_names_it(monk
     broken_module(monkeypatch, tmp_path)
     assert layout.available() is True
     with pytest.raises(LayoutUnavailable,
-                       match=r"onnxruntime .*libstub\.so\.1.*ko-parser-engine\[layout\].* or run with --no-layout"):
+                       match=r"onnxruntime .*libstub\.so\.1.*hanji\[layout\].* or run with --no-layout"):
         layout.get_detector()
     assert layout._detector is None
 
@@ -74,8 +74,8 @@ def test_missing_model_file_means_not_installed(monkeypatch):
     monkeypatch.setattr(layout, "MODULES", ())
     monkeypatch.setattr(layout, "_detector", None)
     assert layout.available() is False
-    with pytest.raises(LayoutUnavailable, match=r"layout model file layout/inference\.onnx not found; run `ko-parser "
-                                                r"models fetch layout` or set KO_PARSER_MODEL_DIR, or run with --no-layout"):
+    with pytest.raises(LayoutUnavailable, match=r"layout model file layout/inference\.onnx not found; run `hanji "
+                                                r"models fetch layout` or set HANJI_MODEL_DIR, or run with --no-layout"):
         layout.get_detector()
     assert layout._detector is None
 
@@ -127,7 +127,7 @@ def test_detector_that_rejects_the_model_is_unavailable_and_retried(monkeypatch,
     고정한 파일과 이 빌드가 맞지 않는 것이라 추가 설치를 다시 깔라고 하지 않는다(OCR 글자 목록 불일치와 같은 문구).
     실패는 붙잡아 두지 않는다: 다음 호출은 다시 만든다."""
     pytest.importorskip("onnxruntime")
-    from ko_parser.formats.pdf.layout import detector
+    from hanji.formats.pdf.layout import detector
 
     config = tmp_path / "inference.yml"
     labels = ("text", "image") if wrong == "labels" else detector.LABELS
@@ -140,7 +140,7 @@ def test_detector_that_rejects_the_model_is_unavailable_and_retried(monkeypatch,
     monkeypatch.setattr(layout, "_detector", None)
     reason = "lists 2 labels that are not" if wrong == "labels" else r"is not a PP-DocLayout model \(inputs \['x'\]\)"
     with pytest.raises(LayoutUnavailable, match=rf"layout model could not be loaded: .*{reason}.*; "
-                                                r"reinstall ko-parser or report it, or run with --no-layout$") as info:
+                                                r"reinstall hanji or report it, or run with --no-layout$") as info:
         layout.get_detector()
     assert isinstance(info.value.__cause__, ValueError) and "[layout]" not in str(info.value)
     assert layout._detector is None

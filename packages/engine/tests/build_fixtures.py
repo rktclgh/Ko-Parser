@@ -13,10 +13,10 @@ import json
 import sys
 from pathlib import Path
 
-from ko_parser.core import build_tree
-from ko_parser.export import to_markdown
-from ko_parser.formats.markdown import MarkdownParser
-from ko_parser_contracts import DocumentTree, SourceInfo
+from hanji.core import build_tree
+from hanji.export import to_markdown
+from hanji.formats.markdown import MarkdownParser
+from hanji_contracts import DocumentTree, SourceInfo
 
 ROOT = Path(__file__).resolve().parent / "fixtures"
 
@@ -109,7 +109,7 @@ def build_all() -> dict[str, bytes]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="ko-parser-engine fixtures")
+    parser = argparse.ArgumentParser(description="hanji fixtures")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
     stale = []

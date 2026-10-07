@@ -1,6 +1,6 @@
 """PdfParser의 그림·캡션(레이아웃 연결): digital 쪽 사진(이미지 객체)은 레이아웃 없이도 그림, 모델 상자는 바꿔 끼운
 가짜 검출기로(onnxruntime 없이), 회전·CropBox 잘라내기, 그림 우선과 처리 이력, 바이트 상한, 켜고 끄기.
-그림 속 글자 그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴(Pillow)로 그린다."""
+그림 속 글자 그림은 OS 글꼴에 기대지 않으려고 hanji-fonts 글꼴(Pillow)로 그린다."""
 
 import gc
 import io
@@ -19,19 +19,19 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-import ko_parser_fonts
-from ko_parser import LocalEngine, MemoryStore, SqliteStore, models
-from ko_parser.core import build_tree
-from ko_parser.errors import LayoutUnavailable
-from ko_parser.formats.pdf import PdfParser, figures, layout, ocr, scan
-from ko_parser.formats.pdf import parser as pdf_parser
-from ko_parser.formats.pdf.layout import LayoutBox
-from ko_parser.formats.pdf.scan import OcrText
-from ko_parser_contracts import SourceInfo
+import hanji_fonts
+from hanji import LocalEngine, MemoryStore, SqliteStore, models
+from hanji.core import build_tree
+from hanji.errors import LayoutUnavailable
+from hanji.formats.pdf import PdfParser, figures, layout, ocr, scan
+from hanji.formats.pdf import parser as pdf_parser
+from hanji.formats.pdf.layout import LayoutBox
+from hanji.formats.pdf.scan import OcrText
+from hanji_contracts import SourceInfo
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
-NOTO = str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE)
+NOTO = str(hanji_fonts.font_dir() / hanji_fonts.FONT_FILE)
 W, H = 595.0, 842.0
 PX = 200 / 72
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "pdf" / "inputs"
@@ -125,12 +125,12 @@ def near(box: dict, expected) -> bool:
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 def test_photo_image_object_is_a_figure_with_its_png_even_with_layout_off():
@@ -256,7 +256,7 @@ def test_page_with_hundreds_of_icons_needs_no_render_or_model(monkeypatch):
 def test_layout_true_without_the_install_fails_at_construction(monkeypatch):
     monkeypatch.setitem(sys.modules, "onnxruntime", None)
     monkeypatch.setattr(layout, "_detector", None)
-    with pytest.raises(LayoutUnavailable, match=r"ko-parser-engine\[layout\]"):
+    with pytest.raises(LayoutUnavailable, match=r"hanji\[layout\]"):
         PdfParser(layout=True)
     assert PdfParser().layout is None and PdfParser(layout=False).layout is False  # 자동·끔은 만들 때 확인하지 않는다
 

@@ -4,11 +4,11 @@ import unicodedata
 
 import pytest
 
-from ko_parser import LocalEngine, MemoryStore, SqliteStore
-from ko_parser.core import build_tree, diff_trees
-from ko_parser.errors import AssetNotFound, ParseError, StoreConflict, UnsupportedFormat, VlmUnavailable
-from ko_parser.formats.base import ParsedSource
-from ko_parser_contracts import Attempt, DocFilter, Engine, ProcessingHistory, RegionRecord, SourceInfo
+from hanji import LocalEngine, MemoryStore, SqliteStore
+from hanji.core import build_tree, diff_trees
+from hanji.errors import AssetNotFound, ParseError, StoreConflict, UnsupportedFormat, VlmUnavailable
+from hanji.formats.base import ParsedSource
+from hanji_contracts import Attempt, DocFilter, Engine, ProcessingHistory, RegionRecord, SourceInfo
 
 
 class FakeParser:

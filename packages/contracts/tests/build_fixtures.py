@@ -10,19 +10,19 @@ import json
 import sys
 from pathlib import Path
 
-from ko_parser_contracts import (
+from hanji_contracts import (
     Attempt, BBox, Block, Cell, ChangeBatch, CorrectionSummary, DocumentChange, DocumentTree, GateCheck, GateResult,
     ImagePayload, LineageEdge, PageInfo, PageRef, ProcessingHistory, RegionRecord, SourceInfo, Table, Usage,
     VlmBlock, VlmRequest, VlmResult, build_blocks, compute_block_id, compute_content_hash,
 )
-from ko_parser_contracts.testing import Recording, RecordingMeta, request_fingerprint
+from hanji_contracts.testing import Recording, RecordingMeta, request_fingerprint
 
 ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 A4 = PageInfo(page=1, width_pt=595.0, height_pt=842.0, rotation=0, render_dpi=144)
-# 예제용 그림 해시(이미지 바이트는 계약 밖, 저장소 자산이다)
-FIGURE_ASSET = "sha256:" + hashlib.sha256(b"ko-parser figure example").hexdigest()
+# 예제용 그림 해시(이미지 바이트는 계약 밖, 저장소 자산이다). 골든 예제가 바이트 그대로 남도록 값을 고정해 적는다
+FIGURE_ASSET = "sha256:eff846bcf7130487f1f4eca58fc9b41f4269b846b336b67ca1f2aa756b024712"
 
 # lab/glm-ocr-smoke 합성 샘플 table_simple.png에 dots.mocr-8bit(oMLX)가 실제로 낸 출력
 DOTS_TABLE_SIMPLE_RAW = """<table>
@@ -290,7 +290,7 @@ def build_all() -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="ko-parser-contracts fixtures")
+    parser = argparse.ArgumentParser(description="hanji-contracts fixtures")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
     stale = []

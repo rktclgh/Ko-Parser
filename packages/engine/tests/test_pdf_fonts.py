@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pypdfium2 as pdfium
 import pytest
-from ko_parser.errors import ParseError
-from ko_parser.formats.pdf import fonts
+from hanji.errors import ParseError
+from hanji.formats.pdf import fonts
 
 
 @pytest.fixture
@@ -94,7 +94,7 @@ def test_register_collects_unreachable_documents_first(stubbed):
 
 def test_register_surfaces_a_broken_fonts_package(fresh, monkeypatch):
     """설치는 됐는데 깨진 패키지를 조용히 건너뛰면 가드가 '설치하라'고 잘못 안내한다: 그대로 실패해 드러낸다."""
-    monkeypatch.setitem(sys.modules, "ko_parser_fonts", types.SimpleNamespace())  # font_dir 없음
+    monkeypatch.setitem(sys.modules, "hanji_fonts", types.SimpleNamespace())  # font_dir 없음
     with pytest.raises(AttributeError):
         fonts.register_bundled_fonts()
     assert fresh == []
@@ -102,7 +102,7 @@ def test_register_surfaces_a_broken_fonts_package(fresh, monkeypatch):
 
 def test_open_pdf_registers_bundled_fonts_first(monkeypatch):
     """모든 OS에서 open_pdf가 등록을 부르는지(리눅스 밖에서는 등록이 아무 일도 안 해 연결이 빠져도 모른다)."""
-    from ko_parser.formats.pdf import extract
+    from hanji.formats.pdf import extract
     calls = []
     monkeypatch.setattr(fonts, "register_bundled_fonts", lambda: calls.append("register") or False)
     with extract.PDFIUM_LOCK, pytest.raises(ParseError):
@@ -111,7 +111,7 @@ def test_open_pdf_registers_bundled_fonts_first(monkeypatch):
 
 
 def test_register_skips_without_the_fonts_package(fresh, monkeypatch):
-    monkeypatch.setitem(sys.modules, "ko_parser_fonts", None)  # import가 ImportError
+    monkeypatch.setitem(sys.modules, "hanji_fonts", None)  # import가 ImportError
     assert fonts.register_bundled_fonts() is False
     assert fresh == []
 
@@ -122,8 +122,8 @@ SINGLE_GLYPH = textwrap.dedent("""
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.pdfgen.canvas import Canvas
-    from ko_parser.errors import ParseError
-    from ko_parser.formats.pdf.extract import extract_pages
+    from hanji.errors import ParseError
+    from hanji.formats.pdf.extract import extract_pages
     pdfmetrics.registerFont(UnicodeCIDFont("HYGothic-Medium"))
     b = io.BytesIO(); c = Canvas(b, invariant=1); t = c.beginText(72, 770); t.setFont("HYGothic-Medium", 18)
     t.textOut("가"); c.drawText(t); c.showPage(); c.save()
@@ -150,10 +150,10 @@ def test_single_glyph_hangul_object_is_read():
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="리눅스에서만 번들 글꼴을 쓴다")
 def test_without_bundled_fonts_linux_still_raises():
     """번들 패키지가 없으면 지금처럼 가드가 ParseError로 알린다(시스템에 한글 글꼴이 있으면 시험할 수 없다).
-    CI ubuntu는 KO_PARSER_CI_NO_KOREAN_FONT=1을 주므로 거기서는 건너뛰지 않고 실패한다(검증이 조용히 사라지지 않게)."""
-    out = run_single_glyph('sys.modules["ko_parser_fonts"] = None')
+    CI ubuntu는 HANJI_CI_NO_KOREAN_FONT=1을 주므로 거기서는 건너뛰지 않고 실패한다(검증이 조용히 사라지지 않게)."""
+    out = run_single_glyph('sys.modules["hanji_fonts"] = None')
     if out == "U+AC00":
-        if os.environ.get("KO_PARSER_CI_NO_KOREAN_FONT") == "1":
+        if os.environ.get("HANJI_CI_NO_KOREAN_FONT") == "1":
             pytest.fail("CI ubuntu에 시스템 한글 글꼴이 생겼다: 번들 없음 가드 경로를 시험할 수 없다")
         pytest.skip("이 리눅스에는 시스템 한글 글꼴이 있다")
-    assert out.startswith("ParseError:") and "ko-parser-engine[fonts]" in out
+    assert out.startswith("ParseError:") and "hanji[fonts]" in out

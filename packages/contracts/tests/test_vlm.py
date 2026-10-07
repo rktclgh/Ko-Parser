@@ -5,10 +5,10 @@ import struct
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.geometry import BBox
-from ko_parser_contracts.provenance import ErrorInfo, Usage
-from ko_parser_contracts.testing import tiny_png
-from ko_parser_contracts.vlm import (
+from hanji_contracts.geometry import BBox
+from hanji_contracts.provenance import ErrorInfo, Usage
+from hanji_contracts.testing import tiny_png
+from hanji_contracts.vlm import (
     Capabilities, ImagePayload, PageRef, VlmBlock, VlmDriver, VlmError, VlmRequest, VlmResult,
 )
 
@@ -50,7 +50,7 @@ def test_image_payload_rejects_non_png(png, message):
 
 
 def test_image_payload_rejects_oversized_bytes(monkeypatch):
-    monkeypatch.setattr("ko_parser_contracts.vlm.MAX_IMAGE_BYTES", len(PNG) - 1)
+    monkeypatch.setattr("hanji_contracts.vlm.MAX_IMAGE_BYTES", len(PNG) - 1)
     with pytest.raises(ValidationError, match="MAX_IMAGE_BYTES"):
         ImagePayload.from_png(PNG, BOX, 144)
 
@@ -125,7 +125,7 @@ def test_png_with_overlapping_ihdr_and_iend_rejected():
 
 
 def test_from_png_checks_structure_before_hashing(monkeypatch):
-    import ko_parser_contracts.vlm as vlm
+    import hanji_contracts.vlm as vlm
 
     def boom(_):
         raise AssertionError("hashed before structure check")

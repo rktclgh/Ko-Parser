@@ -1,7 +1,7 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from ko_parser_contracts.locator import FlowLocator, LinesLocator, Locator, PageLocator, SlideLocator
+from hanji_contracts.locator import FlowLocator, LinesLocator, Locator, PageLocator, SlideLocator
 
 adapter = TypeAdapter(Locator)
 

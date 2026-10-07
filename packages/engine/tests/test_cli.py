@@ -8,18 +8,18 @@ import sys
 
 import pytest
 
-from ko_parser import cli
-from ko_parser.cli import main
-from ko_parser.core import build_tree, diff_trees
-from ko_parser.errors import AssetNotFound
-from ko_parser.formats.base import ParsedSource
-from ko_parser.store import SqliteStore
-from ko_parser_contracts import ChangeBatch, DocumentTree, PageInfo, ProcessingHistory, SourceInfo
+from hanji import cli
+from hanji.cli import main
+from hanji.core import build_tree, diff_trees
+from hanji.errors import AssetNotFound
+from hanji.formats.base import ParsedSource
+from hanji.store import SqliteStore
+from hanji_contracts import ChangeBatch, DocumentTree, PageInfo, ProcessingHistory, SourceInfo
 
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    monkeypatch.delenv("KO_PARSER_DB", raising=False)
+    monkeypatch.delenv("HANJI_DB", raising=False)
     return tmp_path / "상태" / "state.db"
 
 
@@ -83,14 +83,14 @@ def test_export_documents_changes_history(capsys, db, tmp_path):
                                   ["parse", "a.md", "--id", ""]])
 def test_usage_errors_exit_2(capsys, tmp_path, monkeypatch, argv):
     state = tmp_path / "state.db"
-    monkeypatch.setenv("KO_PARSER_DB", str(state))
+    monkeypatch.setenv("HANJI_DB", str(state))
     assert run(capsys, *argv)[0] == 2  # 인자 해석 단계에서 끝나 상태 파일을 열지 않는다
     assert not state.exists()
 
 
 def test_db_option_before_and_after_subcommand(capsys, tmp_path, monkeypatch):
     env_db = tmp_path / "env.db"
-    monkeypatch.setenv("KO_PARSER_DB", str(env_db))
+    monkeypatch.setenv("HANJI_DB", str(env_db))
     path = write(tmp_path / "a.md", "가\n")
     before, after = tmp_path / "before.db", tmp_path / "after.db"
     assert run(capsys, "--db", before, "parse", path, "--id", "d1")[0] == 0
@@ -101,7 +101,7 @@ def test_db_option_before_and_after_subcommand(capsys, tmp_path, monkeypatch):
 
 
 def test_db_option_given_twice_later_wins(capsys, tmp_path, monkeypatch):
-    monkeypatch.delenv("KO_PARSER_DB", raising=False)
+    monkeypatch.delenv("HANJI_DB", raising=False)
     first, second = tmp_path / "first.db", tmp_path / "second.db"
     assert run(capsys, "--db", first, "documents", "--db", second)[0] == 0
     assert second.exists() and not first.exists()
@@ -121,9 +121,9 @@ def test_stderr_backslashreplaces_unencodable(monkeypatch):
     raw = io.BytesIO()
     monkeypatch.setattr(sys, "stderr", io.TextIOWrapper(raw, encoding="ascii", newline=""))
     cli._configure_streams()  # main()이 쓰는 것과 같은 재설정
-    print("ko-parser: \udc80 문서", file=sys.stderr)  # 짝 없는 서로게이트가 든 메시지
+    print("hanji: \udc80 문서", file=sys.stderr)  # 짝 없는 서로게이트가 든 메시지
     sys.stderr.flush()
-    assert raw.getvalue() == "ko-parser: \\udc80 문서\n".encode("utf-8")
+    assert raw.getvalue() == "hanji: \\udc80 문서\n".encode("utf-8")
 
 
 def test_help_exits_0(capsys):
@@ -160,7 +160,7 @@ def test_missing_file_exit_1(capsys, db, tmp_path):
 def test_db_not_sqlite_exit_1(capsys, tmp_path):
     bad = write(tmp_path / "state.db", "이것은 SQLite 파일이 아니다. " * 20)
     code, out, err = run(capsys, "documents", "--db", bad)
-    assert (code, out) == (1, "") and err.startswith("ko-parser: ")
+    assert (code, out) == (1, "") and err.startswith("hanji: ")
     assert err.count("\n") == 1 and "Traceback" not in err
 
 
@@ -172,7 +172,7 @@ def test_db_from_older_contracts_exit_1(capsys, db, old):
         conn.execute("UPDATE meta SET value = ? WHERE key = 'format'", (old,))
     conn.close()
     code, out, err = run(capsys, "documents", "--db", db)
-    assert (code, out) == (1, "") and err.startswith("ko-parser: ") and "ingest again" in err
+    assert (code, out) == (1, "") and err.startswith("hanji: ") and "ingest again" in err
     assert err.count("\n") == 1 and "Traceback" not in err
 
 
@@ -188,9 +188,9 @@ def test_deeply_nested_markdown_exit_4_and_store_unchanged(capsys, db, tmp_path)
 def test_db_priority(capsys, tmp_path, monkeypatch):
     option, env, default_dir = tmp_path / "opt.db", tmp_path / "env.db", tmp_path / "기본"
     monkeypatch.setattr(cli, "user_data_dir", lambda appname, appauthor: str(default_dir))
-    monkeypatch.delenv("KO_PARSER_DB", raising=False)
+    monkeypatch.delenv("HANJI_DB", raising=False)
     assert cli.resolve_db(None) == default_dir / "state.db"
-    monkeypatch.setenv("KO_PARSER_DB", str(env))
+    monkeypatch.setenv("HANJI_DB", str(env))
     assert cli.resolve_db(None) == env
     assert cli.resolve_db(str(option)) == option
     run(capsys, "documents", "--db", option)

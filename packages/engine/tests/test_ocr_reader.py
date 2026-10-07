@@ -1,5 +1,5 @@
 """OCR 실행부: 합성 그림(번들 Noto Sans KR로 그린 깨끗한 한글 줄)을 정확히 읽는지, 세션은 한 번만 만드는지,
-OCR 추가 설치가 없으면 OcrUnavailable인지. 그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴로 그린다."""
+OCR 추가 설치가 없으면 OcrUnavailable인지. 그림은 OS 글꼴에 기대지 않으려고 hanji-fonts 글꼴로 그린다."""
 
 import builtins
 import os
@@ -19,22 +19,22 @@ ort = pytest.importorskip("onnxruntime")
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-import ko_parser_fonts
-from ko_parser import models
-from ko_parser.errors import KoParserError, OcrUnavailable
-from ko_parser.formats.pdf import ocr
-from ko_parser.formats.pdf.ocr import charset, reader, rec
+import hanji_fonts
+from hanji import models
+from hanji.errors import HanjiError, OcrUnavailable
+from hanji.formats.pdf import ocr
+from hanji.formats.pdf.ocr import charset, reader, rec
 
 if any(models.find(name) is None for name in ocr.MODEL_NAMES):  # 이 파일은 실제 OCR 모델이 필요하다
-    if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-        raise RuntimeError("OCR model files not found; run `ko-parser models fetch ocr` or set KO_PARSER_MODEL_DIR")
-    pytest.skip("OCR model files not found (ko-parser models fetch ocr)", allow_module_level=True)
+    if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+        raise RuntimeError("OCR model files not found; run `hanji models fetch ocr` or set HANJI_MODEL_DIR")
+    pytest.skip("OCR model files not found (hanji models fetch ocr)", allow_module_level=True)
 
 LINES = ["스캔한 쪽의 글자를 읽는다.", "공공누리 2026년 10월 5일", "사업 계획 보고서"]
 
 
 def page_image(lines=LINES, scale: int = 1, mode: str = "RGB") -> Image.Image:
-    font = ImageFont.truetype(str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE), 40 * scale)
+    font = ImageFont.truetype(str(hanji_fonts.font_dir() / hanji_fonts.FONT_FILE), 40 * scale)
     img = Image.new(mode, (1000 * scale, 100 * (len(lines) + 1) * scale), "white")
     draw = ImageDraw.Draw(img)
     for i, s in enumerate(lines):
@@ -149,10 +149,10 @@ def test_missing_ocr_install_is_unavailable(monkeypatch, module):
     monkeypatch.setitem(sys.modules, module, None)  # import가 ImportError
     monkeypatch.setattr(ocr, "_reader", None)
     assert ocr.available() is False
-    with pytest.raises(OcrUnavailable, match=r'missing .*ko-parser-engine\[ocr\].* or run with --no-ocr'):
+    with pytest.raises(OcrUnavailable, match=r'missing .*hanji\[ocr\].* or run with --no-ocr'):
         ocr.get_reader()
     assert ocr._reader is None
-    assert issubclass(OcrUnavailable, KoParserError)
+    assert issubclass(OcrUnavailable, HanjiError)
 
 
 def test_broken_native_install_is_unavailable(monkeypatch):
@@ -179,8 +179,8 @@ def test_missing_model_file_means_not_installed(monkeypatch):
     monkeypatch.setattr(models, "find", lambda name: None)
     monkeypatch.setattr(ocr, "_reader", None)
     assert ocr.available() is False
-    with pytest.raises(OcrUnavailable, match=r"OCR model file ocr/det\.onnx not found; run `ko-parser models fetch ocr`"
-                                             r" or set KO_PARSER_MODEL_DIR, or run with --no-ocr"):
+    with pytest.raises(OcrUnavailable, match=r"OCR model file ocr/det\.onnx not found; run `hanji models fetch ocr`"
+                                             r" or set HANJI_MODEL_DIR, or run with --no-ocr"):
         ocr.get_reader()
     assert ocr._reader is None
 
@@ -191,7 +191,7 @@ def test_broken_model_file_is_unavailable(monkeypatch, tmp_path):
         path = tmp_path / models.MANIFEST[name].path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"not a model")
-    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path))
+    monkeypatch.setenv("HANJI_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(ocr, "_reader", None)
     assert ocr.available() is True
     with pytest.raises(OcrUnavailable, match=r"does not match the pinned size and SHA-256 of ocr/det\.onnx.*"
@@ -213,7 +213,7 @@ def test_character_list_that_does_not_match_the_model_is_unavailable(monkeypatch
     (tmp_path / "ocr" / "rec.yml").write_text("\n".join(lines), encoding="utf-8")
     shutil.copyfile(det, tmp_path / "ocr" / "det.onnx")
     shutil.copyfile(rec_path, tmp_path / "ocr" / "rec.onnx")
-    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path))
+    monkeypatch.setenv("HANJI_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(ocr, "_reader", None)
     with pytest.raises(OcrUnavailable, match=r"does not match the pinned size and SHA-256 of ocr/rec\.yml"):
         ocr.get_reader()
@@ -235,7 +235,7 @@ def test_ocr_module_imports_without_numpy():
     """엔진 기본 설치(numpy·onnxruntime 없음)에서도 OCR 모듈 import는 된다(실행부는 get_reader가 가져온다).
     이 프로세스의 모듈을 다시 읽지 않으려고 하위 프로세스에서 본다."""
     code = ("import sys; sys.modules['numpy'] = None; sys.modules['onnxruntime'] = None\n"
-            "from ko_parser.formats.pdf import ocr\n"
+            "from hanji.formats.pdf import ocr\n"
             "print(ocr.available())")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)
     assert out.returncode == 0, out.stderr
@@ -245,8 +245,8 @@ def test_ocr_module_imports_without_numpy():
 def test_release_is_registered_at_exit():
     """하위 프로세스: ocr보다 먼저 등록한 atexit 함수는 나중에 돈다(등록 역순). 그때 세션은 이미 놓여 있다."""
     code = ("import atexit, sys\n"
-            "atexit.register(lambda: print(sys.modules['ko_parser.formats.pdf.ocr']._reader is None))\n"
-            "from ko_parser.formats.pdf import ocr\n"
+            "atexit.register(lambda: print(sys.modules['hanji.formats.pdf.ocr']._reader is None))\n"
+            "from hanji.formats.pdf import ocr\n"
             "ocr.get_reader()\n"
             "print(ocr._reader is None)")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)
@@ -355,7 +355,7 @@ def test_a_line_wider_than_the_budget_is_read_alone_at_full_width():
 def test_huge_image_is_shrunk_with_pillow_first_and_boxes_stay_in_input_pixels(monkeypatch):
     """긴 변이 PRE_SHRINK_SIDE(4000)를 넘는 그림은 numpy 배열로 바꾸기 전에 Pillow로 정수배 줄인다(원래 크기 배열을
     만들지 않는다). 상자는 원래 그림 화소로 되돌린다."""
-    font = ImageFont.truetype(str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE), 220)
+    font = ImageFont.truetype(str(hanji_fonts.font_dir() / hanji_fonts.FONT_FILE), 220)
     img = Image.new("RGB", (20000, 300), "white")
     draw = ImageDraw.Draw(img)
     starts = (500, 7500, 14500)

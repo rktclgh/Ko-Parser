@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from ko_parser import LocalEngine, MemoryStore, models
-from ko_parser.cli import main
-from ko_parser.errors import OcrUnavailable
-from ko_parser.formats.pdf import layout, ocr
+from hanji import LocalEngine, MemoryStore, models
+from hanji.cli import main
+from hanji.errors import OcrUnavailable
+from hanji.formats.pdf import layout, ocr
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "ocr" / "scanned.pdf"
 DATA = re.compile(r'<script type="application/json" id="ko-data">(.*?)</script>', re.DOTALL)
@@ -24,12 +24,12 @@ EXPECTED = [  # (출처, 글자, (x0, y0, x1, y1)) — 2026-10-05 macOS 실측 �
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,7 @@ def no_layout(monkeypatch):
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    monkeypatch.delenv("KO_PARSER_DB", raising=False)
+    monkeypatch.delenv("HANJI_DB", raising=False)
     return tmp_path / "state.db"
 
 
@@ -104,11 +104,11 @@ def test_broken_ocr_install_is_a_configuration_error(capsys, db, monkeypatch):
     """OCR 추가 설치가 있는데 모델을 못 열면 파싱 실패(4)가 아니라 그 밖의 오류(1)와 설치 안내.
     설치 확인(available)을 참으로 바꿔 끼워 onnxruntime 없이도 자동 모드가 _build까지 간다."""
     def broken():
-        raise OcrUnavailable('OCR models could not be loaded: x; reinstall with pip install "ko-parser-engine[ocr]"')
+        raise OcrUnavailable('OCR models could not be loaded: x; reinstall with pip install "hanji[ocr]"')
 
     monkeypatch.setattr(ocr, "available", lambda: True)
     monkeypatch.setattr(ocr, "_reader", None)
     monkeypatch.setattr(ocr, "_build", broken)
     code, _, err = run(capsys, "parse", FIXTURE, "--db", db)
-    assert code == 1 and "ko-parser-engine[ocr]" in err
+    assert code == 1 and "hanji[ocr]" in err
     assert run(capsys, "parse", FIXTURE, "--no-ocr", "--db", db)[0] == 0

@@ -5,8 +5,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser.formats.pdf import extract
-from ko_parser.formats.pdf.extract import MIN_RULE, PageText, Rule, extract_pages
+from hanji.formats.pdf import extract
+from hanji.formats.pdf.extract import MIN_RULE, PageText, Rule, extract_pages
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))

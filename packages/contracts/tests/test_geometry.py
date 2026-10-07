@@ -3,7 +3,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.geometry import BBox, PageInfo, TextLayerStats
+from hanji_contracts.geometry import BBox, PageInfo, TextLayerStats
 
 
 def test_bbox_accepts_normalized_box():

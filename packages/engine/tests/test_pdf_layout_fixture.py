@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from ko_parser import LocalEngine, MemoryStore, models
-from ko_parser.cli import main
-from ko_parser.errors import LayoutUnavailable
-from ko_parser.formats.pdf import PdfParser, layout
+from hanji import LocalEngine, MemoryStore, models
+from hanji.cli import main
+from hanji.errors import LayoutUnavailable
+from hanji.formats.pdf import PdfParser, layout
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "layout" / "figures.pdf"
 DATA = re.compile(r'<script type="application/json" id="ko-data">(.*?)</script>', re.DOTALL)
@@ -29,7 +29,7 @@ KINDS = [(1, "heading"), (1, "paragraph"), (1, "figure"), (1, "caption"), (1, "f
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    monkeypatch.delenv("KO_PARSER_DB", raising=False)
+    monkeypatch.delenv("HANJI_DB", raising=False)
     return tmp_path / "state.db"
 
 
@@ -63,12 +63,12 @@ def view_data(capsys, html: Path, *argv) -> dict:
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 def test_fixture_figures_captions_tables_and_history():
@@ -135,13 +135,13 @@ def test_cli_export_assets_writes_the_figure_png(capsys, db, tmp_path, monkeypat
 def test_broken_layout_install_is_a_configuration_error(capsys, db, monkeypatch):
     """레이아웃 추가 설치가 있는데 모델을 못 열면 파싱 실패(4)가 아니라 그 밖의 오류(1)와 설치·--no-layout 안내."""
     def broken():
-        raise LayoutUnavailable('layout model could not be loaded: x; reinstall with pip install "ko-parser-engine[layout]"')
+        raise LayoutUnavailable('layout model could not be loaded: x; reinstall with pip install "hanji[layout]"')
 
     monkeypatch.setattr(layout, "available", lambda: True)
     monkeypatch.setattr(layout, "_detector", None)
     monkeypatch.setattr(layout, "_build", broken)
     code, _, err = run(capsys, "parse", FIXTURE, "--db", db)
-    assert code == 1 and "ko-parser-engine[layout]" in err and "Traceback" not in err
+    assert code == 1 and "hanji[layout]" in err and "Traceback" not in err
     assert run(capsys, "parse", FIXTURE, "--no-layout", "--db", db)[0] == 0
 
 

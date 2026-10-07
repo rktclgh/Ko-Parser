@@ -1,23 +1,23 @@
 [project]
-name = "ko-parser"
+name = "hanji-workspace"
 version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [
-    "ko-parser-contracts",
-    "ko-parser-engine",
+    "hanji-contracts",
+    "hanji",
     # onnxruntime은 macOS x86_64 휠이 없다: 그 컴퓨터에서만 OCR·레이아웃 extra 없이 설치한다(PEP 508 표시에 not이 없어
     # 드모르간으로 적는다)
-    "ko-parser-engine[ocr,layout]; sys_platform != 'darwin' or platform_machine != 'x86_64'",
-    "ko-parser-fonts",
+    "hanji[ocr,layout]; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "hanji-fonts",
 ]
 
 [tool.uv]
 package = false
 
 [tool.uv.sources]
-ko-parser-contracts = { workspace = true }
-ko-parser-engine = { workspace = true }
-ko-parser-fonts = { workspace = true }
+hanji-contracts = { workspace = true }
+hanji = { workspace = true }
+hanji-fonts = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]
