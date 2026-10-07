@@ -2,6 +2,7 @@
 또는 OCR 줄) → 그림과 짝지은 캡션(스펙 §4.2~4.5). 그림 PNG 잘라내기(§4.6)와 문서 바이트 상한도 여기 둔다.
 길이 단위는 보이는 쪽 pt(원점 왼쪽 위, 회전 보정: 글자 상자 × 쪽 너비·높이와 같은 틀)."""
 
+import bisect
 import hashlib
 import io
 import math
@@ -124,24 +125,69 @@ def _decor(box: Box, page: PageText) -> bool:
     return min(width, height) < MIN_IMAGE_SIDE or width * height < MIN_IMAGE_AREA * page.width_pt * page.height_pt
 
 
-def _background(box: Box, page: PageText) -> bool:
-    """보이는 글자(공백 제외) BACKGROUND_CHARS개 이상이 중심을 두고 얹힌 이미지(쪽 배경·워터마크)."""
-    count = 0
-    for c in page.chars:
-        if c.invisible or c.text.isspace():
+def _centres(page: PageText) -> list[tuple[float, float]]:
+    """보이는 글자(공백 제외)의 상자 중심(pt). 쪽마다 한 번 구한다."""
+    w, h = page.width_pt, page.height_pt
+    out = [((c.x0 + c.x1) / 2 * w, (c.y0 + c.y1) / 2 * h) for c in page.chars if not c.invisible and not c.text.isspace()]
+    return [p for p in out if math.isfinite(p[0]) and math.isfinite(p[1])]
+
+
+def _counts(points: Sequence[tuple[float, float]], boxes: Sequence[Box]) -> list[int]:
+    """상자마다 안(경계 포함)에 든 점 수. 점을 x 순으로 넣으며 y 펜윅 트리로 센다: 한 번 훑기,
+    O((점 + 상자) log 점). 상자 수 × 글자 수로 커지지 않는다."""
+    ys = sorted({y for _, y in points})
+    tree = [0] * (len(ys) + 1)
+
+    def upto(i: int) -> int:  # y 순번 i개(작은 쪽부터)에 든 점 수
+        total = 0
+        while i > 0:
+            total += tree[i]
+            i -= i & -i
+        return total
+
+    # (x, 종류, 값): 종류 0 = x < x0 상자(같은 x 점보다 먼저), 1 = 점, 2 = x ≤ x1 상자(같은 x 점 다음)
+    events: list[tuple[float, int, float]] = [(x, 1, y) for x, y in points]
+    events += [(b[0], 0, k) for k, b in enumerate(boxes)] + [(b[2], 2, k) for k, b in enumerate(boxes)]
+    events.sort(key=lambda e: (e[0], e[1]))
+    counts = [0] * len(boxes)
+    for _, kind, value in events:
+        if kind == 1:
+            i = bisect.bisect_left(ys, value) + 1
+            while i <= len(ys):
+                tree[i] += 1
+                i += i & -i
             continue
-        x, y = (c.x0 + c.x1) / 2 * page.width_pt, (c.y0 + c.y1) / 2 * page.height_pt
-        if box[0] <= x <= box[2] and box[1] <= y <= box[3]:
-            count += 1
-            if count >= BACKGROUND_CHARS:
-                return True
-    return False
+        b = boxes[int(value)]
+        inside = upto(bisect.bisect_right(ys, b[3])) - upto(bisect.bisect_left(ys, b[1]))
+        counts[int(value)] += inside if kind == 2 else -inside
+    return counts
+
+
+_last: tuple[PageText, tuple[Box, ...], tuple[Box, ...]] | None = None  # 마지막으로 본 쪽의 (쪽, 사진, 장식)
+
+
+def _image_boxes(page: PageText) -> tuple[tuple[Box, ...], tuple[Box, ...]]:
+    """이미지 객체 상자(보이는 쪽 pt)를 (그림이 될 사진, 장식)으로 나눈다. 같은 상자(겹쳐 넣은 사본)는 처음 하나만,
+    유한하지 않은 상자는 뺀다. 배경(보이는 글자(공백 제외) BACKGROUND_CHARS개 이상이 중심을 두고 얹힌 쪽 배경·
+    워터마크)은 어느 쪽도 아니다. 마지막 쪽 결과를 기억해 wants_layout·photo_boxes·arrange가 같은 쪽을 다시
+    훑지 않는다(쪽은 바뀌지 않는 값이고 같은 객체인지로 본다)."""
+    global _last
+    last = _last
+    if last is not None and last[0] is page:
+        return last[1], last[2]
+    rects = list(dict.fromkeys(box for box in (_pt(page, rect) for rect in page.images)
+                               if all(math.isfinite(v) for v in box)))
+    decor = tuple(box for box in rects if _decor(box, page))
+    rest = [box for box in rects if not _decor(box, page)]
+    photos = tuple(box for box, n in zip(rest, _counts(_centres(page), rest), strict=True) if n < BACKGROUND_CHARS)
+    _last = (page, photos, decor)
+    return photos, decor
 
 
 def photo_boxes(page: PageText) -> list[Box]:
-    """그림이 될 이미지 객체(보이는 쪽 pt): 장식·배경이 아닌 것. 모델 없이도 그림 블록이 된다(digital 쪽)."""
-    return [box for box in (_pt(page, rect) for rect in page.images)
-            if not _decor(box, page) and not _background(box, page)]
+    """그림이 될 이미지 객체(보이는 쪽 pt, 같은 상자는 한 번): 장식·배경이 아닌 것. 모델 없이도 그림 블록이 된다
+    (digital 쪽)."""
+    return list(_image_boxes(page)[0])
 
 
 def wants_layout(page: PageText, state: TextLayerState) -> bool:
@@ -159,17 +205,26 @@ def page_regions(boxes: Sequence["LayoutBox"], size: tuple[int, int], page: Page
 
 
 def _drop_containers(cands: list[_Candidate]) -> list[_Candidate]:
-    """다른 후보 둘 이상을 대부분(≥ CONTAIN) 감싸는 후보는 버린다(차트 묶음 위에 덧붙은 상자, §4.3-3)."""
-    return [c for i, c in enumerate(cands)
-            if sum(1 for j, o in enumerate(cands) if j != i and _inside(o[0], c[0]) >= CONTAIN) < 2]
+    """다른 후보 둘 이상을 대부분(≥ CONTAIN) 감싸는 후보는 버린다(차트 묶음 위에 덧붙은 상자, §4.3-3). 거의 같은
+    상자(IoU ≥ SAME_IOU: 같은 곳을 chart·image로 둘 다 찾은 것)는 감싼 것으로 세지 않고, 감싼 것끼리 거의 같으면
+    하나로 센다."""
+    out: list[_Candidate] = []
+    for i, c in enumerate(cands):
+        wrapped: list[Box] = []
+        for j, o in enumerate(cands):
+            if (j != i and len(wrapped) < 2 and _inside(o[0], c[0]) >= CONTAIN and _iou(o[0], c[0]) < SAME_IOU
+                    and not any(_iou(o[0], w) >= SAME_IOU for w in wrapped)):
+                wrapped.append(o[0])
+        if len(wrapped) < 2:
+            out.append(c)
+    return out
 
 
 def _merge_images(cands: list[_Candidate], page: PageText) -> list[_Candidate]:
     """digital 쪽(§4.3-4): 그림이 될 이미지 객체 하나 안에 대부분(≥ INSIDE) 드는 후보는 그 이미지 객체 상자 하나로
     합치고(분류는 점수 높은 후보, 여러 객체면 가장 작은 객체), 모델이 찾지 못한 그런 객체도 그림(image)이 된다.
     장식 이미지(로고) 안에 대부분 드는 후보는 버린다(장식 거르기)."""
-    photos = photo_boxes(page)
-    decor = [box for box in (_pt(page, rect) for rect in page.images) if _decor(box, page)]
+    photos, decor = _image_boxes(page)
     merged: dict[int, tuple[str, float]] = {}
     out: list[_Candidate] = []
     for box, category, score in cands:
@@ -186,9 +241,10 @@ def _merge_images(cands: list[_Candidate], page: PageText) -> list[_Candidate]:
 
 
 def _dedupe(cands: list[_Candidate]) -> list[_Candidate]:
-    """같은 분류 IoU ≥ SAME_IOU면 큰 쪽 하나(§4.3-5), 다른 그림 안에 대부분(≥ CONTAIN) 드는 조각은 버린다."""
+    """같은 분류 IoU ≥ SAME_IOU면 큰 쪽 하나(§4.3-5), 다른 그림 안에 대부분(≥ CONTAIN) 드는 조각은 버린다.
+    넓이가 같으면 점수 높은 쪽, 그것도 같으면 앞 후보."""
     kept: list[_Candidate] = []
-    for c in sorted(cands, key=lambda c: -area(c[0])):
+    for c in sorted(cands, key=lambda c: (-area(c[0]), -c[2])):
         if any((o[1] == c[1] and _iou(c[0], o[0]) >= SAME_IOU) or _inside(c[0], o[0]) >= CONTAIN for o in kept):
             continue
         kept.append(c)
@@ -271,7 +327,8 @@ def arrange(page: PageText, state: TextLayerState, regions: Sequence[Region] = (
             lines: Sequence[OcrText] = ()) -> PagePlan:
     """한 쪽의 그림·캡션(§4.3~4.5). regions는 레이아웃 상자(보이는 쪽 pt), tables는 find_tables 결과, lines는
     scanned 쪽의 거른 OCR 줄. digital 쪽은 이미지 객체(page.images)도 본다. 순서: 분류·점수 기준 → 감싸는 상자 버리기
-    → (digital) 이미지 객체 합치기 → 겹침·조각 정리 → 그림 우선(표) → 표 제목 거르기 → 캡션 짝 → 캡션 글자 → 그림 글자."""
+    → (digital) 이미지 객체 합치기 → 겹침·조각 정리 → 그림 우선(표) → 표 제목 거르기 → 캡션 짝 → 캡션 글자 → 그림 글자.
+    scanned 쪽은 OCR 줄만 그림·캡션으로 옮긴다: 상자 안 텍스트 레이어 글자는 문단으로 남는다."""
     cands: list[_Candidate] = [(r.box, FIGURE_CLASSES[r.cls], r.score) for r in regions
                                if r.cls in FIGURE_CLASSES and r.score >= FIGURE_MIN_SCORE and area(r.box) > 0]
     caption_boxes = [r.box for r in regions if r.cls == CAPTION_CLASS and r.score >= CAPTION_MIN_SCORE and area(r.box) > 0]

@@ -3,6 +3,7 @@ PNG, 바이트 상한. 합성 PageText(보이는 쪽 pt)로 본다."""
 
 import hashlib
 import io
+import math
 import time
 
 from PIL import Image
@@ -75,6 +76,20 @@ def test_digital_candidates_inside_an_image_object_take_its_box_and_uncovered_ph
         ("image", (100.0, 100.0, 400.0, 300.0)), ("image", (100.0, 400.0, 400.0, 600.0))]
     assert boxes(figures.arrange(p, "digital", [region("chart", (110, 110, 390, 290))]))[0] == (
         "chart", (100.0, 100.0, 400.0, 300.0))  # 분류는 합친 후보(점수 높은 것)를 따른다
+
+
+def test_a_chart_found_as_both_chart_and_image_is_not_a_box_around_its_pieces():
+    triple = [region("chart", (90, 100, 510, 300)), region("image", (91, 101, 509, 299), 0.7),
+              region("image", (100, 110, 200, 200), 0.8)]  # 같은 차트를 두 분류로 + 안쪽 범례 조각
+    assert boxes(figures.arrange(page(), "scanned", triple)) == [("chart", (90.0, 100.0, 510.0, 300.0))]
+    twice = [region("chart", (50, 100, 545, 300)), region("chart", (60, 110, 200, 200)),
+             region("image", (61, 111, 199, 199), 0.7)]  # 감싼 것은 두 분류로 찾은 조각 하나
+    assert boxes(figures.arrange(page(), "scanned", twice)) == [("chart", (50.0, 100.0, 545.0, 300.0))]
+
+
+def test_same_class_boxes_of_equal_area_keep_the_higher_score():
+    regions = [region("chart", (100, 100, 300, 300), 0.5), region("chart", (110, 110, 310, 310), 0.9)]
+    assert boxes(figures.arrange(page(), "scanned", regions)) == [("chart", (110.0, 110.0, 310.0, 310.0))]
 
 
 def test_logo_and_background_image_objects_are_not_figures():
@@ -196,4 +211,23 @@ def test_hundreds_of_image_objects_icons_drop_and_stacked_copies_merge():
     plan = figures.arrange(page(images=icons + stacked), "digital", [region("image", (101, 101, 399, 299))])
     assert boxes(plan) == [("image", (100.0, 100.0, 400.0, 300.0))]
     assert figures.photo_boxes(page(images=icons)) == [] and not figures.wants_layout(page(images=icons), "digital")
+    assert time.perf_counter() - start < 2.0
+
+
+def test_non_finite_image_objects_are_not_photos():
+    p = page(images=[(math.nan, 100, 400, 300), (100, 100, math.inf, 300)])
+    assert figures.photo_boxes(p) == [] and figures.arrange(p, "digital").figures == ()
+    assert not figures.wants_layout(p, "digital")
+
+
+def test_background_check_with_many_chars_and_stacked_images_is_fast():
+    text = [line("0123456789" * 10, 40, 20 + 7 * r, 6.0) for r in range(100)]  # 10,000자(사진 밖)
+    stacked = [(100, 760, 500, 835)] * 10_000
+    clear = page(*text, images=stacked)
+    covered = page(*text, line("가" * 50, 110, 800, 6.0), images=stacked)  # 사진 위에 50자: 배경
+    start = time.perf_counter()
+    assert figures.wants_layout(clear, "digital")
+    assert [tuple(round(v, 1) for v in b) for b in figures.photo_boxes(clear)] == [(100.0, 760.0, 500.0, 835.0)]
+    assert boxes(figures.arrange(clear, "digital")) == [("image", (100.0, 760.0, 500.0, 835.0))]
+    assert figures.photo_boxes(covered) == [] and boxes(figures.arrange(covered, "digital")) == []
     assert time.perf_counter() - start < 2.0
