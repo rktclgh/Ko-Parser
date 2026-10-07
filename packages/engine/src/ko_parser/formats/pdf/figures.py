@@ -22,8 +22,12 @@ from .tables import TableSpec
 if TYPE_CHECKING:
     from .layout import LayoutBox
 
-FIGURE_MIN_SCORE = 0.4  # image·chart 상자 점수 기준(스펙 시작값. 채점으로 정한다)
-CAPTION_MIN_SCORE = 0.5  # figure_title 상자 점수 기준(스펙 시작값)
+FIGURE_MIN_SCORE = 0.5  # image·chart 상자 점수 기준
+# 채점: 0.4 → 0.5에서 공공누리 R/P/캡션 0.895/0.968/2 → 0.895/1.0/2(04 잘못 찾은 쪽 6 → 3), 선·도형 R/P/캡션
+# 0.95/0.964/162 → 0.95/0.979/162(0.3·0.35는 공공누리 P, 0.45는 선·도형 R이 나빠짐)
+CAPTION_MIN_SCORE = 0.4  # figure_title 상자 점수 기준
+# 채점: 0.5 → 0.4에서 공공누리 R/P/캡션 0.895/1.0/2 → 0.895/1.0/2(04 잘못 찾은 쪽 3 그대로), 선·도형 R/P/캡션
+# 0.95/0.979/162 → 0.95/0.979/167(0.6은 선·도형 캡션 145로 나빠짐)
 TABLE_MIN_SCORE = 0.5  # 모델 table 상자: 표 확인·표 제목 판정·처리 이력에 쓴다
 CAPTION_GAP = 30.0  # 캡션은 그림 바로 위·아래 이 간격(pt) 안(스펙 시작값)
 CAPTION_OVERLAP = 0.3  # 캡션과 그림(표)의 가로 겹침 ≥ 좁은 쪽 너비 × 0.3

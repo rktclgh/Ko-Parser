@@ -52,11 +52,11 @@ def boxes(plan) -> list[tuple]:
 
 
 def test_classes_and_score_thresholds():
-    regions = [region("image", (50, 100, 250, 300), 0.41), region("chart", (300, 100, 500, 300), 0.39),
+    regions = [region("image", (50, 100, 250, 300), 0.51), region("chart", (300, 100, 500, 300), 0.49),
                region("seal", (50, 400, 150, 500)), region("header", (50, 20, 300, 40)),
                region("table", (50, 600, 500, 700))]
     plan = figures.arrange(page(), "scanned", regions)
-    assert boxes(plan) == [("image", (50.0, 100.0, 250.0, 300.0))]  # 0.39 차트·도장·머리말은 그림이 아니다
+    assert boxes(plan) == [("image", (50.0, 100.0, 250.0, 300.0))]  # 0.49 차트·도장·머리말은 그림이 아니다
     assert [r.box for r in plan.layout_tables] == [(50, 600, 500, 700)]
 
 
