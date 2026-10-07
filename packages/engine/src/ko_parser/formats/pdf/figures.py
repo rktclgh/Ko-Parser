@@ -46,6 +46,7 @@ PNG_LEVEL = 6  # PNG 압축 단계(최적화 끔·메타데이터 없음: 같은
 ASSET_LIMIT = MAX_DOCUMENT_ASSET_BYTES  # 문서 하나의 그림 바이트 총합 상한(테스트가 바꿔 끼운다)
 FIGURE_CLASSES = {"image": "image", "chart": "chart"}  # 모델 분류 → 그림 분류. seal 등 장식·표·글자는 그림이 아니다
 CAPTION_CLASS = "figure_title"
+DECOR_CLASSES = frozenset({"seal", "header_image", "footer_image"})  # 모델 장식 분류: 그 안 이미지 객체는 그림이 아니다
 TABLE_CLASS = "table"
 
 Box = tuple[float, float, float, float]  # 보이는 쪽 pt (x0, y0, x1, y1)
@@ -233,11 +234,15 @@ def _drop_containers(cands: list[_Candidate]) -> list[_Candidate]:
     return out
 
 
-def _merge_images(cands: list[_Candidate], page: PageText) -> list[_Candidate]:
+def _merge_images(cands: list[_Candidate], page: PageText, marks: Sequence[Box] = ()) -> list[_Candidate]:
     """digital 쪽(§4.3-4): 그림이 될 이미지 객체 하나 안에 대부분(≥ INSIDE) 드는 후보는 그 이미지 객체 상자 하나로
     합치고(분류는 점수 높은 후보, 여러 객체면 가장 작은 객체), 모델이 찾지 못한 그런 객체도 그림(image)이 된다.
-    장식 이미지(로고) 안에 대부분 드는 후보는 버린다(장식 거르기)."""
+    장식 이미지(로고, 그리고 모델 장식 상자 marks 안에 대부분 드는 이미지 객체: 머리띠·직인) 안에 대부분 드는 후보는
+    버린다(장식 거르기)."""
     photos, decor = _image_boxes(page)
+    if marks:
+        under = [photo for photo in photos if any(_inside(photo, m) >= INSIDE for m in marks)]
+        photos, decor = tuple(p for p in photos if p not in under), (*decor, *under)
     merged: dict[int, tuple[str, float]] = {}
     out: list[_Candidate] = []
     for box, category, score in cands:
@@ -348,16 +353,20 @@ def arrange(page: PageText, state: TextLayerState, regions: Sequence[Region] = (
                                if r.cls in FIGURE_CLASSES and r.score >= FIGURE_MIN_SCORE and area(r.box) > 0]
     caption_boxes = [r.box for r in regions if r.cls == CAPTION_CLASS and r.score >= CAPTION_MIN_SCORE and area(r.box) > 0]
     layout_tables = tuple(r for r in regions if r.cls == TABLE_CLASS and r.score >= TABLE_MIN_SCORE)
+    marks = [r.box for r in regions if r.cls in DECOR_CLASSES and r.score >= FIGURE_MIN_SCORE]
     cands = _drop_containers(cands)
     if state == "digital":
-        cands = _merge_images(cands, page)
+        cands = _merge_images(cands, page, marks)
     cands = _dedupe(cands)
     kept, dropped, cands = _settle_tables(cands, tables, layout_tables, page)
     cands.sort(key=lambda c: (c[0][1], c[0][0]))
     figure_boxes = [c[0] for c in cands]
     taken = {i for t in kept for i in t.char_ids}
     used: set[int] = set()
-    table_boxes = [_pt(page, t.bbox) for t in kept] + [r.box for r in layout_tables]
+    # 그림 후보와 같은 자리의 모델 table 상자(같은 곳을 두 분류로 찾은 것)는 표 제목 판정에 쓰지 않는다(사전 리뷰 1)
+    table_boxes = [_pt(page, t.bbox) for t in kept] + [
+        r.box for r in layout_tables
+        if not any(_inside(r.box, f) >= INSIDE or _iou(r.box, f) >= TABLE_CONFIRM_IOU for f in figure_boxes)]
     captions = [box for box in caption_boxes if not _table_title(box, table_boxes, figure_boxes)
                 and _capture(page, state, box, taken, lines, used)[0]]
     linked: dict[int, Caption] = {}

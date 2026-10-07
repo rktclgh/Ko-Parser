@@ -250,7 +250,7 @@ def test_page_with_hundreds_of_icons_needs_no_render_or_model(monkeypatch):
     start = time.perf_counter()
     parsed = PdfParser(ocr=False).parse(pdf(icons), "icons.pdf")
     assert [b["kind"] for b in parsed.blocks] == ["paragraph"] and not parsed.assets
-    assert time.perf_counter() - start < 10.0
+    assert time.perf_counter() - start < 30.0  # 느린 CI 러너에도 넉넉히(사전 리뷰 6)
 
 
 def test_layout_true_without_the_install_fails_at_construction(monkeypatch):

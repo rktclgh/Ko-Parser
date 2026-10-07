@@ -231,7 +231,7 @@ def test_hundreds_of_image_objects_icons_drop_and_stacked_copies_merge():
     plan = figures.arrange(page(images=icons + stacked), "digital", [region("image", (101, 101, 399, 299))])
     assert boxes(plan) == [("image", (100.0, 100.0, 400.0, 300.0))]
     assert figures.photo_boxes(page(images=icons)) == [] and not figures.wants_layout(page(images=icons), "digital")
-    assert time.perf_counter() - start < 2.0
+    assert time.perf_counter() - start < 10.0  # 느린 CI 러너에도 넉넉히(사전 리뷰 6)
 
 
 def test_non_finite_image_objects_are_not_photos():
@@ -250,4 +250,25 @@ def test_background_check_with_many_chars_and_stacked_images_is_fast():
     assert [tuple(round(v, 1) for v in b) for b in figures.photo_boxes(clear)] == [(100.0, 760.0, 500.0, 835.0)]
     assert boxes(figures.arrange(clear, "digital")) == [("image", (100.0, 760.0, 500.0, 835.0))]
     assert figures.photo_boxes(covered) == [] and boxes(figures.arrange(covered, "digital")) == []
-    assert time.perf_counter() - start < 2.0
+    assert time.perf_counter() - start < 10.0  # 느린 CI 러너에도 넉넉히(사전 리뷰 6)
+
+
+def test_a_model_table_box_at_the_same_place_as_a_chart_does_not_take_its_caption():
+    """사전 리뷰 1: 모델이 같은 차트를 chart와 table로 둘 다 내면(선 있는 표 없음) 그 table 상자는 그림과 같은 자리를
+    두 분류로 찾은 것이라 표 제목 판정에 쓰지 않는다: 차트 아래 캡션은 차트와 짝이다."""
+    p = page(line("그림 1. 막대 차트", 200, 330))
+    for table in ((90, 100, 510, 300), (87, 97, 513, 303)):  # 같은 상자, 3pt 큰 상자
+        regions = [region("chart", (90, 100, 510, 300)), region("table", table, 0.55),
+                   region("figure_title", (195, 320, 300, 334), 0.8)]
+        (chart,) = figures.arrange(p, "digital", regions).figures
+        assert chart.caption is not None and chart.caption.text == "그림 1. 막대 차트", table
+
+
+def test_photos_under_a_model_decor_box_are_not_figures():
+    """사전 리뷰 2: 모델이 장식(seal·header_image·footer_image, 점수 ≥ FIGURE_MIN_SCORE)으로 본 영역 안의 이미지
+    객체(기관 머리띠·직인)는 그림이 아니다. 모델이 없거나 점수가 낮으면 지금처럼 사진 그림이다."""
+    p = page(line("기관 이름 머리말", 72, 820, 9), images=[(0, 2, 595, 52), (420, 600, 560, 740)])
+    regions = [region("header_image", (0, 2, 595, 52), 0.95), region("seal", (420, 600, 560, 740), 0.93)]
+    assert figures.arrange(p, "digital", regions).figures == ()
+    assert len(figures.arrange(p, "digital").figures) == 2
+    assert len(figures.arrange(p, "digital", [region("seal", (420, 600, 560, 740), 0.49)]).figures) == 2

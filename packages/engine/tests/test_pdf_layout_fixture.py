@@ -87,7 +87,13 @@ def test_fixture_figures_captions_tables_and_history():
     (table,) = [b for b in tree.blocks if b.kind == "table"]  # 차트 눈금 격자는 표가 아니다(그림이 이긴다)
     assert (table.table.n_rows, table.table.n_cols) == (4, 4)
     assert "표 1. 예산 현황(단위: 천원)" in [b.text for b in tree.blocks if b.kind == "paragraph"]  # 표 제목은 문단
-    assert {"1Q", "5Q"} <= set(figs[0].text.split()) and {"1월", "11월"} <= set(figs[2].text.split())
+    # 축 이름표는 모델 상자 아랫변 가까이 있어 OS 글꼴 렌더에 따라 그림 글자나 문단 어느 쪽에 들 수 있다(글자 보존은
+    # glyphs 테스트가 본다): 그 쪽 그림 글자나 문단 어느 쪽에든 있으면 된다(사전 리뷰 6)
+    def words(page):
+        return {w for b in tree.blocks if b.locator.page == page and b.kind in ("figure", "paragraph")
+                for w in b.text.split()}
+
+    assert {"1Q", "5Q"} <= words(figs[0].locator.page) and {"1월", "11월"} <= words(figs[2].locator.page)
     regions = {r.region_id for r in engine.history(tree.document_id).regions}
     assert {"p2-table-in-figure-1", "p2-layout-table-1"} <= regions
 

@@ -363,3 +363,13 @@ def test_figure_and_text_with_the_same_rounded_top_put_the_text_first():
     result = build_specs([page(text)], ["digital"], None, None, [[FigureBlock(fig, "text_layer", None)]])
     assert result[0]["locator"]["bbox"]["y0"] == result[1]["locator"]["bbox"]["y0"] == 0.346
     assert kinds_texts(result) == [("paragraph", "오른쪽 단 문단"), ("figure", "")]
+
+
+def test_ocr_paragraph_and_figure_with_the_same_rounded_top_put_the_paragraph_first():
+    """사전 리뷰 5: scanned 쪽도 같은 규칙. OCR 문단과 그림의 윗변이 반올림해 같으면(블록 상자 둘 다 0.250) 문단이
+    먼저다(반올림 전 값으로 견주면 그림이 먼저 끼어든다)."""
+    paras = [OcrParagraph(text="같은 높이 문단", bbox=(0.6, 0.2504, 0.9, 0.28), confidence=0.45)]
+    fig = Figure(box=(0.1 * W, 0.2496 * H, 0.5 * W, 0.5 * H), category="image")
+    result = build_specs([page()], ["scanned"], None, [paras], [[FigureBlock(fig, "ocr", None)]])
+    assert result[0]["locator"]["bbox"]["y0"] == result[1]["locator"]["bbox"]["y0"] == 0.25
+    assert [(s["kind"], s["text"]) for s in result] == [("paragraph", "같은 높이 문단"), ("figure", "")]

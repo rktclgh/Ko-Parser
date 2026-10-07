@@ -277,9 +277,9 @@ def _top(item: "list[Fragment] | TableSpec | OcrParagraph | FigureBlock", page: 
     """블록의 보이는 쪽 윗변(0~1)."""
     if isinstance(item, list):
         return _box(item, page)["y0"]
-    if isinstance(item, FigureBlock):
-        return round(item.top(page), 3)  # 블록 상자처럼 소수 셋째 자리: 같은 높이면 텍스트가 먼저(리뷰 M4)
-    return item.bbox[1]
+    if isinstance(item, FigureBlock):  # 블록 상자처럼 소수 셋째 자리: 같은 높이면 텍스트가 먼저(리뷰 M4)
+        return round(item.top(page), 3)
+    return round(item.bbox[1], 3)  # OCR 문단도 같은 자리수로 견준다(표 bbox는 이미 셋째 자리)
 
 
 def _merge_figures(paras: Sequence[OcrParagraph], page_figures: Sequence[FigureBlock],
@@ -288,7 +288,7 @@ def _merge_figures(paras: Sequence[OcrParagraph], page_figures: Sequence[FigureB
     queue = deque(sorted(page_figures, key=lambda f: f.top(page)))
     out: list[OcrParagraph | FigureBlock] = []
     for para in paras:
-        while queue and queue[0].top(page) < para.bbox[1]:
+        while queue and _top(queue[0], page) < _top(para, page):  # 반올림한 윗변: 같으면 문단 먼저(사전 리뷰 5)
             out.append(queue.popleft())
         out.append(para)
     return out + list(queue)
