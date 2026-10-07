@@ -468,3 +468,18 @@ def test_path_count_counts_path_objects_in_forms_and_stops_at_the_cap(monkeypatc
     assert only_page(data).paths == 13
     monkeypatch.setattr(extract, "MAX_PATH_COUNT", 5)
     assert only_page(data).paths == 5
+
+
+def test_image_boxes_stop_at_the_cap_but_coverage_keeps_every_image(monkeypatch):
+    def draw(c):
+        c.drawImage(ImageReader(RED), -300, 0, width=100, height=100)  # 쪽 밖: 상자는 빠지고 덮는 비율은 0
+        for i in range(3):
+            c.drawImage(ImageReader(RED), 100 + 100 * i, 600, width=50, height=50)
+
+    data = make_pdf(draw)
+    full = only_page(data)
+    assert len(full.images) == 3 and len(full.image_coverage) == 4 and full.image_coverage[0] == 0.0
+    monkeypatch.setattr(extract, "MAX_IMAGE_OBJECTS", 2)
+    capped = only_page(data)
+    assert capped.images == full.images[:2]
+    assert capped.image_coverage == full.image_coverage
