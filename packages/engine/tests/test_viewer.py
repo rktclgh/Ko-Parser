@@ -57,16 +57,18 @@ def test_structure_pages_blocks_and_page_states():
     assert notice == "그림 속 글자는 OCR 필요(보이는 글자만 블록)" and "만들지 않았다" not in notice
 
 
-def test_unreliable_page_has_no_blocks_and_says_so():
+def test_unreliable_page_blocks_come_with_a_notice():
+    """unreliable 쪽은 깨진 글자층으로 만든 블록(신뢰도 0.2 이하)이 있고, 쪽 안내가 믿기 어렵다고 알린다."""
     broken = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_layer="unreliable",
                       text_stats=TextLayerStats(chars=120, invisible_ratio=0.0, unmapped_ratio=0.4, pua_ratio=0.0,
                                                 max_image_coverage=0.0))
     source = SourceInfo(name="깨짐.pdf", mime="application/pdf", content_hash="sha256:" + "2" * 64, page_count=1)
-    tree = build_tree(ParsedSource(mime="application/pdf", pages=(broken,)), "u1", 1, source)
-    data = data_of(render_html(tree))
-    assert data["blocks"] == [] and data["document"]["page_states"] == {"unreliable": 1}
+    parsed = ParsedSource(mime="application/pdf", pages=(broken,), blocks=[{**spec("깨진 글자", 0.2), "confidence": 0.2}])
+    data = data_of(render_html(build_tree(parsed, "u1", 1, source)))
+    assert [(b["text"], b["confidence"]) for b in data["blocks"]] == [("깨진 글자", 0.2)]
+    assert data["document"]["page_states"] == {"unreliable": 1}
     assert data["pages"][0]["state"] == "unreliable" and data["pages"][0]["stats"]["unmapped_ratio"] == 0.4
-    assert data["pages"][0]["notice"] == "글자가 깨져 블록을 만들지 않았다"
+    assert data["pages"][0]["notice"] == "글자층이 깨져 블록 글자를 믿기 어렵다(신뢰도 0.2 이하)"
 
 
 def test_where_formats_slide_and_flow_locators():

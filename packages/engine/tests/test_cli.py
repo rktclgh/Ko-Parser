@@ -12,7 +12,12 @@ from hanji import cli
 from hanji.cli import main
 from hanji.core import build_tree, diff_trees
 from hanji.errors import AssetNotFound
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfgen.canvas import Canvas
+
 from hanji.formats.base import ParsedSource
+from hanji.formats.pdf import parser as pdf_parser
 from hanji.store import SqliteStore
 from hanji_contracts import ChangeBatch, DocumentTree, PageInfo, ProcessingHistory, SourceInfo
 
@@ -429,3 +434,26 @@ def test_export_fchmod_failure_keeps_the_old_file_and_leaves_no_temp(capsys, db,
     code, _, err = run(capsys, "export", "fig", "--db", db, "--format", "md", "--out", out)
     assert code == 1 and "fchmod failed" in err
     assert out.read_text(encoding="utf-8") == "old" and [p.name for p in out.parent.iterdir()] == ["x.md"]
+
+
+def test_parse_no_ocr_keeps_an_unreliable_page_with_its_ledger_and_history(capsys, db, tmp_path, monkeypatch):
+    """--no-ocr로 파싱한 unreliable 쪽: 깨진 글자층 블록(신뢰도 0.2)·쪽 글자 장부·처리 이력이 상태 파일까지 간다."""
+    pdfmetrics.registerFont(UnicodeCIDFont("HYGothic-Medium"))
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(595.0, 842.0), invariant=1, pageCompression=0)
+    c.setFont("HYGothic-Medium", 11)
+    c.drawString(72, 770, "깨진 쪽 글자다.")
+    c.showPage()
+    c.save()
+    path = tmp_path / "깨짐.pdf"
+    path.write_bytes(buf.getvalue())
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    code, out, _ = run(capsys, "parse", path, "--db", db, "--id", "u1", "--no-ocr", "--no-layout")
+    tree = DocumentTree.model_validate_json(out)
+    assert code == 0 and [(b.text, b.confidence) for b in tree.blocks] == [("깨진 쪽 글자다.", 0.2)]
+    (page,) = tree.pages
+    assert (page.text_layer, page.coverage.layer_chars, page.coverage.in_blocks) == ("unreliable", 7, 7)
+    code, out, _ = run(capsys, "history", "u1", "--db", db)
+    regions = ProcessingHistory.model_validate_json(out).regions
+    assert code == 0 and [(r.region_id, r.fallback_reason) for r in regions] == [
+        ("p1-unreliable-text-layer", "unreliable_text_layer_kept")]
