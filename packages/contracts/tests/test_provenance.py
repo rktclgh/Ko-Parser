@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.provenance import (
+from hanji_contracts.provenance import (
     Attempt, CorrectionSummary, ErrorInfo, GateCheck, GateResult, ProcessingHistory, RegionRecord, Usage,
 )
 

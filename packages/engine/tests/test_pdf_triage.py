@@ -1,8 +1,8 @@
 import pytest
 
-from ko_parser.formats.pdf.extract import Char, PageText
-from ko_parser.formats.pdf.triage import classify, page_stats
-from ko_parser_contracts import TextLayerStats
+from hanji.formats.pdf.extract import Char, PageText
+from hanji.formats.pdf.triage import classify, page_stats
+from hanji_contracts import TextLayerStats
 
 
 def char(text="가", invisible=False, unmapped=False) -> Char:

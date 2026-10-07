@@ -20,9 +20,9 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser.core import build_tree
-from ko_parser.formats.pdf import PdfParser
-from ko_parser_contracts import DocumentTree, SourceInfo
+from hanji.core import build_tree
+from hanji.formats.pdf import PdfParser
+from hanji_contracts import DocumentTree, SourceInfo
 
 ROOT = Path(__file__).resolve().parent / "fixtures" / "pdf"
 FONT = "HYGothic-Medium"
@@ -176,7 +176,7 @@ def build_all() -> dict[str, bytes]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="ko-parser-engine PDF fixtures")
+    parser = argparse.ArgumentParser(description="hanji PDF fixtures")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
     stale = []

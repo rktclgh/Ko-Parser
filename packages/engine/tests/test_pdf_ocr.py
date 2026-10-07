@@ -1,5 +1,5 @@
 """PdfParser의 스캔 쪽 OCR: scanned 쪽만 읽고, 텍스트 레이어가 우선이며, 블록은 윗변 순서로 합쳐진다.
-그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴(Pillow)로 그려 reportlab PDF에 넣는다."""
+그림은 OS 글꼴에 기대지 않으려고 hanji-fonts 글꼴(Pillow)로 그려 reportlab PDF에 넣는다."""
 
 import importlib.machinery
 import io
@@ -16,14 +16,14 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-import ko_parser_fonts
-from ko_parser import models
-from ko_parser.errors import OcrUnavailable
-from ko_parser.formats.pdf import PdfParser, ocr, scan
+import hanji_fonts
+from hanji import models
+from hanji.errors import OcrUnavailable
+from hanji.formats.pdf import PdfParser, ocr, scan
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
-NOTO = str(ko_parser_fonts.font_dir() / ko_parser_fonts.FONT_FILE)
+NOTO = str(hanji_fonts.font_dir() / hanji_fonts.FONT_FILE)
 PX = 200 / 72  # 그림 화소 / pt
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "pdf" / "inputs"
 BODY = [(40, 60, 14, "스캔한 쪽의 글자를 읽는다."), (40, 82, 14, "두 줄로 된 문단이다."),
@@ -63,21 +63,21 @@ def pdf(*pages, size=(300.0, 400.0)) -> bytes:
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 def fake_model_files(monkeypatch, tmp_path) -> None:
-    """찾기만 되는 가짜 OCR 모델 파일(KO_PARSER_MODEL_DIR, 해시는 틀리다): 설치 확인이 모델 때문에 거짓이 되지 않게."""
+    """찾기만 되는 가짜 OCR 모델 파일(HANJI_MODEL_DIR, 해시는 틀리다): 설치 확인이 모델 때문에 거짓이 되지 않게."""
     for name in ocr.MODEL_NAMES:
         path = tmp_path / "models" / models.MANIFEST[name].path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"not a model")
-    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("HANJI_MODEL_DIR", str(tmp_path / "models"))
 
 
 def blocks(data: bytes, parser: PdfParser | None = None) -> list[tuple[str, str, str]]:
@@ -128,7 +128,7 @@ def test_ocr_off_or_not_installed_keeps_text_layer_only(monkeypatch):
 def test_ocr_true_without_the_install_fails_at_construction(monkeypatch):
     monkeypatch.setitem(sys.modules, "onnxruntime", None)
     monkeypatch.setattr(ocr, "_reader", None)
-    with pytest.raises(OcrUnavailable, match=r"ko-parser-engine\[ocr\]"):
+    with pytest.raises(OcrUnavailable, match=r"hanji\[ocr\]"):
         PdfParser(ocr=True)
     assert PdfParser().ocr is None and PdfParser(ocr=False).ocr is False  # 자동·끔은 만들 때 확인하지 않는다
 
@@ -174,7 +174,7 @@ def test_installed_but_broken_module_is_available_and_get_reader_names_it(monkey
     담은 OcrUnavailable을 낸다(조용히 텍스트 레이어로 물러나지 않게)."""
     broken_module(monkeypatch, tmp_path)
     assert ocr.available() is True
-    with pytest.raises(OcrUnavailable, match=r"onnxruntime .*libstub\.so\.1.*ko-parser-engine\[ocr\].* or run with --no-ocr"):
+    with pytest.raises(OcrUnavailable, match=r"onnxruntime .*libstub\.so\.1.*hanji\[ocr\].* or run with --no-ocr"):
         ocr.get_reader()
     assert ocr._reader is None
 
@@ -189,11 +189,11 @@ def test_leftover_namespace_module_without_its_api_is_a_broken_install(monkeypat
     leftover.__spec__ = importlib.machinery.ModuleSpec("onnxruntime", None, is_package=True)
     leftover.__path__ = []
     monkeypatch.setitem(sys.modules, "onnxruntime", leftover)
-    monkeypatch.delitem(sys.modules, "ko_parser.formats.pdf.ocr.reader", raising=False)  # 읽개 모듈을 다시 가져오게
+    monkeypatch.delitem(sys.modules, "hanji.formats.pdf.ocr.reader", raising=False)  # 읽개 모듈을 다시 가져오게
     monkeypatch.setattr(ocr, "_reader", None)
     assert ocr.available() is True
     with pytest.raises(OcrUnavailable,
-                       match=r"onnxruntime.* has no attribute .*ko-parser-engine\[ocr\].* or run with --no-ocr"):
+                       match=r"onnxruntime.* has no attribute .*hanji\[ocr\].* or run with --no-ocr"):
         ocr.get_reader()
     assert ocr._reader is None
 
@@ -209,7 +209,7 @@ def test_ocr_without_model_files_is_not_installed(monkeypatch):
     """모델 파일을 찾을 수 없으면 설치가 없는 것과 같다(available 거짓). get_reader()·ocr=True는 models fetch 안내."""
     without_model_files(monkeypatch)
     assert ocr.available() is False
-    with pytest.raises(OcrUnavailable, match=r"ocr/det\.onnx not found; run `ko-parser models fetch ocr`"):
+    with pytest.raises(OcrUnavailable, match=r"ocr/det\.onnx not found; run `hanji models fetch ocr`"):
         ocr.get_reader()
     with pytest.raises(OcrUnavailable, match=r"models fetch ocr.*--no-ocr"):
         PdfParser(ocr=True)
@@ -250,7 +250,7 @@ def test_auto_mode_with_an_unreadable_ocr_model_file_raises_the_config_error(mon
     det.chmod(0)
     try:
         with pytest.raises(OcrUnavailable, match=r"model file .*det\.onnx could not be read \(Permission denied\); "
-                                                  r".*`ko-parser models fetch ocr`.*, or run with --no-ocr$"):
+                                                  r".*`hanji models fetch ocr`.*, or run with --no-ocr$"):
             PdfParser(layout=False).parse((FIXTURES / "image_page.pdf").read_bytes(), "image_page.pdf")
     finally:
         det.chmod(0o644)
@@ -262,7 +262,7 @@ def test_auto_mode_with_an_unopenable_model_folder_behaves_as_not_installed(monk
     """자동 모드 + 모델 폴더를 열 수 없음(권한): 날 PermissionError 없이 모델 파일이 없을 때와 같다(available 거짓,
     OCR 없이 파싱, 쪽을 그리지 않는다). ocr=True는 models fetch·--no-ocr 안내."""
     fake_model_files(monkeypatch, tmp_path)
-    monkeypatch.setenv("KO_PARSER_CACHE_DIR", str(tmp_path / "empty-cache"))
+    monkeypatch.setenv("HANJI_CACHE_DIR", str(tmp_path / "empty-cache"))
     monkeypatch.setattr(ocr, "MODULES", ())
     monkeypatch.setattr(ocr, "_reader", None)
     data = (FIXTURES / "image_page.pdf").read_bytes()
@@ -299,7 +299,7 @@ def test_module_whose_spec_lookup_fails_is_not_installed(monkeypatch):
 def test_available_does_not_import_the_runtime():
     """설치 확인은 numpy·onnxruntime·pyclipper를 import하지 않는다(하위 프로세스에서 본다)."""
     code = ("import sys\n"
-            "from ko_parser.formats.pdf import ocr\n"
+            "from hanji.formats.pdf import ocr\n"
             "ocr.available()\n"
             "print(sorted(m for m in ('numpy', 'onnxruntime', 'pyclipper') if m in sys.modules))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)

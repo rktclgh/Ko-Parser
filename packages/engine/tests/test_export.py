@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from ko_parser.core import build_tree
-from ko_parser.export import to_markdown
-from ko_parser.formats.base import ParsedSource
-from ko_parser_contracts import DocumentTree, PageInfo, SourceInfo
+from hanji.core import build_tree
+from hanji.export import to_markdown
+from hanji.formats.base import ParsedSource
+from hanji_contracts import DocumentTree, PageInfo, SourceInfo
 
 CONTRACT_FIXTURES = Path(__file__).resolve().parents[2] / "contracts" / "fixtures"
 

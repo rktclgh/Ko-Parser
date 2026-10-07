@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from ko_parser import LocalEngine, MemoryStore
-from ko_parser.export import to_markdown
-from ko_parser_contracts import DocumentTree
+from hanji import LocalEngine, MemoryStore
+from hanji.export import to_markdown
+from hanji_contracts import DocumentTree
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE / "fixtures"

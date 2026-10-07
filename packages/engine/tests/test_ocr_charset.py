@@ -6,10 +6,10 @@ import os
 
 import pytest
 
-from ko_parser import models
-from ko_parser.errors import ModelError, OcrUnavailable
-from ko_parser.formats.pdf import ocr
-from ko_parser.formats.pdf.ocr import charset
+from hanji import models
+from hanji.errors import ModelError, OcrUnavailable
+from hanji.formats.pdf import ocr
+from hanji.formats.pdf.ocr import charset
 
 # 실제 설정 파일에 나오는 모양: 그대로 쓴 글자(백슬래시 포함), 작은따옴표로 감싼 글자(작은따옴표 자신은 '''',
 # 큰따옴표는 '"'). 블록 앞뒤의 다른 키는 읽지 않는다
@@ -34,18 +34,18 @@ PreProcess:
 SYMBOLS = ["ᄀ", "가", "!", '"', "'", "#", "\\", "0", "힣"]
 # 설정 파일은 resolve()가 크기·SHA-256을 확인한 뒤에 읽는다: 글자 목록이 다르면 다시 받을 일이 아니라 이 빌드의
 # models.toml과 DICT_SHA256이 서로 맞지 않는 것이다
-MISMATCH = (r"character list in .*inference\.yml \(9 symbols\) does not match the pinned SHA-256: this ko-parser "
+MISMATCH = (r"character list in .*inference\.yml \(9 symbols\) does not match the pinned SHA-256: this hanji "
             r"build pins a recognition config \(models\.toml\) and a character list \(charset\.DICT_SHA256\) that "
-            r"disagree; reinstall ko-parser or report it")
+            r"disagree; reinstall hanji or report it")
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 def test_reads_the_character_dict_block_with_its_quoting_forms():

@@ -1,4 +1,4 @@
-"""모델 파일 목록과 찾기(ko_parser.models): 목록이 업스트림 고정 주소·크기·SHA-256을 갖는지, 찾는 순서(환경 변수 →
+"""모델 파일 목록과 찾기(hanji.models): 목록이 업스트림 고정 주소·크기·SHA-256을 갖는지, 찾는 순서(환경 변수 →
 캐시), 크기·SHA-256 확인과 해시 기억. 가짜 목록·가짜 파일로 돈다(네트워크·실제 모델 없음)."""
 
 import hashlib
@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from ko_parser import models
-from ko_parser.errors import KoParserError, ModelError
+from hanji import models
+from hanji.errors import HanjiError, ModelError
 
 DATA = b"fake model bytes"
 ENTRY = models.ModelFile(name="m", variant="ocr", path="ocr/m.onnx", size=len(DATA),
@@ -20,12 +20,12 @@ ENTRY = models.ModelFile(name="m", variant="ocr", path="ocr/m.onnx", size=len(DA
 
 @pytest.fixture
 def fake(monkeypatch, tmp_path):
-    """가짜 목록 하나, 빈 KO_PARSER_MODEL_DIR·캐시 폴더. 반환: (환경 변수 폴더, 캐시 폴더)."""
+    """가짜 목록 하나, 빈 HANJI_MODEL_DIR·캐시 폴더. 반환: (환경 변수 폴더, 캐시 폴더)."""
     monkeypatch.setattr(models, "MANIFEST", {"m": ENTRY})
     monkeypatch.setattr(models, "_hashes", {})
     env, cache = tmp_path / "env", tmp_path / "cache"
-    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(env))
-    monkeypatch.setenv("KO_PARSER_CACHE_DIR", str(cache))
+    monkeypatch.setenv("HANJI_MODEL_DIR", str(env))
+    monkeypatch.setenv("HANJI_CACHE_DIR", str(cache))
     return env, cache
 
 
@@ -48,7 +48,7 @@ def test_manifest_pins_every_file_to_an_upstream_address():
     assert (rec.size, rec.sha256) == (13418787, "92f0b7785e64fc9090106a241cf4c1eb97472824558272751b88a2a4476d3a08")
     assert rec.sources == ("https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec_onnx/resolve/"
                            "5c6f574b8e2230adf4287b33e736d71b9fabd28e/inference.onnx",)
-    assert issubclass(ModelError, KoParserError)
+    assert issubclass(ModelError, HanjiError)
 
 
 def test_model_dir_comes_before_the_cache(fake, monkeypatch):
@@ -58,12 +58,12 @@ def test_model_dir_comes_before_the_cache(fake, monkeypatch):
     assert models.find("m") == cache / "ocr" / "m.onnx"
     put(env, "ocr/m.onnx")
     assert models.find("m") == env / "ocr" / "m.onnx"
-    monkeypatch.delenv("KO_PARSER_MODEL_DIR")
+    monkeypatch.delenv("HANJI_MODEL_DIR")
     assert models.candidates("m") == [cache / "ocr" / "m.onnx"] and models.find("m") == cache / "ocr" / "m.onnx"
 
 
 def test_each_file_falls_back_to_the_cache_on_its_own(fake, monkeypatch):
-    """일부 파일만 둔 KO_PARSER_MODEL_DIR: 있는 파일은 거기서, 없는 파일은 캐시에서(파일마다 스펙 §5 순서)."""
+    """일부 파일만 둔 HANJI_MODEL_DIR: 있는 파일은 거기서, 없는 파일은 캐시에서(파일마다 스펙 §5 순서)."""
     env, cache = fake
     other = models.ModelFile(name="n", variant="ocr", path="ocr/n.onnx", size=len(DATA), sha256=ENTRY.sha256,
                              sources=("https://example.invalid/n.onnx",))
@@ -74,10 +74,10 @@ def test_each_file_falls_back_to_the_cache_on_its_own(fake, monkeypatch):
 
 
 def test_cache_dir_defaults_to_the_user_cache(monkeypatch, tmp_path):
-    monkeypatch.delenv("KO_PARSER_CACHE_DIR", raising=False)
+    monkeypatch.delenv("HANJI_CACHE_DIR", raising=False)
     default = models.cache_dir()
-    assert default.name == "models" and "ko-parser" in default.parts
-    monkeypatch.setenv("KO_PARSER_CACHE_DIR", str(tmp_path))
+    assert default.name == "models" and "hanji" in default.parts
+    monkeypatch.setenv("HANJI_CACHE_DIR", str(tmp_path))
     assert models.cache_dir() == tmp_path
 
 
@@ -102,7 +102,7 @@ def test_resolve_rejects_a_found_file_with_other_bytes(fake):
     put(env, "ocr/m.onnx", b"x" * len(DATA))  # 크기는 같고 바이트가 다르다
     assert models.find("m") is not None
     with pytest.raises(ModelError, match=r"does not match the pinned size and SHA-256 of ocr/m\.onnx \(a newer "
-                                         r"ko-parser may pin different model files\); .*ko-parser models fetch ocr"):
+                                         r"hanji may pin different model files\); .*hanji models fetch ocr"):
         models.resolve("m")
     put(env, "ocr/m.onnx", b"short")
     with pytest.raises(ModelError, match="does not match"):
@@ -110,8 +110,8 @@ def test_resolve_rejects_a_found_file_with_other_bytes(fake):
 
 
 def test_resolve_without_any_file_names_fetch_and_the_env_var(fake):
-    with pytest.raises(ModelError, match=r"ocr/m\.onnx not found; run `ko-parser models fetch ocr` or set "
-                                         r"KO_PARSER_MODEL_DIR"):
+    with pytest.raises(ModelError, match=r"ocr/m\.onnx not found; run `hanji models fetch ocr` or set "
+                                         r"HANJI_MODEL_DIR"):
         models.resolve("m")
 
 
@@ -124,8 +124,8 @@ def test_resolve_reports_an_unreadable_file_as_a_model_error(fake):
     path.chmod(0)
     try:
         with pytest.raises(ModelError, match=r"model file .*m\.onnx could not be read \(Permission denied\); check its "
-                                             r"permissions, or run `ko-parser models fetch ocr` or set "
-                                             r"KO_PARSER_MODEL_DIR$") as info:
+                                             r"permissions, or run `hanji models fetch ocr` or set "
+                                             r"HANJI_MODEL_DIR$") as info:
             models.resolve("m")
     finally:
         path.chmod(0o644)
@@ -142,7 +142,7 @@ def test_find_skips_a_folder_it_cannot_open(fake):
     (env / "ocr").chmod(0)
     try:
         assert models.find("m") is None
-        with pytest.raises(ModelError, match=r"ocr/m\.onnx not found; run `ko-parser models fetch ocr`"):
+        with pytest.raises(ModelError, match=r"ocr/m\.onnx not found; run `hanji models fetch ocr`"):
             models.resolve("m")
         put(cache, "ocr/m.onnx")
         assert models.find("m") == cache / "ocr" / "m.onnx" and models.resolve("m") == cache / "ocr" / "m.onnx"
@@ -181,8 +181,8 @@ def test_model_and_cache_dirs_expand_the_home_folder(fake, monkeypatch, tmp_path
     """.env·Docker ENV·systemd처럼 셸을 거치지 않은 `~`도 홈 폴더로 푼다."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows의 expanduser
-    monkeypatch.setenv("KO_PARSER_MODEL_DIR", "~/env")
-    monkeypatch.setenv("KO_PARSER_CACHE_DIR", "~/cache")
+    monkeypatch.setenv("HANJI_MODEL_DIR", "~/env")
+    monkeypatch.setenv("HANJI_CACHE_DIR", "~/cache")
     assert models.cache_dir() == tmp_path / "cache"
     assert models.candidates("m") == [tmp_path / "env" / "ocr" / "m.onnx", tmp_path / "cache" / "ocr" / "m.onnx"]
     put(tmp_path / "env", "ocr/m.onnx")
@@ -195,16 +195,16 @@ def test_names_follow_the_list_order_and_the_chosen_variants(monkeypatch):
     monkeypatch.setattr(models, "MANIFEST", {"l": other, "m": ENTRY})
     assert models.variants() == ["layout", "ocr"] and models.names() == ["l", "m"]
     assert models.names(["ocr"]) == ["m"] and models.names([]) == []
-    assert models.fetch_hint("l") == "run `ko-parser models fetch layout` or set KO_PARSER_MODEL_DIR"
+    assert models.fetch_hint("l") == "run `hanji models fetch layout` or set HANJI_MODEL_DIR"
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 @pytest.mark.parametrize("name", list(models.MANIFEST))
@@ -230,14 +230,14 @@ def test_model_license_and_notice_ship_with_the_engine():
 
 
 def test_engine_extras_are_runtime_dependencies_only():
-    """모델 패키지는 없다: extra는 런타임 의존성만 깔고 모델 파일은 `ko-parser models fetch`가 받는다."""
-    requires = importlib.metadata.requires("ko-parser-engine")
+    """모델 패키지는 없다: extra는 런타임 의존성만 깔고 모델 파일은 `hanji models fetch`가 받는다."""
+    requires = importlib.metadata.requires("hanji")
     ocr = sorted(r.split(";")[0] for r in requires if "extra == 'ocr'" in r)
     assert ocr == ["numpy<3,>=1.26", "onnxruntime<2,>=1.20", "pyclipper<2,>=1.3"]
     layout = sorted(r.split(";")[0] for r in requires if "extra == 'layout'" in r)
     assert layout == ["numpy<3,>=1.26", "onnxruntime<2,>=1.20"]
     assert sorted(r.split(";")[0] for r in requires if "extra == 'all'" in r) == [  # 빌드가 fonts·ocr·layout을 펼친다
-        "ko-parser-fonts<0.2,>=0.1", "numpy<3,>=1.26", "onnxruntime<2,>=1.20", "pyclipper<2,>=1.3"]
+        "hanji-fonts<0.2,>=0.1", "numpy<3,>=1.26", "onnxruntime<2,>=1.20", "pyclipper<2,>=1.3"]
     assert not [r for r in requires if "models" in r]
 
 

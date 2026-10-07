@@ -9,10 +9,10 @@ import pytest
 from PIL import Image
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser.errors import ParseError
-from ko_parser.formats.pdf.extract import PDFIUM_LOCK
-from ko_parser.viewer import DEFAULT_DPI, render_page_images
-from ko_parser.viewer.images import _MAX_PIXELS, _MAX_SIDE
+from hanji.errors import ParseError
+from hanji.formats.pdf.extract import PDFIUM_LOCK
+from hanji.viewer import DEFAULT_DPI, render_page_images
+from hanji.viewer.images import _MAX_PIXELS, _MAX_SIDE
 
 
 def make_pdf(pages: int = 2, **kw) -> bytes:

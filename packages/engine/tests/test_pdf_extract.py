@@ -10,9 +10,9 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser.errors import ParseError
-from ko_parser.formats.pdf import extract
-from ko_parser.formats.pdf.extract import PageText, decode_unicode, extract_pages, normalize_point
+from hanji.errors import ParseError
+from hanji.formats.pdf import extract
+from hanji.formats.pdf.extract import PageText, decode_unicode, extract_pages, normalize_point
 
 FONT = "HYGothic-Medium"  # reportlab 내장 CID 글꼴: ascent 752, descent -142, 한글 너비 1000
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))

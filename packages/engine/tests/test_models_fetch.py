@@ -1,4 +1,4 @@
-"""`ko-parser models fetch`: 목록의 주소를 차례로 시도해 받고(잠깐의 오류는 쉬었다 다시), 크기·SHA-256이 맞을 때만
+"""`hanji models fetch`: 목록의 주소를 차례로 시도해 받고(잠깐의 오류는 쉬었다 다시), 크기·SHA-256이 맞을 때만
 캐시(또는 --to 폴더)에 둔다. 네트워크 없이 본다: 받기 연결(models._urlopen)과 쉬기(models._sleep)를 가짜로 바꿔 끼운다."""
 
 import hashlib
@@ -15,9 +15,9 @@ import urllib.error
 
 import pytest
 
-from ko_parser import models
-from ko_parser.cli import main
-from ko_parser.errors import ModelError
+from hanji import models
+from hanji.cli import main
+from hanji.errors import ModelError
 
 A, B = b"model a bytes", b"model b"
 GOOD_A, GOOD_B, MIRROR_A = "https://up.invalid/a.onnx", "https://up.invalid/b.onnx", "https://mirror.invalid/a.onnx"
@@ -62,8 +62,8 @@ def web(monkeypatch, tmp_path):
     monkeypatch.setattr(models, "MANIFEST", {"a": entry("a", "ocr/a.onnx", "ocr", A, GOOD_A),
                                              "b": entry("b", "layout/b.onnx", "layout", B, GOOD_B)})
     monkeypatch.setattr(models, "_hashes", {})
-    monkeypatch.setenv("KO_PARSER_CACHE_DIR", str(tmp_path / "cache"))
-    monkeypatch.delenv("KO_PARSER_MODEL_DIR", raising=False)
+    monkeypatch.setenv("HANJI_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.delenv("HANJI_MODEL_DIR", raising=False)
     return served, requests, sleeps
 
 
@@ -80,10 +80,10 @@ def test_fetch_downloads_into_the_cache_and_resolve_finds_it(web, tmp_path):
 
 
 def test_fetch_to_a_folder_makes_a_model_dir(web, tmp_path, monkeypatch):
-    """폐쇄망: 연결된 기계에서 --to로 받아 옮긴 폴더를 KO_PARSER_MODEL_DIR로 가리킨다."""
+    """폐쇄망: 연결된 기계에서 --to로 받아 옮긴 폴더를 HANJI_MODEL_DIR로 가리킨다."""
     assert models.fetch(["ocr"], tmp_path / "carry") == [tmp_path / "carry" / "ocr" / "a.onnx"]
     assert not (tmp_path / "cache").exists()
-    monkeypatch.setenv("KO_PARSER_MODEL_DIR", str(tmp_path / "carry"))
+    monkeypatch.setenv("HANJI_MODEL_DIR", str(tmp_path / "carry"))
     assert models.resolve("a") == tmp_path / "carry" / "ocr" / "a.onnx"
 
 
@@ -147,11 +147,11 @@ def test_fetch_error_names_every_source(web, monkeypatch):
 
 
 def test_cli_models_fetch_prints_paths_without_opening_a_state_file(web, capsys, tmp_path, monkeypatch):
-    monkeypatch.setenv("KO_PARSER_DB", str(tmp_path / "db" / "state.db"))
+    monkeypatch.setenv("HANJI_DB", str(tmp_path / "db" / "state.db"))
     code = main(["models", "fetch", "layout"])
     out, err = capsys.readouterr()
     assert (code, out) == (0, f"{tmp_path / 'cache' / 'layout' / 'b.onnx'}\n")
-    assert err == f"ko-parser: downloading layout/b.onnx (7 bytes) from {GOOD_B}\n"
+    assert err == f"hanji: downloading layout/b.onnx (7 bytes) from {GOOD_B}\n"
     assert not (tmp_path / "db").exists()
     assert main(["models", "fetch", "--to", str(tmp_path / "carry")]) == 0
     assert capsys.readouterr().out.splitlines() == [str(tmp_path / "carry" / "ocr" / "a.onnx"),
@@ -162,7 +162,7 @@ def test_cli_models_fetch_failure_exit_1_and_unknown_model_exit_2(web, capsys):
     web[0][GOOD_A] = urllib.error.URLError("connection refused")
     code = main(["models", "fetch"])
     out, err = capsys.readouterr()
-    assert (code, out) == (1, "") and "ko-parser: could not download ocr/a.onnx" in err and "Traceback" not in err
+    assert (code, out) == (1, "") and "hanji: could not download ocr/a.onnx" in err and "Traceback" not in err
     assert main(["models", "fetch", "nope"]) == 2
 
 
@@ -212,7 +212,7 @@ def test_fetch_checks_free_disk_space_before_downloading(web, monkeypatch):
 
 
 def test_fetch_says_a_model_file_in_use_cannot_be_replaced(web, monkeypatch, tmp_path):
-    """Windows: 다른 ko-parser 프로세스가 연 모델 파일은 바꿀 수 없다(PermissionError): 받기 실패가 아니라 쓰는 중."""
+    """Windows: 다른 hanji 프로세스가 연 모델 파일은 바꿀 수 없다(PermissionError): 받기 실패가 아니라 쓰는 중."""
     real = os.replace
 
     def locked(src, dst):
@@ -221,7 +221,7 @@ def test_fetch_says_a_model_file_in_use_cannot_be_replaced(web, monkeypatch, tmp
         return real(src, dst)
 
     monkeypatch.setattr(os, "replace", locked)
-    with pytest.raises(ModelError, match=r"a\.onnx is in use or not writable and cannot be replaced; close other ko-parser processes"):
+    with pytest.raises(ModelError, match=r"a\.onnx is in use or not writable and cannot be replaced; close other hanji processes"):
         models.fetch(["ocr"])
     assert list((tmp_path / "cache").rglob("*.part")) == []
 
@@ -354,7 +354,7 @@ def test_a_failing_part_cleanup_does_not_hide_the_download_error(web, monkeypatc
 def test_cli_import_loads_no_network_modules():
     """CLI를 가져와도 urllib.request·http.client는 가져오지 않는다(받을 때만, 하위 프로세스에서 본다)."""
     code = ("import sys\n"
-            "import ko_parser.cli\n"
+            "import hanji.cli\n"
             "print(sorted(m for m in ('http.client', 'urllib.request') if m in sys.modules))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False)
     assert out.returncode == 0, out.stderr

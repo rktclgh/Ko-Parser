@@ -3,7 +3,7 @@ import re
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.table import Cell, Table
+from hanji_contracts.table import Cell, Table
 
 
 def c(row, col, text="", rs=1, cs=1, header="none", src="text_layer"):

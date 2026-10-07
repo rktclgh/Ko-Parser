@@ -1,7 +1,7 @@
 import json
 
-from ko_parser_contracts import schema
-import ko_parser_contracts as kpc
+from hanji_contracts import schema
+import hanji_contracts as kpc
 
 
 def test_render_has_all_roots_with_version_const():

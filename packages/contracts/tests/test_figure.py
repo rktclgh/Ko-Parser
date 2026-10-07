@@ -5,7 +5,7 @@ import hashlib
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts import (
+from hanji_contracts import (
     MAX_FIGURE_SIDE, Block, DocumentTree, FigureImage, PageInfo, SourceInfo, build_blocks, compute_content_hash,
 )
 

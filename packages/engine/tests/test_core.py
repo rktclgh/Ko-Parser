@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from ko_parser.core import build_tree, diff_trees
-from ko_parser.formats.base import ParsedSource
-from ko_parser_contracts import ChangeBatch, DocumentChange, DocumentTree, PageInfo, SourceInfo, TextLayerStats
+from hanji.core import build_tree, diff_trees
+from hanji.formats.base import ParsedSource
+from hanji_contracts import ChangeBatch, DocumentChange, DocumentTree, PageInfo, SourceInfo, TextLayerStats
 
 CONTRACT_FIXTURES = Path(__file__).resolve().parents[2] / "contracts" / "fixtures"
 SOURCE = SourceInfo(name="메모.md", mime="text/markdown", content_hash="sha256:" + "0" * 64)

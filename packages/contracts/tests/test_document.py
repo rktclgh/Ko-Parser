@@ -4,9 +4,9 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.document import Block, DocumentTree, SourceInfo, build_blocks
-from ko_parser_contracts.ids import compute_block_id, compute_content_hash
-from ko_parser_contracts.table import Cell, Table
+from hanji_contracts.document import Block, DocumentTree, SourceInfo, build_blocks
+from hanji_contracts.ids import compute_block_id, compute_content_hash
+from hanji_contracts.table import Cell, Table
 
 FLOW = {"kind": "flow", "section_path": [], "paragraph_index": 0}
 PAGE1 = {"kind": "page", "page": 1, "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.9, "y1": 0.2}}

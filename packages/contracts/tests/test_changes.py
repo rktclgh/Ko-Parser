@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.changes import ChangeBatch, DocumentChange, LineageEdge
+from hanji_contracts.changes import ChangeBatch, DocumentChange, LineageEdge
 
 
 def test_lineage_kinds():

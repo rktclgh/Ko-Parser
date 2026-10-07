@@ -1,12 +1,12 @@
 import pytest
 
-from ko_parser import LocalEngine, MemoryStore
-from ko_parser.core import build_tree
-from ko_parser.errors import ParseError
-from ko_parser.export import to_markdown
-from ko_parser.formats.detect import default_parsers, detect_parser
-from ko_parser.formats.markdown import MarkdownParser
-from ko_parser_contracts import SourceInfo
+from hanji import LocalEngine, MemoryStore
+from hanji.core import build_tree
+from hanji.errors import ParseError
+from hanji.export import to_markdown
+from hanji.formats.detect import default_parsers, detect_parser
+from hanji.formats.markdown import MarkdownParser
+from hanji_contracts import SourceInfo
 
 SOURCE = SourceInfo(name="t.md", mime="text/markdown", content_hash="sha256:" + "0" * 64)
 
@@ -151,7 +151,7 @@ def test_deep_inline_nesting_does_not_recurse():
 
 
 def test_oversized_table_is_parse_error(monkeypatch):
-    monkeypatch.setattr("ko_parser_contracts.table.MAX_TABLE_CELLS", 4)
+    monkeypatch.setattr("hanji_contracts.table.MAX_TABLE_CELLS", 4)
     with pytest.raises(ParseError) as info:
         MarkdownParser().parse("앞\n\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n".encode("utf-8"), "큰표.md")
     assert info.value.location == "큰표.md:3-6" and "invalid table" in info.value.reason

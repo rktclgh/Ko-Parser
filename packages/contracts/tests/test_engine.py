@@ -5,7 +5,7 @@ from typing import get_type_hints
 import pytest
 from pydantic import ValidationError
 
-from ko_parser_contracts.engine import DocFilter, DocRef, Engine, JobRef, JobStatus
+from hanji_contracts.engine import DocFilter, DocRef, Engine, JobRef, JobStatus
 
 
 def test_refs_and_filter():

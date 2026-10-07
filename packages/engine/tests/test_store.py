@@ -4,11 +4,11 @@ import hashlib
 
 import pytest
 
-from ko_parser.core import build_tree, diff_trees
-from ko_parser.errors import AssetNotFound, DocumentNotFound, StoreConflict, VersionNotFound
-from ko_parser.formats.base import ParsedSource
-from ko_parser.store import MemoryStore, SqliteStore
-from ko_parser_contracts import DocRef, DocumentTree, ProcessingHistory, SourceInfo
+from hanji.core import build_tree, diff_trees
+from hanji.errors import AssetNotFound, DocumentNotFound, StoreConflict, VersionNotFound
+from hanji.formats.base import ParsedSource
+from hanji.store import MemoryStore, SqliteStore
+from hanji_contracts import DocRef, DocumentTree, ProcessingHistory, SourceInfo
 
 SOURCE = SourceInfo(name="메모.md", mime="text/markdown", content_hash="sha256:" + "0" * 64)
 
@@ -235,7 +235,7 @@ def two_figure_tree(doc: str, version: int) -> DocumentTree:
 
 
 def test_direct_commit_over_the_asset_cap_is_rejected_and_writes_nothing(store, monkeypatch):
-    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) - 1)
+    monkeypatch.setattr("hanji.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) - 1)
     with pytest.raises(ValueError, match="exceed MAX_DOCUMENT_ASSET_BYTES"):
         commit_figure(store, "d1", {ASSET: ASSET_BYTES})
     assert store.latest("d1") is None and store.changes_after(None, 10).changes == ()
@@ -247,11 +247,11 @@ def test_already_stored_assets_count_toward_the_cap(store, monkeypatch):
     commit_figure(store, "d1", {ASSET: ASSET_BYTES})
     tree = two_figure_tree("d2", 1)
     args = (tree, diff_trees(None, tree), ProcessingHistory(document_id="d2", version=1), {OTHER: OTHER_BYTES})
-    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES) - 1)
+    monkeypatch.setattr("hanji.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES) - 1)
     with pytest.raises(ValueError, match="exceed MAX_DOCUMENT_ASSET_BYTES"):
         store.commit(*args)  # 주는 것(OTHER)만으로는 상한 안이지만 이미 저장된 ASSET까지 세면 넘는다
     assert store.latest("d2") is None
     with pytest.raises(AssetNotFound):
         store.get_asset(OTHER)
-    monkeypatch.setattr("ko_parser.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES))
+    monkeypatch.setattr("hanji.store.base.MAX_DOCUMENT_ASSET_BYTES", len(ASSET_BYTES) + len(OTHER_BYTES))
     assert store.commit(*args) == 2 and store.get_asset(OTHER) == OTHER_BYTES  # 상한과 같으면 된다

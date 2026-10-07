@@ -3,11 +3,11 @@ import sqlite3
 
 import pytest
 
-from ko_parser.core import build_tree, diff_trees
-from ko_parser.errors import KoParserError, StoreConflict
-from ko_parser.formats.base import ParsedSource
-from ko_parser.store import SqliteStore
-from ko_parser_contracts import DocumentTree, ProcessingHistory, SourceInfo
+from hanji.core import build_tree, diff_trees
+from hanji.errors import HanjiError, StoreConflict
+from hanji.formats.base import ParsedSource
+from hanji.store import SqliteStore
+from hanji_contracts import DocumentTree, ProcessingHistory, SourceInfo
 
 SOURCE = SourceInfo(name="메모.md", mime="text/markdown", content_hash="sha256:" + "0" * 64)
 
@@ -59,7 +59,7 @@ def test_unknown_format_rejected(db):
     with conn:
         conn.execute("UPDATE meta SET value = '999' WHERE key = 'format'")
     conn.close()
-    with pytest.raises(KoParserError, match="unsupported store format"):
+    with pytest.raises(HanjiError, match="unsupported store format"):
         SqliteStore(db)
 
 
@@ -71,7 +71,7 @@ def test_older_contract_store_asks_to_ingest_again(db, old):
     with conn:
         conn.execute("UPDATE meta SET value = ? WHERE key = 'format'", (old,))
     conn.close()
-    with pytest.raises(KoParserError, match="ingest again"):
+    with pytest.raises(HanjiError, match="ingest again"):
         SqliteStore(db)
 
 

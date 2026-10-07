@@ -25,7 +25,7 @@ jobs:
       # 기본 인코딩(Windows cp949)에 기대는 open()·read_text()를 경고로 드러내고 아래 -W로 실패시킨다
       PYTHONWARNDEFAULTENCODING: "1"
       # 모델 파일이 없어 건너뛸 테스트를 실패로(모델은 아래 캐시·fetch가 준비한다)
-      KO_PARSER_CI_REQUIRE_MODELS: "1"
+      HANJI_CI_REQUIRE_MODELS: "1"
     defaults:
       run:
         shell: bash
@@ -37,38 +37,38 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      # ubuntu에는 한글 글꼴을 설치하지 않는다: 워크스페이스의 ko-parser-fonts가 PDFium에 등록되는지 검증한다
+      # ubuntu에는 한글 글꼴을 설치하지 않는다: 워크스페이스의 hanji-fonts가 PDFium에 등록되는지 검증한다
       # (번들 없을 때 가드는 test_pdf_fonts가 하위 프로세스로 검증)
       - name: Sync
         run: uv sync --locked
       # 모델 파일은 저장소에 없다(업스트림 고정 주소, models.toml): 목록 해시를 열쇠로 캐시하고 캐시가 없을 때만 받는다
       - name: Model cache location
-        run: echo "KO_PARSER_CACHE_DIR=${{ runner.temp }}/ko-parser-models" >> "$GITHUB_ENV"
+        run: echo "HANJI_CACHE_DIR=${{ runner.temp }}/hanji-models" >> "$GITHUB_ENV"
       - name: Model cache
         id: model-cache
         uses: actions/cache@v6
         with:
-          path: ${{ runner.temp }}/ko-parser-models
-          key: models-${{ runner.os }}-${{ hashFiles('packages/engine/src/ko_parser/models/models.toml') }}
+          path: ${{ runner.temp }}/hanji-models
+          key: models-${{ runner.os }}-${{ hashFiles('packages/engine/src/hanji/models/models.toml') }}
           # 목록이 바뀌면 이전 캐시에서 시작한다: fetch가 맞는 파일은 두고 바뀐 파일만 받는다
           restore-keys: models-${{ runner.os }}-
       - name: Fetch models
         if: steps.model-cache.outputs.cache-hit != 'true'
-        run: uv run ko-parser models fetch
-      # 워크스페이스는 OCR·레이아웃 추가 설치(ko-parser-engine[ocr,layout])까지 깐다: onnxruntime 휠이 세 OS에 있고 모델이 열리는지 본다
+        run: uv run hanji models fetch
+      # 워크스페이스는 OCR·레이아웃 추가 설치(hanji[ocr,layout])까지 깐다: onnxruntime 휠이 세 OS에 있고 모델이 열리는지 본다
       - name: OCR runtime loads
-        run: uv run python -W error::EncodingWarning -c "from ko_parser.formats.pdf import ocr; ocr.get_reader(); print('ocr ok')"
-      # 레이아웃 추가 설치(ko-parser-engine[layout])와 모델(위 Fetch models가 받은 공식 ONNX 130MB)이 세 OS에서 열리는지 본다
+        run: uv run python -W error::EncodingWarning -c "from hanji.formats.pdf import ocr; ocr.get_reader(); print('ocr ok')"
+      # 레이아웃 추가 설치(hanji[layout])와 모델(위 Fetch models가 받은 공식 ONNX 130MB)이 세 OS에서 열리는지 본다
       - name: Layout runtime loads
-        run: uv run python -W error::EncodingWarning -c "from ko_parser.formats.pdf import layout; layout.get_detector(); print('layout ok')"
+        run: uv run python -W error::EncodingWarning -c "from hanji.formats.pdf import layout; layout.get_detector(); print('layout ok')"
       - name: Tests
         # EncodingWarning 오류화는 pyproject filterwarnings가 한다. 명령줄 -W는 그 안의 pypdfium2 예외 필터를 덮어쓰므로 쓰지 않는다
         env:
           # 리눅스에만 준다(env에는 if를 못 쓴다): 시스템 한글 글꼴이 생겨 번들 없음 가드 시험이 건너뛰어지면 실패시킨다
-          KO_PARSER_CI_NO_KOREAN_FONT: ${{ runner.os == 'Linux' && '1' || '' }}
+          HANJI_CI_NO_KOREAN_FONT: ${{ runner.os == 'Linux' && '1' || '' }}
         run: uv run pytest -q
       - name: Contract schemas up to date
-        run: uv run python -W error::EncodingWarning -m ko_parser_contracts.schema --check
+        run: uv run python -W error::EncodingWarning -m hanji_contracts.schema --check
       - name: Contract fixtures up to date
         run: uv run python -W error::EncodingWarning packages/contracts/tests/build_fixtures.py --check
       - name: Engine fixtures up to date

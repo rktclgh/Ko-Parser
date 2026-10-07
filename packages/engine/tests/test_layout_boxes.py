@@ -11,12 +11,12 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser import models
-from ko_parser.formats.pdf import layout, scan
-from ko_parser.formats.pdf.layout import LayoutBox
+from hanji import models
+from hanji.formats.pdf import layout, scan
+from hanji.formats.pdf.layout import LayoutBox
 
 np = pytest.importorskip("numpy")
-from ko_parser.formats.pdf.layout import boxes  # noqa: E402  numpy가 있어야 import된다
+from hanji.formats.pdf.layout import boxes  # noqa: E402  numpy가 있어야 import된다
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -73,12 +73,12 @@ def pt(box) -> tuple[float, ...]:
 
 
 def require_models(*names: str) -> None:
-    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, KO_PARSER_CI_REQUIRE_MODELS=1이면 실패한다."""
+    """실제 모델 파일이 필요한 테스트: 찾을 수 없으면 건너뛰고, HANJI_CI_REQUIRE_MODELS=1이면 실패한다."""
     missing = [name for name in names if models.find(name) is None]
     if missing:
-        if os.environ.get("KO_PARSER_CI_REQUIRE_MODELS") == "1":
-            pytest.fail(f"model files not found: {missing}; run `ko-parser models fetch`")
-        pytest.skip(f"model files not found: {missing} (ko-parser models fetch)")
+        if os.environ.get("HANJI_CI_REQUIRE_MODELS") == "1":
+            pytest.fail(f"model files not found: {missing}; run `hanji models fetch`")
+        pytest.skip(f"model files not found: {missing} (hanji models fetch)")
 
 
 def test_preprocess_is_800_bicubic_rgb_scaled_to_0_1():
@@ -183,7 +183,7 @@ def test_onnx_file_of_another_model_or_other_labels_are_rejected(tmp_path):
     (test_layout_runtime). 분류 목록은 세션을 열기 전에 본다."""
     pytest.importorskip("onnxruntime")
     require_models("ocr-det", "layout-config")
-    from ko_parser.formats.pdf.layout.detector import LayoutDetector
+    from hanji.formats.pdf.layout.detector import LayoutDetector
 
     with pytest.raises(ValueError, match=r"is not a PP-DocLayout model \(inputs \["):
         LayoutDetector(models.resolve("ocr-det"), models.resolve("layout-config"))

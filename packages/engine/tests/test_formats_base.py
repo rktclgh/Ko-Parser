@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from ko_parser.formats.base import ParsedSource, Parser
+from hanji.formats.base import ParsedSource, Parser
 
 
 def test_parsed_source_defaults_and_freeze():

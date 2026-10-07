@@ -2,8 +2,8 @@ import re
 
 import pytest
 
-from ko_parser_contracts.ids import compute_block_id, compute_content_hash, normalize_text
-from ko_parser_contracts.table import Cell, Table
+from hanji_contracts.ids import compute_block_id, compute_content_hash, normalize_text
+from hanji_contracts.table import Cell, Table
 
 
 def table(text: str) -> Table:

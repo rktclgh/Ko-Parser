@@ -5,8 +5,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
-from ko_parser.formats.pdf.extract import UPRIGHT, Char, PageText, Rule, extract_pages
-from ko_parser.formats.pdf.tables import TableSpec, find_tables
+from hanji.formats.pdf.extract import UPRIGHT, Char, PageText, Rule, extract_pages
+from hanji.formats.pdf.tables import TableSpec, find_tables
 
 FONT = "HYGothic-Medium"  # 한글 너비 = 크기, ASCII = 크기/2, 상자는 기준선 위 0.752·아래 0.142 × 크기
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -454,7 +454,7 @@ def merged_table(p):
 
 def test_table_over_the_expanded_text_limit_is_not_a_table(monkeypatch):
     """병합 칸 글자를 덮인 칸마다 펼친 글자 수가 계약 상한을 넘으면 표로 내지 않는다(글자는 문단에 남는다)."""
-    from ko_parser.formats.pdf import tables
+    from hanji.formats.pdf import tables
 
     page = page_of(merged_table)
     (spec,) = find_tables(page)
@@ -476,14 +476,14 @@ def test_header_needs_every_top_cell_shaded(shaded, header):
 
 
 def test_zero_length_rule_is_not_a_segment():
-    from ko_parser.formats.pdf.tables import _reading_segs
+    from hanji.formats.pdf.tables import _reading_segs
 
     assert _reading_segs([Rule("h", 10, 5, 5), Rule("v", 20, 7, 7)], UPRIGHT, W, H) == []
 
 
 def test_non_rectangular_merge_takes_the_largest_rectangle_then_single_cells():
     """ㄱ자로 이어진 칸 묶음: 가장 큰 직사각형부터, 남은 칸은 1×1."""
-    from ko_parser.formats.pdf.tables import _cells
+    from hanji.formats.pdf.tables import _cells
 
     joined = {(0, 0, True), (0, 0, False), (0, 1, True), (1, 2, False)}  # (0,0)-(0,1)-(0,2), (0,0)-(1,0), (1,2)-(2,2)
     out = _cells(3, 3, lambda r, c, across: (r, c, across) not in joined)
@@ -499,8 +499,8 @@ def test_random_separations_always_make_a_valid_contract_table():
     """임의의 칸 경계 판정 200가지: _cells → _compact 결과가 늘 계약 Table(칸이 겹치지 않고 격자를 다 덮음)이다."""
     import random
 
-    from ko_parser.formats.pdf.tables import _cells, _compact
-    from ko_parser_contracts import Cell, Table
+    from hanji.formats.pdf.tables import _cells, _compact
+    from hanji_contracts import Cell, Table
 
     rng = random.Random(20261004)
     for _ in range(200):
@@ -589,7 +589,7 @@ def test_narrow_gap_missing_in_one_row_is_not_a_column():
 
 def test_box_centre_on_a_grid_line_goes_to_the_right_or_lower_cell():
     """상자 중심이 안쪽 격자선 위면 오른쪽(아래) 칸, 바깥 오른쪽·아래 변 위면 마지막 칸(_build의 글자 배정과 같다)."""
-    from ko_parser.formats.pdf.tables import _buckets
+    from hanji.formats.pdf.tables import _buckets
 
     cells_ = _buckets([0.0, 10.0, 20.0], [0.0, 10.0, 20.0], [(5.0, 0.0, 15.0, 10.0), (15.0, 15.0, 25.0, 25.0)])
     assert cells_[0][1] == [(5.0, 0.0, 15.0, 10.0)] and cells_[1][1] == [(15.0, 15.0, 25.0, 25.0)]

@@ -8,8 +8,8 @@ import pytest
 np = pytest.importorskip("numpy")
 pytest.importorskip("pyclipper")
 
-from ko_parser.formats.pdf.ocr.det import _input_size, components, detect, fill_poly, mini_box
-from ko_parser.formats.pdf.ocr.pixels import crop_quad, resize_linear
+from hanji.formats.pdf.ocr.det import _input_size, components, detect, fill_poly, mini_box
+from hanji.formats.pdf.ocr.pixels import crop_quad, resize_linear
 
 
 def gray3(rows):
