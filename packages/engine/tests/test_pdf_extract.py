@@ -4,6 +4,7 @@ import io
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 import pytest
+from PIL import Image
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -399,3 +400,71 @@ def test_empty_page_box_is_parse_error(content):
     with pytest.raises(ParseError) as info:
         extract_pages(make_pdf(draw), "상자.pdf")
     assert (info.value.reason, info.value.location) == ("PDF page has an empty box", "상자.pdf:1")
+
+
+RED = Image.new("RGB", (20, 10), (220, 30, 30))
+
+
+def test_image_boxes_are_visible_page_fractions():
+    def draw(c):
+        c.drawImage(ImageReader(RED), 100, 600, width=200, height=150)
+        c.drawImage(ImageReader(RED), -100, 800, width=200, height=100)  # 쪽 밖으로 잘린 부분은 뺀다
+
+    first, cut = only_page(make_pdf(draw)).images
+    assert first == pytest.approx((100 / 595, 92 / 842, 300 / 595, 242 / 842))
+    assert cut == pytest.approx((0.0, 0.0, 100 / 595, 42 / 842))
+
+
+@pytest.mark.parametrize("rotation,expected", [
+    (90, (300 / 595, 100 / 842, 450 / 595, 300 / 842)),
+    (180, (295 / 595, 300 / 842, 495 / 595, 450 / 842)),
+    (270, (145 / 595, 542 / 842, 295 / 595, 742 / 842)),
+])
+def test_image_boxes_follow_page_rotation(rotation, expected):
+    """보이는 쪽(렌더와 같은 틀) 0~1. reportlab은 90·270도면 MediaBox를 842×595로 눕힌다: 그림 PDF (100, 300)~(300, 450)."""
+    def draw(c):
+        c.setPageRotation(rotation)
+        c.drawImage(ImageReader(RED), 100, 300, width=200, height=150)
+
+    (rect,) = only_page(make_pdf(draw)).images
+    assert rect == pytest.approx(expected)
+
+
+def test_image_boxes_are_relative_to_the_crop_box():
+    def draw(c):
+        c.setCropBox((50, 100, 545, 800))  # 보이는 쪽 495×700pt
+        c.drawImage(ImageReader(RED), 100, 600, width=200, height=150)
+
+    page = only_page(make_pdf(draw))
+    assert (page.width_pt, page.height_pt) == (495.0, 700.0)
+    (rect,) = page.images
+    assert rect == pytest.approx((50 / 495, 50 / 700, 250 / 495, 200 / 700))
+
+
+def test_clipped_image_box_is_only_its_visible_part():
+    def draw(c):
+        c.saveState()
+        path = c.beginPath()
+        path.rect(50, 700, 40, 40)
+        c.clipPath(path, stroke=0, fill=0)
+        c.drawImage(ImageReader(RED), 0, 0, width=595, height=842)
+        c.restoreState()
+
+    (rect,) = only_page(make_pdf(draw)).images
+    assert rect == pytest.approx((50 / 595, 102 / 842, 90 / 595, 142 / 842))
+
+
+def test_path_count_counts_path_objects_in_forms_and_stops_at_the_cap(monkeypatch):
+    def draw(c):
+        for i in range(12):
+            c.line(72, 100 + 10 * i, 300, 100 + 10 * i)
+        c.beginForm("f")
+        c.rect(10, 10, 50, 50)
+        c.endForm()
+        c.doForm("f")
+        put(c, 72, 770, 11, "가")  # 글자는 path가 아니다
+
+    data = make_pdf(draw)
+    assert only_page(data).paths == 13
+    monkeypatch.setattr(extract, "MAX_PATH_COUNT", 5)
+    assert only_page(data).paths == 5
