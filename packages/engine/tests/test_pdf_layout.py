@@ -2,10 +2,12 @@
 가짜 검출기로(onnxruntime 없이), 회전·CropBox 잘라내기, 그림 우선과 처리 이력, 바이트 상한, 켜고 끄기.
 그림 속 글자 그림은 OS 글꼴에 기대지 않으려고 ko-parser-fonts 글꼴(Pillow)로 그린다."""
 
+import gc
 import io
 import os
 import sys
 import time
+import weakref
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -21,8 +23,10 @@ import ko_parser_fonts
 from ko_parser import LocalEngine, MemoryStore, SqliteStore, models
 from ko_parser.core import build_tree
 from ko_parser.errors import LayoutUnavailable
-from ko_parser.formats.pdf import PdfParser, figures, layout, scan
+from ko_parser.formats.pdf import PdfParser, figures, layout, ocr, scan
+from ko_parser.formats.pdf import parser as pdf_parser
 from ko_parser.formats.pdf.layout import LayoutBox
+from ko_parser.formats.pdf.scan import OcrText
 from ko_parser_contracts import SourceInfo
 
 FONT = "HYGothic-Medium"
@@ -362,3 +366,101 @@ def test_background_image_behind_a_table_keeps_the_table():
     parsed = PdfParser(ocr=False, layout=False).parse(pdf(draw), "bg.pdf")
     assert parsed.pages[0].text_layer == "digital"
     assert [b["kind"] for b in parsed.blocks] == ["paragraph", "table"] and not parsed.assets
+
+
+def test_small_ruled_table_on_a_shading_image_stays_a_table_without_the_model():
+    """리뷰 I1: 옅은 음영 이미지(쪽 면적 약 5.9%) 위에 그린 3×3 선 있는 표(글자 9자: 배경 기준 50자 미만). 모델이
+    없으면 표를 확인할 모델 table 상자도 없다: 모델이 찾지 않은 이미지 객체는 표를 버리지 않는다(A2처럼 표)."""
+    shade = Image.new("RGB", (64, 18), (240, 240, 245))
+
+    def draw(c):
+        for i in range(5):
+            put(c, 72, 770 - 16 * i, 11, "음영 위 표가 있는 쪽의 본문이다.")
+        c.drawImage(ImageReader(shade), 137, 500, width=320, height=92)
+        xs, ys = [147, 247, 347, 447], [582, 558, 534, 510]
+        for y in ys:
+            c.line(xs[0], y, xs[-1], y)
+        for x in xs:
+            c.line(x, ys[0], x, ys[-1])
+        for r, row in enumerate(["가나다", "라마바", "사아자"]):
+            for k, s in enumerate(row):
+                put(c, xs[k] + 8, ys[r] - 17, 11, s)
+
+    parsed = PdfParser(ocr=False, layout=False).parse(pdf(draw), "shade.pdf")
+    (table,) = [b for b in parsed.blocks if b["kind"] == "table"]
+    assert (table["table"].n_rows, table["table"].n_cols) == (3, 3)
+    assert [c.text for c in table["table"].cells] == list("가나다라마바사아자")
+    assert not parsed.regions  # 그림이 표를 버린 처리 이력이 없다
+    assert "".join(b["text"] for b in parsed.blocks if b["kind"] == "figure") == ""  # 표 글자는 그림으로 가지 않는다
+
+
+def test_image_boxes_are_found_once_per_page_and_no_page_is_kept_after_parsing(monkeypatch):
+    """리뷰 M2: 쪽마다 wants_layout·photo_boxes·arrange가 이미지 객체 상자를 한 번만 구하고(쪽 루프 안에서 정한다),
+    파싱이 끝나면 모듈이 쪽(PageText)을 붙잡아 두지 않는다."""
+    counted = []
+    real_counts = figures._counts
+    monkeypatch.setattr(figures, "_counts",
+                        lambda points, boxes: counted.append(len(boxes)) or real_counts(points, boxes))
+    kept = []
+    real_extract = pdf_parser.extract_pages
+
+    def extract(data, name):
+        pages = real_extract(data, name)
+        kept.extend(weakref.ref(p) for p in pages)
+        return pages
+
+    monkeypatch.setattr(pdf_parser, "extract_pages", extract)
+    parsed = PdfParser(ocr=False, layout=False).parse(pdf(photo_page, photo_page), "two.pdf")
+    assert [b["kind"] for b in parsed.blocks].count("figure") == 2
+    assert counted == [1, 1]  # 쪽마다 한 번(사진 하나)
+    gc.collect()
+    assert len(kept) == 2 and all(ref() is None for ref in kept)
+
+
+def test_history_credits_the_model_only_for_figures_the_model_found(monkeypatch):
+    """리뷰 M3: 모델이 돈 쪽이라도 모델이 찾지 않은 이미지 객체 그림은 모델 이름 없이, 이유도 따로 적는다."""
+    def chart_and_photo(c):
+        for i in range(12):
+            c.line(100, 580 + 10 * i, 500, 580 + 10 * i)
+        c.drawImage(ImageReader(RED), 150, 100, width=300, height=150)  # 모델이 찾지 않는 사진
+
+    fake_layout(monkeypatch, CHART)
+    monkeypatch.setattr(figures, "ASSET_LIMIT", 0)
+    parsed = PdfParser(ocr=False).parse(pdf(chart_and_photo), "cp.pdf")
+    assert [(r.region_id, r.attempts[0].model_id, r.fallback_reason) for r in parsed.regions] == [
+        ("p1-figure-1", "PP-DocLayout_plus-L", pdf_parser.NO_IMAGE_MODEL),
+        ("p1-figure-2", None, pdf_parser.NO_IMAGE_PHOTO)]
+    assert pdf_parser.NO_IMAGE_MODEL != pdf_parser.NO_IMAGE_PHOTO
+
+
+def test_a_page_needing_ocr_the_model_and_a_figure_crop_is_rendered_once(monkeypatch):
+    """리뷰 M9: 쪽 렌더는 쪽마다 한 번. scanned 쪽은 OCR 줄·레이아웃 상자·그림 잘라내기가 같은 렌더를 쓰고, 사진이
+    있는 digital 쪽도 한 번 그린다. OCR은 가짜 줄(onnxruntime 없이)."""
+    renders = []
+    real_render = scan.render
+
+    def render(data, name, index):
+        image = real_render(data, name, index)
+        renders.append((index, image))
+        return image
+
+    read = []
+    monkeypatch.setattr(scan, "render", render)
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "get_reader", lambda: object())
+    monkeypatch.setattr(scan, "page_lines", lambda image, page: read.append(image) or [
+        OcrText("스캔한 쪽의 글자를 읽는다.", 0.9, 60, 100, 300, 114)])
+    fake_layout(monkeypatch, ("image", 0.9, (50.0, 380.0, 400.0, 440.0)))
+    detected = []
+    fake_detect = layout.detect
+    monkeypatch.setattr(layout, "detect", lambda image: detected.append(image) or fake_detect(image))
+    scanned = text_image(W, H, [(60, 100, 14, "스캔한 쪽의 글자를 읽는다.")])
+    parsed = PdfParser().parse(pdf(lambda c: c.drawImage(ImageReader(scanned), 0, 0, width=W, height=H), photo_page),
+                               "s.pdf")
+    assert [p.text_layer for p in parsed.pages] == ["scanned", "digital"]
+    assert [index for index, _ in renders] == [0, 1]  # 쪽마다 한 번
+    assert len(read) == 1 and read[0] is renders[0][1]  # OCR은 scanned 쪽 렌더 그대로
+    assert len(detected) == 2 and all(d is r for d, (_, r) in zip(detected, renders, strict=True))
+    first = [b for b in parsed.blocks if b["locator"]["page"] == 1]
+    assert [(b["kind"], b["text_source"]) for b in first] == [("paragraph", "ocr"), ("figure", "ocr")]
+    assert first[1]["figure"]["asset"] in parsed.assets

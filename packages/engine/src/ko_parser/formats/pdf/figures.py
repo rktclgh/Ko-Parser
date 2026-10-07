@@ -7,6 +7,7 @@ import hashlib
 import io
 import math
 import unicodedata
+import weakref
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
@@ -73,7 +74,8 @@ class Caption:
 
 @dataclass(frozen=True, slots=True)
 class Figure:
-    """그림 하나. text는 상자 안 글자(줄은 \\n), category는 image·chart."""
+    """그림 하나. text는 상자 안 글자(줄은 \\n), category는 image·chart. model은 레이아웃 모델이 찾은 그림인지(모델
+    상자, 또는 모델 상자를 합친 이미지 객체. 모델이 찾지 않은 이미지 객체는 거짓): 처리 이력에 쓴다."""
 
     box: Box
     category: str
@@ -81,6 +83,7 @@ class Figure:
     char_ids: frozenset[int] = frozenset()
     line_ids: frozenset[int] = frozenset()
     caption: Caption | None = None
+    model: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,24 +170,25 @@ def _counts(points: Sequence[tuple[float, float]], boxes: Sequence[Box]) -> list
     return counts
 
 
-_last: tuple[PageText, tuple[Box, ...], tuple[Box, ...]] | None = None  # 마지막으로 본 쪽의 (쪽, 사진, 장식)
+# 마지막으로 본 쪽의 (쪽, 사진, 장식). 쪽은 약한 참조라 파싱이 끝난 쪽을 붙잡지 않는다(리뷰 M2)
+_last: tuple["weakref.ref[PageText]", tuple[Box, ...], tuple[Box, ...]] | None = None
 
 
 def _image_boxes(page: PageText) -> tuple[tuple[Box, ...], tuple[Box, ...]]:
     """이미지 객체 상자(보이는 쪽 pt)를 (그림이 될 사진, 장식)으로 나눈다. 같은 상자(겹쳐 넣은 사본)는 처음 하나만,
     유한하지 않은 상자는 뺀다. 배경(보이는 글자(공백 제외) BACKGROUND_CHARS개 이상이 중심을 두고 얹힌 쪽 배경·
     워터마크)은 어느 쪽도 아니다. 마지막 쪽 결과를 기억해 wants_layout·photo_boxes·arrange가 같은 쪽을 다시
-    훑지 않는다(쪽은 바뀌지 않는 값이고 같은 객체인지로 본다)."""
+    훑지 않는다(쪽은 바뀌지 않는 값이고 같은 객체인지로 본다. 약한 참조라 쪽을 붙잡지 않는다)."""
     global _last
     last = _last
-    if last is not None and last[0] is page:
+    if last is not None and last[0]() is page:
         return last[1], last[2]
     rects = list(dict.fromkeys(box for box in (_pt(page, rect) for rect in page.images)
                                if all(math.isfinite(v) for v in box)))
     decor = tuple(box for box in rects if _decor(box, page))
     rest = [box for box in rects if not _decor(box, page)]
     photos = tuple(box for box, n in zip(rest, _counts(_centres(page), rest), strict=True) if n < BACKGROUND_CHARS)
-    _last = (page, photos, decor)
+    _last = (weakref.ref(page), photos, decor)
     return photos, decor
 
 
@@ -262,16 +266,18 @@ def _dedupe(cands: list[_Candidate]) -> list[_Candidate]:
 
 def _settle_tables(cands: list[_Candidate], tables: Sequence[TableSpec], layout_tables: Sequence[Region],
                    page: PageText) -> tuple[list[TableSpec], list[TableSpec], list[_Candidate]]:
-    """그림이 이긴다(§4.4): 그림 상자 안에 넓이의 INSIDE 이상이 드는 표는 버린다. 단 모델 table 상자와 IoU ≥
-    TABLE_CONFIRM_IOU인 표는 진짜 표로 남기고, 그 표 안에 대부분 드는 그림 후보를 버린다(표를 그림으로 본 것).
-    반환: (남긴 표, 버린 표, 남은 후보)."""
+    """그림이 이긴다(§4.4): 모델이 찾은 그림 상자(점수 ≥ FIGURE_MIN_SCORE: 모델 후보와 그것을 합친 이미지 객체) 안에
+    넓이의 INSIDE 이상이 드는 표는 버린다. 모델이 찾지 않은 이미지 객체(점수 0)는 표를 버리지 않는다(리뷰 I1: 음영·
+    그림 채우기 위에 그린 선 있는 표는 대개 진짜 표다). 모델 table 상자와 IoU ≥ TABLE_CONFIRM_IOU인 표는 진짜 표로
+    남기고, 그 표 안에 대부분 드는 그림 후보를 버린다(표를 그림으로 본 것). 반환: (남긴 표, 버린 표, 남은 후보)."""
     boxes = [_pt(page, t.bbox) for t in tables]
     sure = {k for k, box in enumerate(boxes) if any(_iou(box, r.box) >= TABLE_CONFIRM_IOU for r in layout_tables)}
     cands = [c for c in cands if not any(_inside(c[0], boxes[k]) >= INSIDE for k in sure)]
+    found = [c[0] for c in cands if c[2] >= FIGURE_MIN_SCORE]
     kept: list[TableSpec] = []
     dropped: list[TableSpec] = []
     for k, (table, box) in enumerate(zip(tables, boxes, strict=True)):
-        if k not in sure and any(_inside(box, c[0]) >= INSIDE for c in cands):
+        if k not in sure and any(_inside(box, f) >= INSIDE for f in found):
             dropped.append(table)
         else:
             kept.append(table)
@@ -362,11 +368,11 @@ def arrange(page: PageText, state: TextLayerState, regions: Sequence[Region] = (
             used |= line_ids
             linked[fi] = Caption(captions[ci], text, chars, line_ids, above)
     found = []
-    for fi, (box, category, _) in enumerate(cands):
+    for fi, (box, category, score) in enumerate(cands):
         text, chars, line_ids = _capture(page, state, box, taken, lines, used)
         taken |= chars
         used |= line_ids
-        found.append(Figure(box, category, text, chars, line_ids, linked.get(fi)))
+        found.append(Figure(box, category, text, chars, line_ids, linked.get(fi), score >= FIGURE_MIN_SCORE))
     return PagePlan(tuple(found), tuple(kept), tuple(dropped), layout_tables)
 
 

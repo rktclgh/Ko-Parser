@@ -24,7 +24,10 @@ MIME = "application/pdf"
 RENDER_DPI = 144
 TABLE_IN_FIGURE = "ruled table inside a figure was dropped (figure wins)"
 LAYOUT_TABLE = "layout table box (kept for borderless-table detection, not a block)"
-NO_IMAGE = "figure image not stored (empty crop or document figure bytes over MAX_DOCUMENT_ASSET_BYTES)"
+NO_IMAGE_MODEL = ("layout-model figure image not stored "
+                  "(empty crop or document figure bytes over MAX_DOCUMENT_ASSET_BYTES)")
+NO_IMAGE_PHOTO = ("image-object figure image not stored "
+                  "(empty crop or document figure bytes over MAX_DOCUMENT_ASSET_BYTES)")
 
 
 @dataclass(slots=True)
@@ -64,15 +67,17 @@ class PdfParser:
         use_ocr = "scanned" in states and bool(self.ocr or (self.ocr is None and ocr_runtime.available()))
         if use_ocr:
             ocr_runtime.get_reader()  # 깨진 설치는 쪽을 그리기 전에 알린다
-        wanted = [figures.wants_layout(page, state) for page, state in zip(pages, states, strict=True)]
-        use_layout = any(wanted) and bool(self.layout or (self.layout is None and layout_runtime.available()))
-        if use_layout:
-            layout_runtime.get_detector()  # 깨진 설치는 쪽을 그리기 전에 알린다
+        use_layout: bool | None = None  # 모델을 돌릴 첫 쪽에서 정한다(그런 쪽이 없으면 설치를 확인하지 않는다)
         budget = figures.AssetBudget()
-        done = [_page(data, name, index, page, state, page_tables, use_ocr and state == "scanned",
-                      use_layout and want, budget)
-                for index, (page, state, page_tables, want) in enumerate(zip(pages, states, tables, wanted,
-                                                                             strict=True))]
+        done: list[_PageResult] = []
+        for index, (page, state, page_tables) in enumerate(zip(pages, states, tables, strict=True)):
+            want = figures.wants_layout(page, state)  # 쪽 루프 안에서: 이미지 객체 상자를 쪽마다 한 번만 구한다
+            if want and use_layout is None:
+                use_layout = bool(self.layout or (self.layout is None and layout_runtime.available()))
+                if use_layout:
+                    layout_runtime.get_detector()  # 깨진 설치는 쪽을 그리기 전에 알린다(렌더하는 쪽은 모두 want)
+            done.append(_page(data, name, index, page, state, page_tables, use_ocr and state == "scanned",
+                              bool(use_layout) and want, budget))
         blocks = build_specs(pages, states, [d.tables for d in done], [d.paras for d in done],
                              [d.figures for d in done])
         return ParsedSource(mime=MIME, pages=infos, blocks=tuple(blocks), assets=budget.assets,
@@ -97,11 +102,12 @@ def _page(data: bytes, name: str, index: int, page: PageText, state: TextLayerSt
         fields = _store(image, figure, page, budget)
         out.figures.append(FigureBlock(figure, source, fields))
         if fields is None:
-            out.regions.append(_region(page, f"figure-{k}", _unit(figure.box, page), "figure", NO_IMAGE, layout_here))
+            reason = NO_IMAGE_MODEL if figure.model else NO_IMAGE_PHOTO  # 모델 이름은 모델이 찾은 그림에만
+            out.regions.append(_region(page, f"figure-{k}", _unit(figure.box, page), "figure", reason, figure.model))
     rest = [line for i, line in enumerate(lines) if i not in plan.used_lines]
     out.paras = scan.paragraphs(scan.reading_order(rest), page)
     out.regions += [_region(page, f"table-in-figure-{k}", t.bbox, "table", TABLE_IN_FIGURE, layout_here)
-                    for k, t in enumerate(plan.dropped, 1)]
+                    for k, t in enumerate(plan.dropped, 1)]  # 표를 버리는 것은 모델이 찾은 그림뿐(리뷰 I1)
     out.regions += [_region(page, f"layout-table-{k}", _unit(r.box, page), "table", LAYOUT_TABLE, True)
                     for k, r in enumerate(plan.layout_tables, 1)]
     return out

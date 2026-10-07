@@ -95,7 +95,7 @@ class Rule:
     kind: RuleKind = "stroke"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)  # 약한 참조: figures 쪽 기억이 쪽을 붙잡지 않는다
 class PageText:
     page: int
     width_pt: float  # 회전 보정 후

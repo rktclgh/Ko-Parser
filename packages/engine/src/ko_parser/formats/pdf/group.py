@@ -278,7 +278,7 @@ def _top(item: "list[Fragment] | TableSpec | OcrParagraph | FigureBlock", page: 
     if isinstance(item, list):
         return _box(item, page)["y0"]
     if isinstance(item, FigureBlock):
-        return item.top(page)
+        return round(item.top(page), 3)  # 블록 상자처럼 소수 셋째 자리: 같은 높이면 텍스트가 먼저(리뷰 M4)
     return item.bbox[1]
 
 
@@ -348,18 +348,18 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     같은 규칙. 아래 캡션은 그림 바로 뒤). 그림 글자가 비어도 그림 블록은 남는다."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     read = list(ocr) if ocr is not None else [[] for _ in pages]
-    placed = list(figures) if figures is not None else [[] for _ in pages]
+    pictures = list(figures) if figures is not None else [[] for _ in pages]
     frags: list[list[Fragment]] = []
-    for page, state, page_tables, page_figures in zip(pages, states, found, placed, strict=True):
+    for page, state, page_tables, page_figures in zip(pages, states, found, pictures, strict=True):
         taken = {i for t in page_tables for i in t.char_ids} | {i for f in page_figures for i in f.char_ids}
         rest = replace(page, chars=tuple(c for i, c in enumerate(page.chars) if i not in taken)) if taken else page
         frags.append(fragments(rest) if state != "unreliable" else [])
     body = body_size(frags)
     margins = repeated_margins(pages, frags)
-    # (쪽, 머리말·꼬리말 종류, 조각 묶음 또는 표 또는 OCR 문단)
+    # (쪽, 머리말·꼬리말 종류, 조각 묶음 또는 표 또는 OCR 문단 또는 그림 블록)
     items: list[tuple[PageText, str | None, list[Fragment] | TableSpec | OcrParagraph | FigureBlock]] = []
     for p, (page, page_frags, page_tables, state, paras, page_figures) in enumerate(
-            zip(pages, frags, found, states, read, placed, strict=True)):
+            zip(pages, frags, found, states, read, pictures, strict=True)):
         start = len(items)
         present = {f.axes for f in page_frags}
         fallback = page_frags[0].axes if page_frags else UPRIGHT

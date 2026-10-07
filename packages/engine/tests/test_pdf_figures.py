@@ -125,6 +125,18 @@ def test_figure_wins_over_a_grid_table_inside_it_but_not_over_a_confirmed_table(
     assert boxes(plan) == [("chart", (90.0, 100.0, 510.0, 300.0))]  # 진짜 표 안의 image 후보는 버린다
 
 
+def test_an_image_object_the_model_did_not_find_keeps_the_ruled_table_inside_it():
+    """리뷰 I1: 모델이 찾지 않은 이미지 객체(점수 0: 모델 없음·모델이 놓침)는 그 위에 그린 선 있는 표를 버리지 않는다
+    (음영 위 결재란 등: 이미지 객체 안 선 있는 표는 대개 진짜 표). 모델이 찾아 합친 이미지 객체는 그림이 이긴다."""
+    shading = page(images=[(90, 100, 510, 300)])
+    grid = table_at((100, 110, 500, 280))
+    plan = figures.arrange(shading, "digital", (), [grid])
+    assert plan.tables == (grid,) and plan.dropped == ()
+    assert boxes(plan) == [("image", (90.0, 100.0, 510.0, 300.0))]
+    found = figures.arrange(shading, "digital", [region("image", (95, 105, 505, 295))], [grid])
+    assert found.dropped == (grid,) and found.tables == ()
+
+
 def test_caption_pairs_with_the_nearest_figure_above_or_below():
     p = page(line("그림 1. 위 차트", 200, 330), line("그림 2. 아래 사진", 200, 405))
     regions = [region("chart", (90, 100, 510, 300)), region("image", (90, 420, 510, 600)),

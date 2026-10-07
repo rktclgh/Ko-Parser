@@ -121,7 +121,8 @@ def test_cli_export_assets_writes_the_figure_png(capsys, db, tmp_path, monkeypat
     code, md, _ = run(capsys, "export", tree["document_id"], "--db", db, "--format", "md", "--assets", folder)
     (png,) = folder.iterdir()
     assert code == 0 and png.name == photo["figure"]["asset"].removeprefix("sha256:")[:16] + ".png"
-    assert Image.open(png).size == (photo["figure"]["width_px"], photo["figure"]["height_px"])
+    with Image.open(png) as image:  # 닫아야 Windows에서 임시 폴더를 지울 수 있다
+        assert image.size == (photo["figure"]["width_px"], photo["figure"]["height_px"])
     assert f"/{png.name})" in md or f"/{png.name}>)" in md
 
 

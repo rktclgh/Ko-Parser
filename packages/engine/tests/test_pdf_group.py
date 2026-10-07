@@ -353,3 +353,13 @@ def test_unreliable_page_makes_no_figure_block():
     fig = Figure(box=(72.0, 200.0, 300.0, 400.0), category="image")
     assert build_specs([page(line("가", 72, 100))], ["unreliable"], None, None,
                        [[FigureBlock(fig, "text_layer", None)]]) == []
+
+
+def test_figure_and_text_with_the_same_rounded_top_put_the_text_first():
+    """리뷰 M4: 블록 상자는 소수 셋째 자리로 반올림한다. 그림 윗변이 반올림해 텍스트 레이어 블록 윗변과 같으면(같은
+    높이) 문서화한 규칙대로 텍스트가 먼저다(반올림 전 값으로 견주면 그림이 먼저 끼어든다)."""
+    text = line("오른쪽 단 문단", 320, 300)  # 윗변 (300 - 0.752 × 11) / 842 = 0.34647 → 0.346
+    fig = Figure(box=(72.0, 0.3456 * H, 300.0, 500.0), category="image")  # 윗변 0.3456 → 0.346
+    result = build_specs([page(text)], ["digital"], None, None, [[FigureBlock(fig, "text_layer", None)]])
+    assert result[0]["locator"]["bbox"]["y0"] == result[1]["locator"]["bbox"]["y0"] == 0.346
+    assert kinds_texts(result) == [("paragraph", "오른쪽 단 문단"), ("figure", "")]
