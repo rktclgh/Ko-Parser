@@ -15,7 +15,8 @@ from ko_parser_contracts import TextLayerState
 from .extract import UPRIGHT, Axes, Char, PageText
 from .scan import OcrParagraph
 
-if TYPE_CHECKING:  # tables.py가 이 모듈을 import하므로 실행 중에는 가져오지 않는다
+if TYPE_CHECKING:  # tables.py·figures.py가 이 모듈을 import하므로 실행 중에는 가져오지 않는다
+    from .figures import Figure
     from .tables import TableSpec
 
 SAME_LINE = 0.5  # 기준선 차이 ≤ 실제 크기 × 0.5면 같은 줄
@@ -33,7 +34,7 @@ MARGIN = 0.08  # 머리말·꼬리말 영역: 쪽 높이의 위·아래 8%(줄�
 SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
 CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8,
-              "table": 0.6}
+              "table": 0.6, "figure": 0.7, "caption": 0.7}  # 그림·캡션은 모델 점수(CPU마다 다르다)를 넣지 않는다
 # 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →). 차례 글자는 가~하 열네 글자뿐
 # (유니코드 범위 가-하가 아니다). 숫자 뒤에 "10. "·"10.03"처럼 숫자 차례가 또 오면 날짜("2026. 10. 3.",
 # "2026. 10.03.")라 표지가 아니다. "1.5배"처럼 숫자 차례 뒤가 숫자·공백이 아니면 표지다("2. 1.5배 증가").
@@ -62,6 +63,28 @@ class Fragment:
     bold: bool  # 글자 과반이 굵다
     content_x0: float  # 앞머리(목록 표지 또는 글자·숫자가 아닌 한 글자) 다음 글자의 시작. 앞머리가 없으면 x0
     axes: Axes = UPRIGHT
+
+
+@dataclass(frozen=True, slots=True)
+class FigureBlock:
+    """그림 블록 하나(+짝 캡션). figure는 figures.Figure(보이는 쪽 pt), text_source는 글자 출처(text_layer·ocr),
+    image는 FigureImage 필드(asset·mime·width_px·height_px·dpi·category) 또는 None(자른 그림을 담지 못했다)."""
+
+    figure: "Figure"
+    text_source: str
+    image: dict[str, Any] | None = None
+
+    @property
+    def char_ids(self) -> frozenset[int]:
+        """그림과 짝 캡션이 가져간 텍스트 레이어 글자(page.chars 순번): 줄·조각에서 뺀다."""
+        caption = self.figure.caption
+        return self.figure.char_ids | (caption.char_ids if caption is not None else frozenset())
+
+    def top(self, page: PageText) -> float:
+        """블록 묶음(위 캡션이 있으면 캡션부터)의 보이는 쪽 윗변(0~1)."""
+        caption = self.figure.caption
+        y = caption.box[1] if caption is not None and caption.above else self.figure.box[1]
+        return y / page.height_pt
 
 
 def step(size: float) -> float:
@@ -207,6 +230,12 @@ def _widen(lo: float, hi: float) -> tuple[float, float]:
     return (a, round(a + 0.001, 3)) if a < 1.0 else (round(b - 0.001, 3), b)
 
 
+def unit_box(x0: float, y0: float, x1: float, y1: float) -> dict[str, float]:
+    """보이는 쪽 0~1 상자 → 블록 bbox(소수 셋째 자리, 폭 0이면 0.001 넓힘: _widen)."""
+    (a, b), (c, d) = _widen(x0, x1), _widen(y0, y1)
+    return {"x0": a, "y0": c, "x1": b, "y1": d}
+
+
 def _box(frags: Sequence[Fragment], page: PageText) -> dict[str, float]:
     """보이는 쪽 기준 0~1(읽기 좌표에서 되돌린다), 소수 셋째 자리 반올림(_widen). frags는 같은 axes."""
     axes = frags[0].axes
@@ -244,30 +273,68 @@ def _table_corner(table: "TableSpec", page: PageText, axes: Axes) -> tuple[float
     return top * h, left * w
 
 
-def _top(item: "list[Fragment] | TableSpec | OcrParagraph", page: PageText) -> float:
+def _top(item: "list[Fragment] | TableSpec | OcrParagraph | FigureBlock", page: PageText) -> float:
     """블록의 보이는 쪽 윗변(0~1)."""
     if isinstance(item, list):
         return _box(item, page)["y0"]
+    if isinstance(item, FigureBlock):
+        return item.top(page)
     return item.bbox[1]
 
 
-def _merge_ocr(page_items: list[tuple[PageText, str | None, Any]], paras: Sequence[OcrParagraph],
+def _merge_figures(paras: Sequence[OcrParagraph], page_figures: Sequence[FigureBlock],
+                   page: PageText) -> list[OcrParagraph | FigureBlock]:
+    """OCR 문단(XY 분할 순서)과 그림 블록(윗변 순서)을 윗변으로 합친다. 윗변이 같으면 문단이 먼저다."""
+    queue = deque(sorted(page_figures, key=lambda f: f.top(page)))
+    out: list[OcrParagraph | FigureBlock] = []
+    for para in paras:
+        while queue and queue[0].top(page) < para.bbox[1]:
+            out.append(queue.popleft())
+        out.append(para)
+    return out + list(queue)
+
+
+def _merge_ocr(page_items: list[tuple[PageText, str | None, Any]], extras: Sequence[OcrParagraph | FigureBlock],
                page: PageText) -> list[tuple[PageText, str | None, Any]]:
-    """같은 쪽의 텍스트 레이어 블록(읽기 순서)과 OCR 문단(XY 분할 순서)을 윗변 기준으로 합친다. 두 목록 안의
-    순서는 그대로 두고, 윗변이 같으면 텍스트 레이어 블록이 먼저다."""
-    queue = deque(paras)
+    """같은 쪽의 텍스트 레이어 블록(읽기 순서)과 OCR 문단·그림 블록(_merge_figures 순서)을 윗변 기준으로 합친다.
+    두 목록 안의 순서는 그대로 두고, 윗변이 같으면 텍스트 레이어 블록이 먼저다."""
+    queue = deque(extras)
     out: list[tuple[PageText, str | None, Any]] = []
     for item in page_items:
         top = _top(item[2], page)
-        while queue and queue[0].bbox[1] < top:
+        while queue and _top(queue[0], page) < top:
             out.append((page, None, queue.popleft()))
         out.append(item)
-    return out + [(page, None, para) for para in queue]
+    return out + [(page, None, extra) for extra in queue]
+
+
+def _figure_specs(block: FigureBlock, page: PageText, path: tuple[str, ...], start: int) -> list[dict[str, Any]]:
+    """그림 블록(+짝 캡션) 명세. 위 캡션은 그림 앞, 아래 캡션은 그림 바로 뒤. start는 이 명세들의 첫 순번: 그림의
+    figure.caption_ref는 캡션 명세의 순번(엔진 core.build가 caption_block_id로 바꾼다)."""
+    fig, caption = block.figure, block.figure.caption
+    w, h = page.width_pt, page.height_pt
+
+    def spec(kind: str, text: str, box: tuple[float, float, float, float]) -> dict[str, Any]:
+        return {"kind": kind, "text": text, "section_path": path, "confidence": CONFIDENCE[kind], "state": "det",
+                "text_source": block.text_source,
+                "locator": {"kind": "page", "page": page.page,
+                            "bbox": unit_box(box[0] / w, box[1] / h, box[2] / w, box[3] / h)}}
+
+    figure = spec("figure", fig.text, fig.box)
+    if caption is None:
+        if block.image is not None:
+            figure["figure"] = dict(block.image)
+        return [figure]
+    if block.image is not None:
+        figure["figure"] = {**block.image, "caption_ref": start if caption.above else start + 1}
+    note = spec("caption", caption.text, caption.box)
+    return [note, figure] if caption.above else [figure, note]
 
 
 def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                 tables: Sequence[Sequence["TableSpec"]] | None = None,
-                ocr: Sequence[Sequence[OcrParagraph]] | None = None) -> list[dict[str, Any]]:
+                ocr: Sequence[Sequence[OcrParagraph]] | None = None,
+                figures: Sequence[Sequence[FigureBlock]] | None = None) -> list[dict[str, Any]]:
     """블록 명세(계약 build_blocks 입력). digital·scanned 쪽은 보이는 글자로 블록을 만들고(숨은 글자는 fragments가
     버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
     빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
@@ -275,20 +342,24 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     그 방향 읽기 좌표의 윗변으로 끼운다(조각이 없는 쪽은 표 자신의 방향). 윗변이 같으면 그 좌표의 왼쪽 표가
     먼저다. 그 방향 조각보다 아래인 표는 그 방향 조각 끝(다음 방향 조각 앞)에 둔다. 순서: 쪽 → 위→아래 → 왼→오.
     ocr는 쪽마다 OCR 문단(scan.ocr_pages): 문단 블록(text_source="ocr")으로 그 쪽 블록 사이에 윗변 기준으로 끼우고,
-    section_path는 앞 블록을 따른다. 제목·목록·머리말 판정과 본문 크기에는 쓰지 않는다."""
+    section_path는 앞 블록을 따른다. 제목·목록·머리말 판정과 본문 크기에는 쓰지 않는다.
+    figures는 쪽마다 그림 블록(FigureBlock): 그림·짝 캡션이 가져간 글자(char_ids)는 표처럼 줄·조각에서 빼고(본문 크기·
+    머리말 판정에도 쓰지 않는다), 그림(위 캡션이 있으면 캡션)의 윗변 위치에 caption·figure 블록을 끼운다(OCR 문단과
+    같은 규칙. 아래 캡션은 그림 바로 뒤). 그림 글자가 비어도 그림 블록은 남는다."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     read = list(ocr) if ocr is not None else [[] for _ in pages]
+    placed = list(figures) if figures is not None else [[] for _ in pages]
     frags: list[list[Fragment]] = []
-    for page, state, page_tables in zip(pages, states, found, strict=True):
-        taken = {i for t in page_tables for i in t.char_ids}
+    for page, state, page_tables, page_figures in zip(pages, states, found, placed, strict=True):
+        taken = {i for t in page_tables for i in t.char_ids} | {i for f in page_figures for i in f.char_ids}
         rest = replace(page, chars=tuple(c for i, c in enumerate(page.chars) if i not in taken)) if taken else page
         frags.append(fragments(rest) if state != "unreliable" else [])
     body = body_size(frags)
     margins = repeated_margins(pages, frags)
     # (쪽, 머리말·꼬리말 종류, 조각 묶음 또는 표 또는 OCR 문단)
-    items: list[tuple[PageText, str | None, list[Fragment] | TableSpec | OcrParagraph]] = []
-    for p, (page, page_frags, page_tables, state, paras) in enumerate(
-            zip(pages, frags, found, states, read, strict=True)):
+    items: list[tuple[PageText, str | None, list[Fragment] | TableSpec | OcrParagraph | FigureBlock]] = []
+    for p, (page, page_frags, page_tables, state, paras, page_figures) in enumerate(
+            zip(pages, frags, found, states, read, placed, strict=True)):
         start = len(items)
         present = {f.axes for f in page_frags}
         fallback = page_frags[0].axes if page_frags else UPRIGHT
@@ -311,8 +382,9 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
             else:
                 items.append((page, margin, [f]))
         items += [(page, None, t) for queue in queues.values() for _, t in queue]
-        if paras and state != "unreliable":
-            items[start:] = _merge_ocr(items[start:], paras, page)
+        extras = _merge_figures(paras, page_figures, page)
+        if extras and state != "unreliable":
+            items[start:] = _merge_ocr(items[start:], extras, page)
 
     def is_heading(group: Sequence[Fragment]) -> bool:
         return body is not None and _is_heading_size(group[0], body) and len(group) <= HEADING_MAX_LINES
@@ -323,6 +395,9 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     stack: list[tuple[int, str]] = []  # (단계, 제목 글자)
     for page, margin, group in items:
         extra: dict[str, Any] = {}
+        if isinstance(group, FigureBlock):
+            specs.extend(_figure_specs(group, page, tuple(t for _, t in stack), len(specs)))
+            continue
         if isinstance(group, OcrParagraph):
             text = unicodedata.normalize("NFC", group.text)
             if not text.strip():  # 텍스트 레이어 조각과 같이 빈 글자는 블록으로 만들지 않는다

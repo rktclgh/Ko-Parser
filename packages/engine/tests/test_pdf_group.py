@@ -3,7 +3,8 @@ import unicodedata
 import pytest
 
 from ko_parser.formats.pdf.extract import Char, PageText
-from ko_parser.formats.pdf.group import LIST_MARKER, body_size, build_specs, fragments
+from ko_parser.formats.pdf.figures import Caption, Figure
+from ko_parser.formats.pdf.group import LIST_MARKER, FigureBlock, body_size, build_specs, fragments, unit_box
 from ko_parser.formats.pdf.scan import OcrParagraph
 from ko_parser_contracts import build_blocks
 
@@ -297,3 +298,58 @@ def test_reading_frame_orders_and_spaces_upside_down_chars():
                         baseline=1 - 100 / H, size=11, axes=(2, 3)))
         x -= 11
     assert [f.text for f in fragments(page(out))] == ["가나 다라"]
+
+
+IMAGE = {"asset": "sha256:" + "a" * 64, "mime": "image/png", "width_px": 10, "height_px": 5, "dpi": 200,
+         "category": "chart"}
+
+
+def test_figure_and_caption_below_take_their_place_and_link():
+    """그림 블록은 윗변 자리에 끼고 아래 캡션은 그림 바로 뒤. 그림·캡션이 가져간 글자는 문단에서 빠지고,
+    figure.caption_ref는 캡션 명세의 순번이다(엔진이 caption_block_id로 바꾼다)."""
+    top, inside = line("위 문단", 72, 100), line("1분기", 120, 300)
+    under, bottom = line("그림 1. 분기별 실적", 200, 360), line("아래 문단", 72, 500)
+    p = page(top, inside, under, bottom)
+    a, b = len(top), len(top) + len(inside)
+    fig_ids, cap_ids = frozenset(range(a, b)), frozenset(range(b, b + len(under)))
+    caption = Caption(box=(200.0, 350.0, 420.0, 363.0), text="그림 1. 분기별 실적", char_ids=cap_ids,
+                      line_ids=frozenset(), above=False)
+    fig = Figure(box=(90.0, 140.0, 510.0, 330.0), category="chart", text="1분기", char_ids=fig_ids, caption=caption)
+    result = build_specs([p], ["digital"], None, None, [[FigureBlock(fig, "text_layer", IMAGE)]])
+    assert kinds_texts(result) == [("paragraph", "위 문단"), ("figure", "1분기"), ("caption", "그림 1. 분기별 실적"),
+                                   ("paragraph", "아래 문단")]
+    assert result[1]["figure"] == {**IMAGE, "caption_ref": 2} and "figure" not in result[2]
+    assert {k: result[1][k] for k in ("state", "text_source", "confidence")} == {
+        "state": "det", "text_source": "text_layer", "confidence": 0.7}
+    assert result[1]["locator"]["bbox"] == unit_box(90 / W, 140 / H, 510 / W, 330 / H)
+
+
+def test_caption_above_goes_first_and_a_figure_without_image_has_no_figure_field():
+    """위 캡션은 그림 앞. 이미지를 담지 못한 그림(빈 자르기·바이트 상한)은 figure 필드 없이 블록만 남고, 짝 캡션은
+    가리킬 곳(caption_block_id는 figure 안)이 없어 캡션 블록으로 따로 남는다(리뷰 I7)."""
+    above = line("그림 2. 위 캡션", 72, 120)
+    caption = Caption(box=(72.0, 110.0, 200.0, 123.0), text="그림 2. 위 캡션", char_ids=frozenset(range(len(above))),
+                      line_ids=frozenset(), above=True)
+    fig = Figure(box=(72.0, 130.0, 400.0, 300.0), category="image", caption=caption)
+    result = build_specs([page(above)], ["digital"], None, None, [[FigureBlock(fig, "text_layer", None)]])
+    assert kinds_texts(result) == [("caption", "그림 2. 위 캡션"), ("figure", "")]
+    assert "figure" not in result[1]
+
+
+def test_ocr_paragraphs_and_figures_merge_by_top():
+    """scanned 쪽: OCR 문단(XY 분할 순서)과 그림 블록을 윗변으로 합친다. 윗변이 같으면 문단이 먼저다."""
+    p = page(line("스캔 쪽 쪽 번호", 72, 800))
+    paras = [OcrParagraph(text="첫 문단", bbox=(0.1, 0.05, 0.5, 0.08), confidence=0.45),
+             OcrParagraph(text="같은 높이 문단", bbox=(0.6, 0.25, 0.9, 0.28), confidence=0.45),
+             OcrParagraph(text="끝 문단", bbox=(0.1, 0.75, 0.5, 0.78), confidence=0.45)]
+    fig = Figure(box=(0.1 * W, 0.25 * H, 0.5 * W, 0.5 * H), category="image", text="그림 속 글자")
+    result = build_specs([p], ["scanned"], None, [paras], [[FigureBlock(fig, "ocr", None)]])
+    assert [(s["kind"], s["text_source"], s["text"]) for s in result] == [
+        ("paragraph", "ocr", "첫 문단"), ("paragraph", "ocr", "같은 높이 문단"), ("figure", "ocr", "그림 속 글자"),
+        ("paragraph", "ocr", "끝 문단"), ("paragraph", "text_layer", "스캔 쪽 쪽 번호")]
+
+
+def test_unreliable_page_makes_no_figure_block():
+    fig = Figure(box=(72.0, 200.0, 300.0, 400.0), category="image")
+    assert build_specs([page(line("가", 72, 100))], ["unreliable"], None, None,
+                       [[FigureBlock(fig, "text_layer", None)]]) == []
