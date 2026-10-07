@@ -204,16 +204,21 @@ def page_regions(boxes: Sequence["LayoutBox"], size: tuple[int, int], page: Page
     return [Region(b.cls, b.score, (b.box[0] * sx, b.box[1] * sy, b.box[2] * sx, b.box[3] * sy)) for b in boxes]
 
 
+def _same(a: Box, b: Box) -> bool:
+    """거의 같은 상자: 서로 상대 넓이의 CONTAIN 이상을 품는다(IoU ≥ 약 0.81)."""
+    return _inside(a, b) >= CONTAIN and _inside(b, a) >= CONTAIN
+
+
 def _drop_containers(cands: list[_Candidate]) -> list[_Candidate]:
     """다른 후보 둘 이상을 대부분(≥ CONTAIN) 감싸는 후보는 버린다(차트 묶음 위에 덧붙은 상자, §4.3-3). 거의 같은
-    상자(IoU ≥ SAME_IOU: 같은 곳을 chart·image로 둘 다 찾은 것)는 감싼 것으로 세지 않고, 감싼 것끼리 거의 같으면
-    하나로 센다."""
+    상자(서로 상대 넓이의 CONTAIN 이상을 품는다: 같은 곳을 chart·image로 둘 다 찾은 것)는 감싼 것으로 세지 않고,
+    감싼 것끼리 거의 같으면 하나로 센다. 묶음 상자의 절반을 넘는 진짜 조각은 거의 같은 상자가 아니다."""
     out: list[_Candidate] = []
     for i, c in enumerate(cands):
         wrapped: list[Box] = []
         for j, o in enumerate(cands):
-            if (j != i and len(wrapped) < 2 and _inside(o[0], c[0]) >= CONTAIN and _iou(o[0], c[0]) < SAME_IOU
-                    and not any(_iou(o[0], w) >= SAME_IOU for w in wrapped)):
+            if (j != i and len(wrapped) < 2 and _inside(o[0], c[0]) >= CONTAIN and not _same(o[0], c[0])
+                    and not any(_same(o[0], w) for w in wrapped)):
                 wrapped.append(o[0])
         if len(wrapped) < 2:
             out.append(c)

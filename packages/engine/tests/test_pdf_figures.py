@@ -65,6 +65,14 @@ def test_box_around_two_figures_is_dropped_but_one_inside_another_is_a_piece():
             region("chart", (300, 105, 540, 295))]
     assert boxes(figures.arrange(page(), "scanned", pair)) == [
         ("chart", (55.0, 105.0, 295.0, 295.0)), ("chart", (300.0, 105.0, 540.0, 295.0))]
+    uneven = [region("chart", (50, 100, 545, 300)), region("chart", (55, 105, 345, 295)),
+              region("chart", (350, 105, 540, 295))]  # 60/40 줄: 큰 차트가 묶음 상자의 절반을 넘는다
+    assert boxes(figures.arrange(page(), "scanned", uneven)) == [
+        ("chart", (55.0, 105.0, 345.0, 295.0)), ("chart", (350.0, 105.0, 540.0, 295.0))]
+    packed = [region("chart", (50, 100, 550, 300)), region("chart", (50, 100, 300, 300)),
+              region("chart", (300, 100, 550, 300))]  # 여백 없이 붙은 같은 크기 둘
+    assert boxes(figures.arrange(page(), "scanned", packed)) == [
+        ("chart", (50.0, 100.0, 300.0, 300.0)), ("chart", (300.0, 100.0, 550.0, 300.0))]
     nested = [region("chart", (50, 100, 545, 300)), region("image", (60, 110, 200, 200), 0.8)]
     assert boxes(figures.arrange(page(), "scanned", nested)) == [("chart", (50.0, 100.0, 545.0, 300.0))]
 
