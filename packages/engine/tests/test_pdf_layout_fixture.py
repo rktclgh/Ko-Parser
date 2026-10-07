@@ -136,3 +136,27 @@ def test_broken_layout_install_is_a_configuration_error(capsys, db, monkeypatch)
     code, _, err = run(capsys, "parse", FIXTURE, "--db", db)
     assert code == 1 and "ko-parser-engine[layout]" in err and "Traceback" not in err
     assert run(capsys, "parse", FIXTURE, "--no-layout", "--db", db)[0] == 0
+
+
+def test_viewer_shows_figure_categories_and_caption_pairs(capsys, db, tmp_path):
+    pytest.importorskip("onnxruntime")
+    require_models("layout", "layout-config")
+    data = view_data(capsys, tmp_path / "v.html", "--db", db)
+    figs = [b for b in data["blocks"] if b["kind"] == "figure"]
+    assert [f["figure"]["category"] for f in figs] == ["chart", "image", "chart"]
+    assert {b["figure_of"] for b in data["blocks"] if b["kind"] == "caption"} == {f["id"] for f in figs}
+    assert data["document"]["layout_notice"] is None
+
+
+def test_viewer_says_layout_needs_the_install(capsys, db, tmp_path, monkeypatch):
+    monkeypatch.setattr(layout, "available", lambda: False)
+    data = view_data(capsys, tmp_path / "n.html", "--db", db)
+    assert data["document"]["layout_notice"].startswith("선·도형 그림·캡션은 레이아웃 추가 설치가 필요")
+    assert [b["kind"] for b in data["blocks"]].count("figure") == 1
+
+
+def test_viewer_no_layout_has_no_install_notice(capsys, db, tmp_path, monkeypatch):
+    no_layout_runtime(monkeypatch)
+    data = view_data(capsys, tmp_path / "o.html", "--no-layout", "--db", db)
+    assert data["document"]["layout_notice"] is None
+    assert [b["kind"] for b in data["blocks"]].count("figure") == 1

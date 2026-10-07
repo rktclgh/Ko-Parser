@@ -40,3 +40,4 @@ ko-parser models fetch [ocr|layout|all] [--to DIR]
 - PDF 골든 예제 재생성·확인: `uv run python packages/engine/tests/build_pdf_fixtures.py [--check]`(reportlab, 개발 의존성). 골든 예제는 OCR을 끄고 만든다
 - OCR 예제: `fixtures/ocr/scanned.pdf`는 `build_ocr_fixture.py`로 한 번 만들어 커밋한 고정 입력이다(미임베드 글꼴을 OS 글꼴로 그려 OS마다 바이트가 달라 `--check` 대상이 아니다). OCR 테스트는 글자 정확·상자 ±0.01로 본다
 - 레이아웃 예제: `fixtures/layout/figures.pdf`는 `build_layout_fixture.py`로 한 번 만들어 커밋한 고정 입력이다(PDF 바이트는 결정적이지만 미임베드 한글 글꼴을 OS 글꼴로 그려 모델 입력이 OS마다 조금 다르다). 레이아웃 테스트는 그림 상자 IoU ≥ 0.8·캡션 글자로 본다. 골든 예제는 OCR·레이아웃을 끄고 만든다
+- 뷰어: 그림 블록 상자는 분류별 색(사진·그림 주황, 차트 분홍), 블록 목록에 쪽 그림을 잘라 보인 썸네일과 캡션 짝(누르면 짝으로 간다). PDF인데 레이아웃 추가 설치가 없으면 머리에 "선·도형 그림·캡션은 레이아웃 추가 설치가 필요" 안내

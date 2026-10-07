@@ -20,6 +20,7 @@ from .engine import LocalEngine
 from .errors import AssetNotFound, DocumentNotFound, KoParserError, ParseError, UnsupportedFormat, VersionNotFound
 from .export import asset_name, to_markdown
 from .formats.detect import default_parsers
+from .formats.pdf import layout as layout_runtime
 from .formats.pdf.parser import MIME as PDF_MIME
 from .store.sqlite import SqliteStore
 from .viewer import DEFAULT_DPI, render_html, render_page_images
@@ -243,7 +244,8 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
     if tree.source.mime == PDF_MIME:
         images = render_page_images(data, tree.source.name, args.dpi)
     out = view_path(args.file, args.out)
-    html = render_html(tree, images, previous)
+    notice = tree.source.mime == PDF_MIME and not args.no_layout and not layout_runtime.available()
+    html = render_html(tree, images, previous, layout_notice=notice)
     out.parent.mkdir(parents=True, exist_ok=True)
     # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
     _replace_file(out, html.encode("utf-8", errors="replace"))

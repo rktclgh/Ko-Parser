@@ -50,18 +50,24 @@ def _table(block: Block) -> dict[str, Any] | None:
 # 쪽 상태별 안내. scanned는 보이는 글자만 블록이 되고(OCR 블록이 있으면 OCR로 읽음), unreliable은 블록이 없다
 _NOTICE = {"scanned": "그림 속 글자는 OCR 필요(보이는 글자만 블록)", "unreliable": "글자가 깨져 블록을 만들지 않았다"}
 _NOTICE_OCR = "그림 속 글자는 OCR로 읽음(검증 전)"
+LAYOUT_NOTICE = ('선·도형 그림·캡션은 레이아웃 추가 설치가 필요(pip install "ko-parser-engine[layout]", '
+                 "ko-parser models fetch layout)")
 
 
 def _notice(state: str, page: int, ocr_pages: set[int]) -> str | None:
     return _NOTICE_OCR if state == "scanned" and page in ocr_pages else _NOTICE.get(state)
 
 
-def _block(block: Block, change: str | None) -> dict[str, Any]:
+def _block(block: Block, change: str | None, figure_of: str | None = None) -> dict[str, Any]:
+    """figure_of는 이 블록이 캡션인 그림 블록 id(없으면 None)."""
     loc = block.locator
     page = isinstance(loc, PageLocator)
     return {
         "id": block.block_id, "order": block.order, "kind": block.kind, "level": block.level,
         "text": _text(block), "table": _table(block),
+        "figure": ({"category": block.figure.category, "caption": block.figure.caption_block_id}
+                   if block.figure is not None else None),
+        "figure_of": figure_of,
         "section_path": list(block.section_path), "text_source": block.text_source, "state": block.state,
         "confidence": block.confidence, "where": _where(block), "change": change,
         "page": loc.page if page else None,
@@ -70,8 +76,9 @@ def _block(block: Block, change: str | None) -> dict[str, Any]:
 
 
 def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None,
-              previous: DocumentTree | None = None) -> dict[str, Any]:
-    """뷰어가 쓰는 데이터. previous는 같은 문서의 이전 버전(added·updated 표시, removed 목록)."""
+              previous: DocumentTree | None = None, layout_notice: bool = False) -> dict[str, Any]:
+    """뷰어가 쓰는 데이터. previous는 같은 문서의 이전 버전(added·updated 표시, removed 목록). layout_notice가 참이면
+    레이아웃 추가 설치 안내를 문서 머리에 보인다."""
     change = diff_trees(previous, tree) if previous is not None else None
     added = set(change.added) if change else set()
     updated = set(change.updated) if change else set()
@@ -79,27 +86,31 @@ def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None
     images = page_images or {}
     states = Counter(p.text_layer for p in tree.pages)
     ocr_pages = {b.locator.page for b in tree.blocks if b.text_source == "ocr" and isinstance(b.locator, PageLocator)}
+    owners = {b.figure.caption_block_id: b.block_id for b in tree.blocks
+              if b.figure is not None and b.figure.caption_block_id is not None}
     return {
         "document": {"name": tree.source.name, "document_id": tree.document_id, "version": tree.version,
                      "layer_state": tree.layer_state, "mime": tree.source.mime,
                      "previous_version": previous.version if previous is not None else None,
-                     "page_states": dict(sorted(states.items()))},
+                     "page_states": dict(sorted(states.items())),
+                     "layout_notice": LAYOUT_NOTICE if layout_notice else None},
         "pages": [{"page": p.page, "width": p.width_pt, "height": p.height_pt, "state": p.text_layer,
                    "notice": _notice(p.text_layer, p.page, ocr_pages),
                    "stats": p.text_stats.model_dump() if p.text_stats is not None else None,
                    "image": _image_uri(images[p.page]) if p.page in images else None} for p in tree.pages],
-        "blocks": [_block(b, "added" if b.block_id in added else "updated" if b.block_id in updated else None)
-                   for b in tree.blocks],
+        "blocks": [_block(b, "added" if b.block_id in added else "updated" if b.block_id in updated else None,
+                          owners.get(b.block_id)) for b in tree.blocks],
         "removed": [{"id": b.block_id, "kind": b.kind, "text": _text(b), "table": _table(b), "where": _where(b)}
                     for b in (previous.blocks if previous is not None else ()) if b.block_id in removed],
     }
 
 
 def render_html(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None,
-                previous: DocumentTree | None = None) -> str:
-    """page_images: 쪽 번호 → JPEG(또는 PNG) 바이트. 쪽이 없는 문서(MD)는 블록 목록만 보인다."""
-    data = json.dumps(view_data(tree, page_images, previous), ensure_ascii=False, separators=(",", ":"),
-                      allow_nan=False)
+                previous: DocumentTree | None = None, layout_notice: bool = False) -> str:
+    """page_images: 쪽 번호 → JPEG(또는 PNG) 바이트. 쪽이 없는 문서(MD)는 블록 목록만 보인다. layout_notice: 레이아웃
+    추가 설치 안내를 보인다(PDF인데 설치가 없을 때)."""
+    data = json.dumps(view_data(tree, page_images, previous, layout_notice), ensure_ascii=False,
+                      separators=(",", ":"), allow_nan=False)
     title = html.escape(f"{tree.source.name} — ko-parser 뷰어")
     return _BEFORE_TITLE + title + _BEFORE_DATA + data.replace("<", "\\u003c") + _AFTER_DATA
 
@@ -145,6 +156,8 @@ main.no-pages { grid-template-columns: minmax(0, 1fr); }
 .grid-note { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .removed { margin-top: 16px; }
 .removed .item { --c: #adb5bd; text-decoration: line-through; color: var(--muted); cursor: default; }
+.thumb { width: min(100%, 240px); margin-top: 4px; border: 1px solid var(--line); background-repeat: no-repeat; }
+.badge.link { cursor: pointer; text-decoration: underline; }
 .hidden { display: none !important; }
 </style>
 </head>
@@ -167,6 +180,7 @@ main.no-pages { grid-template-columns: minmax(0, 1fr); }
 const DATA = JSON.parse(document.getElementById("ko-data").textContent);
 const COLORS = { heading: "#d9480f", paragraph: "#1971c2", list_item: "#2f9e44", table: "#ae3ec9", figure: "#f08c00",
                  caption: "#0c8599", page_header: "#868e96", page_footer: "#868e96" };
+const FIGURE_COLORS = { image: "#f08c00", chart: "#e64980" };  // 그림 블록은 분류별 색
 const STATE_LABEL = { digital: "디지털", scanned: "스캔", unreliable: "글자 깨짐" };
 const pct = (v) => (v * 100).toFixed(1) + "%";
 function el(tag, cls, text) {
@@ -182,6 +196,7 @@ const states = Object.entries(doc.page_states).map(([k, n]) => (STATE_LABEL[k] |
 [["문서 ID", doc.document_id], ["버전", doc.version + (doc.previous_version ? " (이전 " + doc.previous_version + " 대비)" : "")],
  ["레이어", doc.layer_state], ["형식", doc.mime], ["쪽", DATA.pages.length ? DATA.pages.length + "쪽 (" + states + ")" : "없음"],
  ["블록", DATA.blocks.length]].forEach(([k, v]) => meta.appendChild(el("span", "", k + ": " + v)));
+if (doc.layout_notice) document.querySelector("header").appendChild(el("div", "notice", doc.layout_notice));
 
 // 표 블록: 칸 목록으로 <table>을 DOM으로 만든다. 글자는 textContent(줄바꿈은 CSS pre-wrap), 머리 칸은 <th>.
 // 낱말·숫자는 칸 안에서 끊지 않고(keep-all) 넓은 표는 가로로 스크롤한다
@@ -222,6 +237,18 @@ function select(id, from) {
   if (target) target.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
+// 그림 블록 썸네일: 이미 넣은 쪽 그림(data URI)을 배경으로 다시 쓰고 상자만큼 잘라 보인다(HTML에 이미지를 더 넣지 않는다)
+function thumb(p, bbox) {
+  const w = bbox[2] - bbox[0], h = bbox[3] - bbox[1];
+  const node = el("div", "thumb");
+  node.style.backgroundImage = "url(" + p.image + ")";
+  node.style.backgroundSize = (100 / w) + "% " + (100 / h) + "%";
+  node.style.backgroundPosition = (w < 1 ? bbox[0] / (1 - w) * 100 : 0) + "% " + (h < 1 ? bbox[1] / (1 - h) * 100 : 0) + "%";
+  node.style.aspectRatio = (w * p.width) + " / " + (h * p.height);
+  return node;
+}
+const pageData = new Map(DATA.pages.map((p) => [p.page, p]));
+const orderOf = new Map(DATA.blocks.map((b) => [b.id, b.order]));
 const pagesNode = document.getElementById("pages");
 const pageNodes = new Map();
 if (!DATA.pages.length) document.getElementById("main").classList.add("no-pages");
@@ -252,7 +279,7 @@ for (const p of DATA.pages) {
 const list = document.getElementById("list");
 const pending = [];
 for (const b of DATA.blocks) {
-  const color = COLORS[b.kind] || "#495057";
+  const color = (b.figure && FIGURE_COLORS[b.figure.category]) || COLORS[b.kind] || "#495057";
   const item = el("div", "item");
   item.style.setProperty("--c", color);
   item.dataset.kind = b.kind;
@@ -264,9 +291,18 @@ for (const b of DATA.blocks) {
   head.appendChild(el("span", "badge", b.state));
   head.appendChild(el("span", "badge", "신뢰도 " + b.confidence.toFixed(2)));
   head.appendChild(el("span", "badge", "#" + b.order + " · " + b.where));
+  if (b.figure) head.appendChild(el("span", "badge", b.figure.category === "chart" ? "차트" : "사진·그림"));
+  const partner = b.figure ? b.figure.caption : b.figure_of;
+  if (partner) {  // 캡션 짝: 누르면 짝 블록으로 간다
+    const link = el("span", "badge link", b.figure ? "캡션 #" + orderOf.get(partner) : "그림 #" + orderOf.get(partner) + "의 캡션");
+    link.addEventListener("click", (event) => { event.stopPropagation(); select(partner, "box"); });
+    head.appendChild(link);
+  }
   item.appendChild(head);
   if (b.section_path.length) item.appendChild(el("div", "meta", b.section_path.join(" › ")));
   item.appendChild(b.table ? grid(b.table, b.text) : el("div", "text", b.text));
+  const shot = b.kind === "figure" && b.page !== null && b.bbox ? pageData.get(b.page) : undefined;
+  if (shot && shot.image) item.appendChild(thumb(shot, b.bbox));
   item.addEventListener("click", () => select(b.id, "item"));
   items.set(b.id, item);
   list.appendChild(item);
