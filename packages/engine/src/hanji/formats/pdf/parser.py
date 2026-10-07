@@ -1,7 +1,8 @@
 """PDF → ParsedSource. 쪽마다 판정(text_layer·text_stats)을 붙인다. digital·scanned 쪽은 보이는 글자(렌더 모드 3
 제외)로 선 있는 표(table 블록)와 나머지 블록을 만들고, scanned 쪽은 OCR을 켰으면 그림 속 글자를 OCR 문단 블록
 (text_source="ocr")으로 더한다. 그림은 digital 쪽 이미지 객체(사진)와 레이아웃 모델(선·도형 그림·스캔 쪽 그림·캡션)로
-찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다. unreliable 쪽은 블록이 없다.
+찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다. unreliable 쪽(글자층이 깨진 쪽)은 digital과 같은
+경로로 깨진 글자층에서 블록을 만들고(신뢰도 상한 group.UNRELIABLE_CONFIDENCE) 처리 이력에 한 줄 남긴다.
 쪽 렌더는 필요한 쪽만 한 번(PDFIUM_LOCK 안), OCR·모델·PNG 인코딩은 잠금 밖에서 한다."""
 
 from dataclasses import dataclass, field
@@ -28,6 +29,8 @@ NO_IMAGE_MODEL = ("layout-model figure image not stored "
                   "(empty crop or document figure bytes over MAX_DOCUMENT_ASSET_BYTES)")
 NO_IMAGE_PHOTO = ("image-object figure image not stored "
                   "(empty crop or document figure bytes over MAX_DOCUMENT_ASSET_BYTES)")
+UNRELIABLE_KEPT = "unreliable_text_layer_kept"  # unreliable 쪽을 OCR 없이 깨진 글자층으로 블록을 만들었다
+FULL_PAGE = (0.0, 0.0, 1.0, 1.0)  # 쪽 단위 처리 이력의 상자(보이는 쪽 0~1)
 
 
 @dataclass(slots=True)
@@ -63,25 +66,30 @@ class PdfParser:
         infos = tuple(PageInfo(page=page.page, width_pt=page.width_pt, height_pt=page.height_pt,
                                rotation=page.rotation, render_dpi=RENDER_DPI, text_layer=state, text_stats=s)
                       for page, s, state in zip(pages, stats, states, strict=True))
-        tables = [find_tables(page) if state != "unreliable" else [] for page, state in zip(pages, states, strict=True)]
         use_ocr = "scanned" in states and bool(self.ocr or (self.ocr is None and ocr_runtime.available()))
         if use_ocr:
             ocr_runtime.get_reader()  # 깨진 설치는 쪽을 그리기 전에 알린다
         use_layout: bool | None = None  # 모델을 돌릴 첫 쪽에서 정한다(그런 쪽이 없으면 설치를 확인하지 않는다)
         budget = figures.AssetBudget()
-        done: list[_PageResult] = []
         modes = [page_mode(s) for s in states]  # 쪽 상태와 따로: 이 쪽을 어떻게 읽나(블록 명세에도 넘긴다)
-        for index, (page, state, mode, page_tables) in enumerate(zip(pages, states, modes, tables, strict=True)):
-            if state == "unreliable":
-                done.append(_PageResult(tables=[]))
-                continue
+        # unreliable 쪽은 다른 쪽을 다 돈 뒤에 돈다: digital·scanned 쪽 그림이 문서 자산 예산을 지금과 똑같이 먼저 쓰고,
+        # unreliable 쪽 그림은 남은 예산만 쓴다(앞 unreliable 쪽 때문에 뒤 digital 쪽 그림 이미지·처리 이력이 바뀌지 않게)
+        results: dict[int, _PageResult] = {}
+        for index in sorted(range(len(pages)), key=lambda k: states[k] == "unreliable"):
+            page, state, mode = pages[index], states[index], modes[index]
             want = figures.wants_layout(page, mode)  # 쪽 루프 안에서: 이미지 객체 상자를 쪽마다 한 번만 구한다
             if want and use_layout is None:
                 use_layout = bool(self.layout or (self.layout is None and layout_runtime.available()))
                 if use_layout:
                     layout_runtime.get_detector()  # 깨진 설치는 쪽을 그리기 전에 알린다(렌더하는 쪽은 모두 want)
-            done.append(_page(data, name, index, page, mode, page_tables, use_ocr and state == "scanned",
-                              bool(use_layout) and want, budget))
+            # 표는 처리 모드를 정한 뒤에 찾는다(OCR로 대신 읽는 쪽이 생기면 그 쪽은 표가 없다)
+            result = _page(data, name, index, page, mode, find_tables(page), use_ocr and state == "scanned",
+                           bool(use_layout) and want, budget)
+            if state == "unreliable":
+                result.regions.insert(0, _region(page, "unreliable-text-layer", FULL_PAGE, "paragraph",
+                                                 UNRELIABLE_KEPT, False))
+            results[index] = result
+        done = [results[k] for k in range(len(pages))]
         blocks = build_specs(pages, states, [d.tables for d in done], [d.paras for d in done],
                              [d.figures for d in done], modes=modes)
         return ParsedSource(mime=MIME, pages=infos, blocks=tuple(blocks), assets=budget.assets,

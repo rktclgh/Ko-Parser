@@ -34,6 +34,7 @@ PARA_INDENT = 1.0  # 왼쪽 시작 차 ≤ 본문 크기 × 1
 MARGIN = 0.08  # 머리말·꼬리말 영역: 쪽 높이의 위·아래 8%(줄의 세로 중심 기준)
 SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
+UNRELIABLE_CONFIDENCE = 0.2  # unreliable 쪽(깨진 글자층) 블록의 신뢰도 상한(쪽 단위)
 CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8,
               "table": 0.6, "figure": 0.7, "caption": 0.7}  # 그림·캡션은 모델 점수(CPU마다 다르다)를 넣지 않는다
 # 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →). 차례 글자는 가~하 열네 글자뿐
@@ -337,8 +338,11 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                 ocr: Sequence[Sequence[OcrParagraph]] | None = None,
                 figures: Sequence[Sequence[FigureBlock]] | None = None,
                 modes: Sequence[PageMode] | None = None) -> list[dict[str, Any]]:
-    """블록 명세(계약 build_blocks 입력). digital·scanned 쪽은 보이는 글자로 블록을 만들고(숨은 글자는 fragments가
-    버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
+    """블록 명세(계약 build_blocks 입력). 모든 쪽에서 보이는 글자로 블록을 만든다(숨은 글자는 fragments가 버린다).
+    unreliable 쪽(깨진 글자층)도 같은 경로지만 그 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않고(섞인 문서의
+    digital 쪽 블록이 바뀌지 않게. digital·scanned 글자가 없는 문서만 본문 크기를 그 쪽 글자로 정한다), 제목·머리말을
+    만들지 않으며(section_path를 바꾸지 않는다), 그 쪽 블록 신뢰도는 UNRELIABLE_CONFIDENCE 이하다.
+    tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
     빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
     않는다). 표는 같은 읽기 방향(TableSpec.axes) 조각 사이에, 그 방향 조각이 없으면 쪽의 첫 방향 조각 사이에
     그 방향 읽기 좌표의 윗변으로 끼운다(조각이 없는 쪽은 표 자신의 방향). 윗변이 같으면 그 좌표의 왼쪽 표가
@@ -357,21 +361,25 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     if len(modes) != len(pages):
         raise ValueError("modes must give one PageMode per page")
     frags: list[list[Fragment]] = []
-    for page, state, page_tables, page_figures in zip(pages, states, found, pictures, strict=True):
+    for page, page_tables, page_figures in zip(pages, found, pictures, strict=True):
         taken = {i for t in page_tables for i in t.char_ids} | {i for f in page_figures for i in f.char_ids}
         rest = replace(page, chars=tuple(c for i, c in enumerate(page.chars) if i not in taken)) if taken else page
-        frags.append(fragments(rest) if state != "unreliable" else [])
-    body = body_size(frags)
-    margins = repeated_margins(pages, frags)
+        frags.append(fragments(rest))
+    rough = {page.page for page, state in zip(pages, states, strict=True) if state == "unreliable"}
+    clean = [[] if page.page in rough else page_frags for page, page_frags in zip(pages, frags, strict=True)]
+    body = body_size(clean)
+    if body is None:  # digital·scanned 글자가 없다: unreliable 쪽 글자로 줄을 잇는다(바뀔 digital 블록이 없다)
+        body = body_size(frags)
+    margins = repeated_margins(pages, clean)
     # (쪽, 머리말·꼬리말 종류, 조각 묶음 또는 표 또는 OCR 문단 또는 그림 블록)
     items: list[tuple[PageText, str | None, list[Fragment] | TableSpec | OcrParagraph | FigureBlock]] = []
-    for p, (page, page_frags, page_tables, state, paras, page_figures) in enumerate(
-            zip(pages, frags, found, states, read, pictures, strict=True)):
+    for p, (page, page_frags, page_tables, paras, page_figures) in enumerate(
+            zip(pages, frags, found, read, pictures, strict=True)):
         start = len(items)
         present = {f.axes for f in page_frags}
         fallback = page_frags[0].axes if page_frags else UPRIGHT
         placed: dict[Axes, list[tuple[tuple[float, float], TableSpec]]] = defaultdict(list)  # 방향 → ((윗변, 왼변), 표)
-        for t in page_tables if state != "unreliable" else []:
+        for t in page_tables:
             axes = t.axes if t.axes in present or not page_frags else fallback
             placed[axes].append((_table_corner(t, page, axes), t))
         queues = {axes: deque(sorted(q, key=lambda item: item[0])) for axes, q in placed.items()}
@@ -390,13 +398,14 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                 items.append((page, margin, [f]))
         items += [(page, None, t) for queue in queues.values() for _, t in queue]
         extras = _merge_figures(paras, page_figures, page)
-        if extras and state != "unreliable":
+        if extras:
             items[start:] = _merge_ocr(items[start:], extras, page)
 
-    def is_heading(group: Sequence[Fragment]) -> bool:
-        return body is not None and _is_heading_size(group[0], body) and len(group) <= HEADING_MAX_LINES
+    def is_heading(page: PageText, group: Sequence[Fragment]) -> bool:
+        return (body is not None and page.page not in rough and _is_heading_size(group[0], body)
+                and len(group) <= HEADING_MAX_LINES)
 
-    sizes = sorted({g[0].size for _, m, g in items if isinstance(g, list) and m is None and is_heading(g)},
+    sizes = sorted({g[0].size for pg, m, g in items if isinstance(g, list) and m is None and is_heading(pg, g)},
                    reverse=True)
     specs: list[dict[str, Any]] = []
     stack: list[tuple[int, str]] = []  # (단계, 제목 글자)
@@ -426,7 +435,7 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
             continue
         if margin is not None:
             kind, text, path = margin, group[0].text, ()
-        elif is_heading(group):
+        elif is_heading(page, group):
             kind, text = "heading", unicodedata.normalize("NFC", " ".join(f.text for f in group))
             extra["level"] = min(sizes.index(group[0].size) + 1, MAX_LEVEL)
             while stack and stack[-1][0] >= extra["level"]:
@@ -442,4 +451,7 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
         specs.append({"kind": kind, "text": text, "section_path": path, "confidence": CONFIDENCE[kind],
                       "state": "det", "text_source": "text_layer",
                       "locator": {"kind": "page", "page": page.page, "bbox": _box(group, page)}, **extra})
+    for spec in specs:
+        if spec["locator"]["page"] in rough:
+            spec["confidence"] = min(spec["confidence"], UNRELIABLE_CONFIDENCE)
     return specs

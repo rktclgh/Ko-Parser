@@ -13,6 +13,7 @@ from hanji.errors import ParseError
 from hanji.formats.detect import default_parsers, detect_parser
 from hanji.formats.pdf import PdfParser, extract
 from hanji.formats.pdf import parser as pdf_parser
+from hanji_contracts import BBox
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -272,3 +273,20 @@ def test_parser_hands_each_page_mode_to_the_block_builder(monkeypatch):
     parsed = PdfParser(ocr=False, layout=False).parse(
         make_pdf([PARAS[0], [(770, "숨은 글자층이다.", 3), (30, "- 2 -", 0)]]), "a.pdf")
     assert [p.text_layer for p in parsed.pages] == ["digital", "scanned"] and seen == [["layer", "scan"]]
+
+
+def test_unreliable_page_keeps_its_text_layer_and_leaves_a_history_note(monkeypatch):
+    """unreliable 쪽은 OCR을 켤 수 있어도(TC-B 전) digital과 같은 경로로 깨진 글자층에서 블록을 만들고(신뢰도 0.2 이하)
+    쪽마다 처리 이력 한 줄을 남긴다. 같은 문서의 digital 쪽 블록은 그 쪽이 빈 쪽일 때와 같다."""
+    before = PdfParser(layout=False).parse(make_pdf([PARAS[0], [], PARAS[0]]), "a.pdf")
+    states = iter(["digital", "unreliable", "digital"])
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: next(states))
+    after = PdfParser(layout=False).parse(make_pdf([PARAS[0], [(770, "깨진 쪽 글자다.", 0)], PARAS[0]]), "a.pdf")
+    assert [p.text_layer for p in after.pages] == ["digital", "unreliable", "digital"]
+    assert [b for b in after.blocks if b["locator"]["page"] != 2] == list(before.blocks)
+    assert [(b["text"], b["confidence"]) for b in after.blocks if b["locator"]["page"] == 2] == [("깨진 쪽 글자다.", 0.2)]
+    (note,) = after.regions
+    assert (note.region_id, note.kind, note.chosen, note.fallback_reason) == (
+        "p2-unreliable-text-layer", "paragraph", "det", "unreliable_text_layer_kept")
+    assert (note.locator.page, note.locator.bbox) == (2, BBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0))
+    assert note.attempts[0].model_id is None
