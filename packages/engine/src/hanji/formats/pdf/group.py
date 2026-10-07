@@ -92,7 +92,8 @@ class FigureBlock:
 @dataclass(frozen=True, slots=True)
 class Ledger:
     """쪽 하나에서 블록이 된 텍스트 레이어 글자(보이는, 공백이 아닌 글자). in_blocks는 서로 다른 글자 수, doubled는
-    이미 다른 블록에 든 글자를 또 넣은 횟수(표·그림·캡션이 같은 글자를 나눠 가졌다: 버그 신호)."""
+    이미 다른 블록에 든 글자를 또 넣은 횟수(표·그림·캡션이 같은 글자를 나눠 가졌다: 버그 신호)와 쪽에 없는 글자
+    순번을 받은 횟수(이것도 버그 신호)."""
 
     in_blocks: int = 0
     doubled: int = 0
@@ -436,6 +437,9 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
 
     def own(page: PageText, char_ids: Iterable[int]) -> None:
         for i in char_ids:
+            if not 0 <= i < len(page.chars):  # 쪽에 없는 글자 순번: 예외 대신 장부 오류(coverage_mismatch)로
+                doubled[page.page] += 1
+                continue
             if page.chars[i].invisible or page.chars[i].text.isspace():
                 continue
             doubled[page.page] += i in owned[page.page]

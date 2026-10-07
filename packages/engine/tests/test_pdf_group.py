@@ -472,3 +472,20 @@ def test_ledger_flags_a_char_given_to_two_blocks(ids):
     p, tables, figures = ledger_page(**ids)
     _, ledgers = build_page_specs([p], ["digital"], tables, None, figures)
     assert ledgers == {1: Ledger(in_blocks=14, doubled=1)}
+
+
+@pytest.mark.parametrize("bad", [19, 99, -1])
+def test_ledger_flags_a_char_id_outside_the_page_without_raising(bad):
+    """쪽 글자 수(19) 밖 순번(음수 포함)은 장부 오류: 예외 없이 doubled로 센다(파서가 coverage_mismatch로 남긴다)."""
+    p, tables, figures = ledger_page(table_ids=(*range(7, 11), bad))
+    assert len(p.chars) == 19
+    _, ledgers = build_page_specs([p], ["digital"], tables, None, figures)
+    assert ledgers == {1: Ledger(in_blocks=14, doubled=1)}
+
+
+def test_ledger_counts_broken_text_on_an_unreliable_page():
+    """깨진 글자층(U+FFFD·사용자 정의 영역 U+E000·폭 없는 공백 U+200B)도 보이는 공백 아닌 글자마다 한 번씩 센다."""
+    p = page(line("가�나다", 72, 100), line("라​마 �", 72, 116))
+    assert page_stats(p).chars == 10
+    _, ledgers = build_page_specs([p], ["unreliable"])
+    assert ledgers == {1: Ledger(in_blocks=page_stats(p).chars, doubled=0)}

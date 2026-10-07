@@ -306,6 +306,12 @@ def test_coverage_counts_hidden_chars_on_digital_and_scanned_pages(ocr):
     assert not parsed.regions
 
 
+def gate_numbers(note) -> dict[str, tuple[bool, float | None, str | None]]:
+    """coverage_mismatch 처리 이력의 장부 숫자(검사 이름 → (통과, 값, 기준)). 게이트는 늘 실패다."""
+    assert note.gate is not None and not note.gate.passed
+    return {c.name: (c.passed, c.value, c.threshold) for c in note.gate.checks}
+
+
 def test_lost_chars_leave_no_coverage_and_a_history_note(monkeypatch):
     """장부가 맞지 않으면(여기서는 마지막 줄 조각을 일부러 잃는다) 파싱은 실패하지 않고, 그 쪽 coverage는 None이며
     처리 이력에 coverage_mismatch 한 줄이 남는다."""
@@ -317,6 +323,7 @@ def test_lost_chars_leave_no_coverage_and_a_history_note(monkeypatch):
     assert page.coverage is None and page.text_stats.chars == 21
     (note,) = parsed.regions
     assert (note.region_id, note.kind, note.fallback_reason) == ("p1-coverage", "paragraph", "coverage_mismatch")
+    assert gate_numbers(note) == {"in_blocks": (False, 14, "==21"), "doubled": (True, 0, "==0")}
 
 
 def test_a_char_given_to_two_blocks_leaves_no_coverage_and_one_history_note(monkeypatch):
@@ -332,3 +339,4 @@ def test_a_char_given_to_two_blocks_leaves_no_coverage_and_one_history_note(monk
     assert page.coverage is None and page.text_stats.chars == 21
     assert [(r.region_id, r.kind, r.fallback_reason) for r in parsed.regions] == [
         ("p1-coverage", "paragraph", "coverage_mismatch")]
+    assert gate_numbers(parsed.regions[0]) == {"in_blocks": (True, 21, "==21"), "doubled": (False, 2, "==0")}

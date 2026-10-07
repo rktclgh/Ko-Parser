@@ -9,7 +9,9 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from hanji_contracts import Attempt, BBox, PageInfo, PageLocator, RegionRecord, TextCoverage, TextLayerStats
+from hanji_contracts import (
+    Attempt, BBox, GateCheck, GateResult, PageInfo, PageLocator, RegionRecord, TextCoverage, TextLayerStats,
+)
 from PIL import Image
 
 from ..base import ParsedSource
@@ -81,7 +83,8 @@ class PdfParser:
                 use_layout = bool(self.layout or (self.layout is None and layout_runtime.available()))
                 if use_layout:
                     layout_runtime.get_detector()  # 깨진 설치는 쪽을 그리기 전에 알린다(렌더하는 쪽은 모두 want)
-            # 표는 처리 모드를 정한 뒤에 찾는다(OCR로 대신 읽는 쪽이 생기면 그 쪽은 표가 없다)
+            # 표는 처리 모드를 정한 뒤에 찾는다. 지금(TC-A)은 모든 쪽이 글자층에서 표를 찾고, TC-B에서 OCR로 대신 읽는
+            # 쪽이 생기면 그 쪽은 표 찾기를 건너뛴다
             result = _page(data, name, index, page, mode, find_tables(page), use_ocr and state == "scanned",
                            bool(use_layout) and want, budget)
             if state == "unreliable":
@@ -95,7 +98,8 @@ class PdfParser:
         for page, s, state, result in zip(pages, stats, states, done, strict=True):
             coverage = _coverage(page, s, ledgers[page.page])
             if coverage is None:
-                result.regions.append(_region(page, "coverage", FULL_PAGE, "paragraph", COVERAGE_MISMATCH, False))
+                result.regions.append(_region(page, "coverage", FULL_PAGE, "paragraph", COVERAGE_MISMATCH, False,
+                                              _ledger_gate(s, ledgers[page.page])))
             infos.append(PageInfo(page=page.page, width_pt=page.width_pt, height_pt=page.height_pt,
                                   rotation=page.rotation, render_dpi=RENDER_DPI, text_layer=state, text_stats=s,
                                   coverage=coverage))
@@ -110,6 +114,14 @@ def _coverage(page: PageText, stats: TextLayerStats, ledger: Ledger) -> TextCove
         return None
     hidden = hidden_chars(page)
     return TextCoverage(layer_chars=stats.chars + hidden, in_blocks=ledger.in_blocks, hidden=hidden)
+
+
+def _ledger_gate(stats: TextLayerStats, ledger: Ledger) -> GateResult:
+    """coverage_mismatch 처리 이력에 붙일 장부 숫자: in_blocks(기준은 보이는 공백 아닌 글자 수)와 doubled(기준 0)."""
+    checks = (GateCheck(name="in_blocks", passed=ledger.in_blocks == stats.chars, value=ledger.in_blocks,
+                        threshold=f"=={stats.chars}"),
+              GateCheck(name="doubled", passed=ledger.doubled == 0, value=ledger.doubled, threshold="==0"))
+    return GateResult(passed=all(c.passed for c in checks), checks=checks)
 
 
 def _page(data: bytes, name: str, index: int, page: PageText, mode: PageMode, tables: list[TableSpec],
@@ -159,8 +171,8 @@ def _unit(box: figures.Box, page: PageText) -> tuple[float, float, float, float]
 
 
 def _region(page: PageText, tag: str, box: tuple[float, float, float, float], kind: str, reason: str,
-            model: bool) -> RegionRecord:
-    """처리 이력 한 줄(블록이 되지 않았거나 이미지 없이 된 영역). box는 보이는 쪽 0~1."""
-    return RegionRecord(region_id=f"p{page.page}-{tag}", kind=kind, chosen="det", fallback_reason=reason,
+            model: bool, gate: GateResult | None = None) -> RegionRecord:
+    """처리 이력 한 줄(블록이 되지 않았거나 이미지 없이 된 영역). box는 보이는 쪽 0~1. gate는 근거 숫자(있을 때만)."""
+    return RegionRecord(region_id=f"p{page.page}-{tag}", kind=kind, chosen="det", fallback_reason=reason, gate=gate,
                         locator=PageLocator(page=page.page, bbox=BBox(**unit_box(*box))),
                         attempts=(Attempt(layer="det", model_id=layout_runtime.MODEL_ID if model else None),))
