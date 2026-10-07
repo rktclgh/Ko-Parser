@@ -8,7 +8,7 @@ from .document import (
 )
 from .engine import DocFilter, DocRef, Engine, JobRef, JobStatus
 from .figure import MAX_DOCUMENT_ASSET_BYTES, MAX_FIGURE_SIDE, FigureCategory, FigureImage
-from .geometry import BBox, PageInfo, TextLayerState, TextLayerStats
+from .geometry import BBox, PageInfo, TextCoverage, TextLayerState, TextLayerStats
 from .ids import NORMALIZATION_VERSION, compute_block_id, compute_content_hash, normalize_text
 from .locator import FlowLocator, LinesLocator, Locator, PageLocator, SlideLocator
 from .provenance import (
@@ -23,7 +23,7 @@ from .vlm import (
 
 __all__ = [
     "SCHEMA_VERSION", "NORMALIZATION_VERSION", "ContractModel", "VersionedModel",
-    "BBox", "PageInfo", "TextLayerState", "TextLayerStats",
+    "BBox", "PageInfo", "TextCoverage", "TextLayerState", "TextLayerStats",
     "Locator", "PageLocator", "FlowLocator", "SlideLocator", "LinesLocator",
     "Cell", "CellTextSource", "HeaderRole", "Table", "MAX_TABLE_CELLS", "MAX_TABLE_EXPANDED_CHARS",
     "FigureImage", "FigureCategory", "MAX_FIGURE_SIDE", "MAX_DOCUMENT_ASSET_BYTES",

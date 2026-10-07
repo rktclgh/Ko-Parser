@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.3",
+  "schema_version": "0.4",
   "document_id": "fx-pdf-empty",
   "version": 1,
   "layer_state": "det",
@@ -23,7 +23,8 @@
         "unmapped_ratio": 0.0,
         "pua_ratio": 0.0,
         "max_image_coverage": 0.0
-      }
+      },
+      "coverage": null
     }
   ],
   "blocks": []

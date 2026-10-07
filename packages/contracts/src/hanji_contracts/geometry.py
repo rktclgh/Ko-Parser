@@ -34,10 +34,31 @@ class TextLayerStats(ContractModel):
     max_image_coverage: Unit  # 가장 큰 그림이 덮는 쪽 면적 비율
 
 
+class TextCoverage(ContractModel):
+    """쪽 하나의 글자 장부. 글자는 PDFium 텍스트 쪽이 돌려준 글자 객체 가운데 공백이 아닌 것이다(너비 0 글리프·같은
+    자리 중복 객체처럼 PDFium이 텍스트 쪽에 넣지 않은 것과 쪽 밖 글자는 세지 않는다).
+    layer_chars = in_blocks + hidden + replaced, rescued <= in_blocks."""
+
+    layer_chars: int = Field(ge=0)  # 텍스트 레이어 글자 수(숨은 글자 포함. TextLayerStats.chars는 보이는 글자만)
+    in_blocks: int = Field(ge=0)  # 블록에 배정된 글자 id 수(블록 글자 길이가 아니다: NFC·끼운 공백·U+FFFD)
+    hidden: int = Field(ge=0)  # 렌더 모드 3(숨은) 글자: 쪽 상태와 상관없이 블록에 넣지 않는다
+    replaced: int = Field(default=0, ge=0)  # unreliable 쪽을 OCR로 다시 읽어 블록에 넣지 않은 글자
+    rescued: int = Field(default=0, ge=0)  # in_blocks 가운데 구조 문단으로 살린 글자
+
+    @model_validator(mode="after")
+    def _check_ledger(self) -> Self:
+        if self.layer_chars != self.in_blocks + self.hidden + self.replaced:
+            raise ValueError("layer_chars must equal in_blocks + hidden + replaced")
+        if self.rescued > self.in_blocks:
+            raise ValueError("rescued must be <= in_blocks")
+        return self
+
+
 class PageInfo(ContractModel):
     """width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.
 
-    text_layer는 글자층 판정(scanned 쪽은 보이는 글자만 블록이 되고 unreliable 쪽에는 블록이 없다), text_stats는 그 근거.
+    text_layer는 글자층 판정(scanned 쪽은 보이는 글자만 블록이 되고, unreliable 쪽 블록은 깨진 글자층에서 나와 믿기
+    어렵다), text_stats는 그 근거. coverage는 글자 장부(텍스트 레이어가 있는 형식, 장부가 맞지 않으면 None).
     """
 
     # 아래 검증기 규칙을 JSON Schema에도 싣는다(digital이 아니면 text_stats가 null이 아닌 값으로 있어야 한다)
@@ -53,9 +74,16 @@ class PageInfo(ContractModel):
     render_dpi: int = Field(gt=0)
     text_layer: TextLayerState = "digital"
     text_stats: TextLayerStats | None = None
+    coverage: TextCoverage | None = None
 
     @model_validator(mode="after")
     def _check_text_layer(self) -> Self:
         if self.text_layer != "digital" and self.text_stats is None:
             raise ValueError("scanned and unreliable pages require text_stats")
+        if self.coverage is not None:
+            if self.coverage.replaced and self.text_layer != "unreliable":
+                raise ValueError("coverage.replaced requires an unreliable page")
+            stats = self.text_stats
+            if stats is not None and self.coverage.layer_chars != stats.chars + self.coverage.hidden:
+                raise ValueError("coverage.layer_chars must equal text_stats.chars + coverage.hidden")
         return self

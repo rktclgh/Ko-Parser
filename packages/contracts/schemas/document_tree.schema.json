@@ -386,7 +386,7 @@
     },
     "PageInfo": {
       "additionalProperties": false,
-      "description": "width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.\n\ntext_layer는 글자층 판정(scanned 쪽은 보이는 글자만 블록이 되고 unreliable 쪽에는 블록이 없다), text_stats는 그 근거.",
+      "description": "width_pt·height_pt는 회전 보정 후 크기, rotation은 원본 PDF의 /Rotate 값.\n\ntext_layer는 글자층 판정(scanned 쪽은 보이는 글자만 블록이 되고, unreliable 쪽 블록은 깨진 글자층에서 나와 믿기\n어렵다), text_stats는 그 근거. coverage는 글자 장부(텍스트 레이어가 있는 형식, 장부가 맞지 않으면 None).",
       "if": {
         "properties": {
           "text_layer": {
@@ -401,6 +401,17 @@
         ]
       },
       "properties": {
+        "coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextCoverage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "height_pt": {
           "exclusiveMinimum": 0,
           "title": "Height Pt",
@@ -597,6 +608,46 @@
       "title": "Table",
       "type": "object"
     },
+    "TextCoverage": {
+      "additionalProperties": false,
+      "description": "쪽 하나의 글자 장부. 글자는 PDFium 텍스트 쪽이 돌려준 글자 객체 가운데 공백이 아닌 것이다(너비 0 글리프·같은\n자리 중복 객체처럼 PDFium이 텍스트 쪽에 넣지 않은 것과 쪽 밖 글자는 세지 않는다).\nlayer_chars = in_blocks + hidden + replaced, rescued <= in_blocks.",
+      "properties": {
+        "hidden": {
+          "minimum": 0,
+          "title": "Hidden",
+          "type": "integer"
+        },
+        "in_blocks": {
+          "minimum": 0,
+          "title": "In Blocks",
+          "type": "integer"
+        },
+        "layer_chars": {
+          "minimum": 0,
+          "title": "Layer Chars",
+          "type": "integer"
+        },
+        "replaced": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Replaced",
+          "type": "integer"
+        },
+        "rescued": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Rescued",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "layer_chars",
+        "in_blocks",
+        "hidden"
+      ],
+      "title": "TextCoverage",
+      "type": "object"
+    },
     "TextLayerStats": {
       "additionalProperties": false,
       "description": "쪽 판정 근거. 비율의 분모는 공백이 아닌 글자 전체(숨은 글자 포함), 글자가 없으면 0.",
@@ -676,8 +727,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "0.3",
-      "default": "0.3",
+      "const": "0.4",
+      "default": "0.4",
       "title": "Schema Version",
       "type": "string"
     },

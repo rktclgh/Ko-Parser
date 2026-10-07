@@ -140,8 +140,8 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": "0.3",
-      "default": "0.3",
+      "const": "0.4",
+      "default": "0.4",
       "title": "Schema Version",
       "type": "string"
     }

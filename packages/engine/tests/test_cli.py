@@ -164,7 +164,7 @@ def test_db_not_sqlite_exit_1(capsys, tmp_path):
     assert err.count("\n") == 1 and "Traceback" not in err
 
 
-@pytest.mark.parametrize("old", ["1", "2"])  # 계약 0.1·0.2 시절 상태 파일
+@pytest.mark.parametrize("old", ["1", "2", "3"])  # 계약 0.1·0.2·0.3 시절 상태 파일
 def test_db_from_older_contracts_exit_1(capsys, db, old):
     assert run(capsys, "documents", "--db", db)[0] == 0
     conn = sqlite3.connect(db)
