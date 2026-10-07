@@ -1,7 +1,7 @@
 import pytest
 
 from hanji.formats.pdf.extract import Char, PageText
-from hanji.formats.pdf.triage import classify, page_stats
+from hanji.formats.pdf.triage import classify, page_mode, page_stats
 from hanji_contracts import TextLayerStats
 
 
@@ -61,3 +61,8 @@ def test_scanned_rules_come_before_unreliable():
     assert classify(stats(invisible=0.9, unmapped=0.9, pua=0.9)) == "scanned"
     assert classify(stats(chars=10, coverage=0.5, unmapped=0.5)) == "scanned"
     assert classify(stats(unmapped=0.05, pua=0.2)) == "unreliable"
+
+
+def test_page_mode_reads_unreliable_pages_from_the_text_layer():
+    """처리 모드는 쪽 상태와 따로다: scanned만 scan, digital과 unreliable(OCR 없이 둔 쪽)은 layer."""
+    assert [page_mode(s) for s in ("digital", "scanned", "unreliable")] == ["layer", "scan", "layer"]

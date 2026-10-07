@@ -14,6 +14,7 @@ from hanji_contracts import TextLayerState
 
 from .extract import UPRIGHT, Axes, Char, PageText
 from .scan import OcrParagraph
+from .triage import PageMode, page_mode
 
 if TYPE_CHECKING:  # tables.py·figures.py가 이 모듈을 import하므로 실행 중에는 가져오지 않는다
     from .figures import Figure
@@ -334,7 +335,8 @@ def _figure_specs(block: FigureBlock, page: PageText, path: tuple[str, ...], sta
 def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                 tables: Sequence[Sequence["TableSpec"]] | None = None,
                 ocr: Sequence[Sequence[OcrParagraph]] | None = None,
-                figures: Sequence[Sequence[FigureBlock]] | None = None) -> list[dict[str, Any]]:
+                figures: Sequence[Sequence[FigureBlock]] | None = None,
+                modes: Sequence[PageMode] | None = None) -> list[dict[str, Any]]:
     """블록 명세(계약 build_blocks 입력). digital·scanned 쪽은 보이는 글자로 블록을 만들고(숨은 글자는 fragments가
     버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
     빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
@@ -345,10 +347,15 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     section_path는 앞 블록을 따른다. 제목·목록·머리말 판정과 본문 크기에는 쓰지 않는다.
     figures는 쪽마다 그림 블록(FigureBlock): 그림·짝 캡션이 가져간 글자(char_ids)는 표처럼 줄·조각에서 빼고(본문 크기·
     머리말 판정에도 쓰지 않는다), 그림(위 캡션이 있으면 캡션)의 윗변 위치에 caption·figure 블록을 끼운다(OCR 문단과
-    같은 규칙. 아래 캡션은 그림 바로 뒤). 그림 글자가 비어도 그림 블록은 남는다."""
+    같은 규칙. 아래 캡션은 그림 바로 뒤). 그림 글자가 비어도 그림 블록은 남는다.
+    modes는 쪽마다 처리 모드(triage.PageMode. 파서가 넘기고, None이면 쪽 상태에서 page_mode): 쪽 상태와 따로다. layer·scan은
+    모두 텍스트 레이어 조각으로 블록을 만든다(scan 쪽 OCR 문단은 ocr로 받는다). unreliable 쪽 처리는 쪽 상태로 정한다."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     read = list(ocr) if ocr is not None else [[] for _ in pages]
     pictures = list(figures) if figures is not None else [[] for _ in pages]
+    modes = list(modes) if modes is not None else [page_mode(s) for s in states]
+    if len(modes) != len(pages):
+        raise ValueError("modes must give one PageMode per page")
     frags: list[list[Fragment]] = []
     for page, state, page_tables, page_figures in zip(pages, states, found, pictures, strict=True):
         taken = {i for t in page_tables for i in t.char_ids} | {i for f in page_figures for i in f.char_ids}

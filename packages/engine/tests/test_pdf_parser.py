@@ -12,6 +12,7 @@ from hanji import LocalEngine, MemoryStore
 from hanji.errors import ParseError
 from hanji.formats.detect import default_parsers, detect_parser
 from hanji.formats.pdf import PdfParser, extract
+from hanji.formats.pdf import parser as pdf_parser
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -256,3 +257,18 @@ def test_negative_font_size_and_mirrored_text_keep_reading_order():
 
     assert [t for _, t in kinds_texts(PdfParser().parse(draw_pdf(negative), "n.pdf"))] == ["마바 사아", "가나 다라"]
     assert [t for _, t in kinds_texts(PdfParser().parse(draw_pdf(mirrored), "m.pdf"))] == ["가나 다라"]
+
+
+def test_parser_hands_each_page_mode_to_the_block_builder(monkeypatch):
+    """파서는 쪽 상태와 함께 쪽마다 처리 모드를 블록 명세에 넘긴다(digital → layer, scanned → scan)."""
+    seen = []
+    build = pdf_parser.build_specs
+
+    def spy(*args, **kw):
+        seen.append(kw["modes"])
+        return build(*args, **kw)
+
+    monkeypatch.setattr(pdf_parser, "build_specs", spy)
+    parsed = PdfParser(ocr=False, layout=False).parse(
+        make_pdf([PARAS[0], [(770, "숨은 글자층이다.", 3), (30, "- 2 -", 0)]]), "a.pdf")
+    assert [p.text_layer for p in parsed.pages] == ["digital", "scanned"] and seen == [["layer", "scan"]]

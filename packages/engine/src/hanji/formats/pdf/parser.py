@@ -7,7 +7,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from hanji_contracts import Attempt, BBox, PageInfo, PageLocator, RegionRecord, TextLayerState
+from hanji_contracts import Attempt, BBox, PageInfo, PageLocator, RegionRecord
 from PIL import Image
 
 from ..base import ParsedSource
@@ -18,7 +18,7 @@ from .extract import PageText, extract_pages
 from .group import FigureBlock, build_specs, unit_box
 from .scan import OcrParagraph
 from .tables import TableSpec, find_tables
-from .triage import classify, page_stats
+from .triage import PageMode, classify, page_mode, page_stats
 
 MIME = "application/pdf"
 RENDER_DPI = 144
@@ -70,32 +70,34 @@ class PdfParser:
         use_layout: bool | None = None  # 모델을 돌릴 첫 쪽에서 정한다(그런 쪽이 없으면 설치를 확인하지 않는다)
         budget = figures.AssetBudget()
         done: list[_PageResult] = []
-        for index, (page, state, page_tables) in enumerate(zip(pages, states, tables, strict=True)):
-            want = figures.wants_layout(page, state)  # 쪽 루프 안에서: 이미지 객체 상자를 쪽마다 한 번만 구한다
+        modes = [page_mode(s) for s in states]  # 쪽 상태와 따로: 이 쪽을 어떻게 읽나(블록 명세에도 넘긴다)
+        for index, (page, state, mode, page_tables) in enumerate(zip(pages, states, modes, tables, strict=True)):
+            if state == "unreliable":
+                done.append(_PageResult(tables=[]))
+                continue
+            want = figures.wants_layout(page, mode)  # 쪽 루프 안에서: 이미지 객체 상자를 쪽마다 한 번만 구한다
             if want and use_layout is None:
                 use_layout = bool(self.layout or (self.layout is None and layout_runtime.available()))
                 if use_layout:
                     layout_runtime.get_detector()  # 깨진 설치는 쪽을 그리기 전에 알린다(렌더하는 쪽은 모두 want)
-            done.append(_page(data, name, index, page, state, page_tables, use_ocr and state == "scanned",
+            done.append(_page(data, name, index, page, mode, page_tables, use_ocr and state == "scanned",
                               bool(use_layout) and want, budget))
         blocks = build_specs(pages, states, [d.tables for d in done], [d.paras for d in done],
-                             [d.figures for d in done])
+                             [d.figures for d in done], modes=modes)
         return ParsedSource(mime=MIME, pages=infos, blocks=tuple(blocks), assets=budget.assets,
                             regions=tuple(r for d in done for r in d.regions))
 
 
-def _page(data: bytes, name: str, index: int, page: PageText, state: TextLayerState, tables: list[TableSpec],
+def _page(data: bytes, name: str, index: int, page: PageText, mode: PageMode, tables: list[TableSpec],
           ocr_here: bool, layout_here: bool, budget: figures.AssetBudget) -> _PageResult:
     """쪽 하나: (필요할 때만) 렌더(잠금 안) → OCR 줄·레이아웃 상자(잠금 밖) → 그림 정리 → PNG → 남은 OCR 줄은 문단.
-    렌더가 필요 없는 쪽(글자만 있는 digital 쪽 등)은 지금과 같은 경로(표만)."""
-    if state == "unreliable":
-        return _PageResult(tables=[])
-    if not (ocr_here or layout_here or (state == "digital" and figures.photo_boxes(page))):
+    렌더가 필요 없는 쪽(글자만 있는 layer 모드 쪽 등)은 지금과 같은 경로(표만)."""
+    if not (ocr_here or layout_here or (mode == "layer" and figures.photo_boxes(page))):
         return _PageResult(tables=list(tables))
     image = scan.render(data, name, index)
     lines = scan.page_lines(image, page) if ocr_here else []
     regions = figures.page_regions(layout_runtime.detect(image), image.size, page) if layout_here else []
-    plan = figures.arrange(page, state, regions, tables, lines)
+    plan = figures.arrange(page, mode, regions, tables, lines)
     out = _PageResult(tables=list(plan.tables))
     source = "ocr" if ocr_here else "text_layer"
     for k, figure in enumerate(plan.figures, 1):

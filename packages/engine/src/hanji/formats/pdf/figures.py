@@ -12,13 +12,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from hanji_contracts import MAX_DOCUMENT_ASSET_BYTES, MAX_FIGURE_SIDE, TextLayerState
+from hanji_contracts import MAX_DOCUMENT_ASSET_BYTES, MAX_FIGURE_SIDE
 from PIL import Image
 
 from .extract import PageText
 from .group import fragments
 from .scan import OcrText, reading_order
 from .tables import TableSpec
+from .triage import PageMode
 
 if TYPE_CHECKING:
     from .layout import LayoutBox
@@ -199,12 +200,12 @@ def photo_boxes(page: PageText) -> list[Box]:
     return list(_image_boxes(page)[0])
 
 
-def wants_layout(page: PageText, state: TextLayerState) -> bool:
-    """레이아웃 모델을 돌릴 쪽(§4.2): scanned 쪽, 그리고 그림이 될 이미지 객체가 있거나 path 객체가
-    LAYOUT_MIN_PATHS 이상인 digital 쪽. unreliable 쪽은 돌리지 않는다."""
-    if state == "scanned":
+def wants_layout(page: PageText, mode: PageMode) -> bool:
+    """레이아웃 모델을 돌릴 쪽(§4.2): scan 모드 쪽, 그리고 그림이 될 이미지 객체가 있거나 path 객체가
+    LAYOUT_MIN_PATHS 이상인 layer 모드 쪽(digital, 글자층으로 읽는 unreliable)."""
+    if mode == "scan":
         return True
-    return state == "digital" and (page.paths >= LAYOUT_MIN_PATHS or bool(photo_boxes(page)))
+    return page.paths >= LAYOUT_MIN_PATHS or bool(photo_boxes(page))
 
 
 def page_regions(boxes: Sequence["LayoutBox"], size: tuple[int, int], page: PageText) -> list[Region]:
@@ -325,13 +326,13 @@ def _pair(figure_boxes: Sequence[Box], captions: Sequence[Box]) -> dict[int, tup
     return pairs
 
 
-def _capture(page: PageText, state: TextLayerState, box: Box, taken: set[int], lines: Sequence[OcrText],
+def _capture(page: PageText, mode: PageMode, box: Box, taken: set[int], lines: Sequence[OcrText],
              used: set[int]) -> tuple[str, frozenset[int], frozenset[int]]:
-    """상자(CAPTURE_PAD만큼 넓혀) 안에 중심이 드는 글자: scanned 쪽은 OCR 줄(읽기 순서, used는 이미 가져간 줄),
+    """상자(CAPTURE_PAD만큼 넓혀) 안에 중심이 드는 글자: scan 모드 쪽은 OCR 줄(읽기 순서, used는 이미 가져간 줄),
     아니면 보이는 텍스트 레이어 글자(taken은 이미 표·캡션이 가져간 글자). 반환: (글자(NFC, 줄은 \\n), 글자 순번,
     줄 순번)."""
     x0, y0, x1, y1 = box[0] - CAPTURE_PAD, box[1] - CAPTURE_PAD, box[2] + CAPTURE_PAD, box[3] + CAPTURE_PAD
-    if state == "scanned":
+    if mode == "scan":
         ids = [i for i, t in enumerate(lines) if i not in used
                and x0 <= (t.x0 + t.x1) / 2 <= x1 and y0 <= (t.y0 + t.y1) / 2 <= y1]
         text = "\n".join(t.text for t in reading_order([lines[i] for i in ids]))
@@ -343,19 +344,19 @@ def _capture(page: PageText, state: TextLayerState, box: Box, taken: set[int], l
     return unicodedata.normalize("NFC", text).strip(), frozenset(ids), frozenset()
 
 
-def arrange(page: PageText, state: TextLayerState, regions: Sequence[Region] = (), tables: Sequence[TableSpec] = (),
+def arrange(page: PageText, mode: PageMode, regions: Sequence[Region] = (), tables: Sequence[TableSpec] = (),
             lines: Sequence[OcrText] = ()) -> PagePlan:
     """한 쪽의 그림·캡션(§4.3~4.5). regions는 레이아웃 상자(보이는 쪽 pt), tables는 find_tables 결과, lines는
-    scanned 쪽의 거른 OCR 줄. digital 쪽은 이미지 객체(page.images)도 본다. 순서: 분류·점수 기준 → 감싸는 상자 버리기
-    → (digital) 이미지 객체 합치기 → 겹침·조각 정리 → 그림 우선(표) → 표 제목 거르기 → 캡션 짝 → 캡션 글자 → 그림 글자.
-    scanned 쪽은 OCR 줄만 그림·캡션으로 옮긴다: 상자 안 텍스트 레이어 글자는 문단으로 남는다."""
+    scan 모드 쪽의 거른 OCR 줄. layer 모드 쪽은 이미지 객체(page.images)도 본다. 순서: 분류·점수 기준 → 감싸는 상자
+    버리기 → (layer) 이미지 객체 합치기 → 겹침·조각 정리 → 그림 우선(표) → 표 제목 거르기 → 캡션 짝 → 캡션 글자 →
+    그림 글자. scan 모드 쪽은 OCR 줄만 그림·캡션으로 옮긴다: 상자 안 텍스트 레이어 글자는 문단으로 남는다."""
     cands: list[_Candidate] = [(r.box, FIGURE_CLASSES[r.cls], r.score) for r in regions
                                if r.cls in FIGURE_CLASSES and r.score >= FIGURE_MIN_SCORE and area(r.box) > 0]
     caption_boxes = [r.box for r in regions if r.cls == CAPTION_CLASS and r.score >= CAPTION_MIN_SCORE and area(r.box) > 0]
     layout_tables = tuple(r for r in regions if r.cls == TABLE_CLASS and r.score >= TABLE_MIN_SCORE)
     marks = [r.box for r in regions if r.cls in DECOR_CLASSES and r.score >= FIGURE_MIN_SCORE]
     cands = _drop_containers(cands)
-    if state == "digital":
+    if mode == "layer":
         cands = _merge_images(cands, page, marks)
     cands = _dedupe(cands)
     kept, dropped, cands = _settle_tables(cands, tables, layout_tables, page)
@@ -368,17 +369,17 @@ def arrange(page: PageText, state: TextLayerState, regions: Sequence[Region] = (
         r.box for r in layout_tables
         if not any(_inside(r.box, f) >= INSIDE or _iou(r.box, f) >= TABLE_CONFIRM_IOU for f in figure_boxes)]
     captions = [box for box in caption_boxes if not _table_title(box, table_boxes, figure_boxes)
-                and _capture(page, state, box, taken, lines, used)[0]]
+                and _capture(page, mode, box, taken, lines, used)[0]]
     linked: dict[int, Caption] = {}
     for fi, (ci, above) in sorted(_pair(figure_boxes, captions).items()):
-        text, chars, line_ids = _capture(page, state, captions[ci], taken, lines, used)
+        text, chars, line_ids = _capture(page, mode, captions[ci], taken, lines, used)
         if text:  # 앞 캡션이 글자를 먼저 가져가 비면 짝 없음
             taken |= chars
             used |= line_ids
             linked[fi] = Caption(captions[ci], text, chars, line_ids, above)
     found = []
     for fi, (box, category, score) in enumerate(cands):
-        text, chars, line_ids = _capture(page, state, box, taken, lines, used)
+        text, chars, line_ids = _capture(page, mode, box, taken, lines, used)
         taken |= chars
         used |= line_ids
         found.append(Figure(box, category, text, chars, line_ids, linked.get(fi), score >= FIGURE_MIN_SCORE))

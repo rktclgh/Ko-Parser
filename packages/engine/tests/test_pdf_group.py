@@ -373,3 +373,12 @@ def test_ocr_paragraph_and_figure_with_the_same_rounded_top_put_the_paragraph_fi
     result = build_specs([page()], ["scanned"], None, [paras], [[FigureBlock(fig, "ocr", None)]])
     assert result[0]["locator"]["bbox"]["y0"] == result[1]["locator"]["bbox"]["y0"] == 0.25
     assert [(s["kind"], s["text"]) for s in result] == [("paragraph", "같은 높이 문단"), ("figure", "")]
+
+
+def test_build_specs_takes_page_modes_apart_from_states():
+    """처리 모드는 쪽 상태와 따로 받는다(파서가 넘긴다. 없으면 쪽 상태에서 page_mode). 쪽마다 하나여야 한다."""
+    p = page(line("보이는 쪽", 72, 100))
+    assert build_specs([p], ["digital"], modes=["layer"]) == specs(p)
+    assert build_specs([p], ["scanned"], modes=["scan"]) == specs(p, states=["scanned"])
+    with pytest.raises(ValueError, match="one PageMode per page"):
+        build_specs([p], ["digital"], modes=[])
