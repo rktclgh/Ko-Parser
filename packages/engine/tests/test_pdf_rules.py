@@ -286,7 +286,7 @@ def test_one_fill_path_of_many_squares_is_fast_and_still_dotted_lines():
         c.drawPath(path, stroke=0, fill=1)
 
     seconds, page = extract_time(draw)
-    assert seconds < 0.5
+    assert seconds < 2.0  # 제곱으로 느려지면 수 초~수 분이다. 느린 CI 러너(macOS 0.51초 실측)에도 넉넉히
     assert len(page.rules) == 100 and {(r.axis, r.kind, r.end - r.start) for r in page.rules} == {("h", "stroke", 199.0)}
 
 
@@ -300,7 +300,7 @@ def test_one_fill_path_of_many_nested_rects_is_fast():
         c.drawPath(path, stroke=0, fill=1, fillMode=0)
 
     seconds, page = extract_time(draw)
-    assert seconds < 0.5
+    assert seconds < 2.0  # 제곱으로 느려지면 수 초~수 분이다. 느린 CI 러너(macOS 0.51초 실측)에도 넉넉히
     assert {r.kind for r in page.rules} == {"stroke"}
 
 
