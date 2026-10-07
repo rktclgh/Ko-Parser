@@ -46,7 +46,7 @@ jobs:
         run: echo "HANJI_CACHE_DIR=${{ runner.temp }}/hanji-models" >> "$GITHUB_ENV"
       - name: Model cache
         id: model-cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/hanji-models
           key: models-${{ runner.os }}-${{ hashFiles('packages/engine/src/hanji/models/models.toml') }}
@@ -55,6 +55,13 @@ jobs:
       - name: Fetch models
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: uv run hanji models fetch
+      # 받은 직후에 저장한다: 뒤의 테스트가 실패해도 다음 실행이 다시 받지 않게(actions/cache는 작업이 성공해야 저장한다)
+      - name: Save model cache
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/hanji-models
+          key: ${{ steps.model-cache.outputs.cache-primary-key }}
       # 워크스페이스는 OCR·레이아웃 추가 설치(hanji[ocr,layout])까지 깐다: onnxruntime 휠이 세 OS에 있고 모델이 열리는지 본다
       - name: OCR runtime loads
         run: uv run python -W error::EncodingWarning -c "from hanji.formats.pdf import ocr; ocr.get_reader(); print('ocr ok')"

@@ -29,3 +29,7 @@ AGENTS.md
 **/CLAUDE.md
 **/AGENTS.md
 .claude/
+
+# 비밀 값(API 키 등): 저장소에 올리지 않는다
+.env
+.env.*
