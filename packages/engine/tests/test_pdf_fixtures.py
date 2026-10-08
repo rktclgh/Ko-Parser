@@ -100,3 +100,14 @@ def test_table_fixture_has_one_table_block_between_paragraphs():
     assert block.section_path == ("1. 추진 실적",) and block.text == block.table.plain_text()
     assert (block.locator.page, block.locator.bbox.x0, block.locator.bbox.y1) == (1, 0.121, 0.259)
     assert "상반기" not in "".join(b.text for b in tree.blocks if b.kind != "table")
+
+
+def test_golden_pages_carry_a_ledger_that_adds_up():
+    """골든의 모든 쪽에 글자 장부가 있고 보이는 글자는 모두 블록에 들었다. 숨은 글자는 scanned_invisible만 38."""
+    hidden = {}
+    for name in NAMES:
+        for p in _expected(name).pages:
+            assert p.coverage is not None and p.coverage.in_blocks == p.text_stats.chars, (name, p.page)
+            assert (p.coverage.replaced, p.coverage.rescued) == (0, 0)
+            hidden[(name, p.page)] = p.coverage.hidden
+    assert {k: v for k, v in hidden.items() if v} == {("scanned_invisible.pdf", 1): 38}

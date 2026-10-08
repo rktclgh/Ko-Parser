@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.3",
+  "schema_version": "0.4",
   "document_id": "fx-pdf-scanned_invisible",
   "version": 1,
   "layer_state": "det",
@@ -23,6 +23,13 @@
         "unmapped_ratio": 0.0,
         "pua_ratio": 0.0,
         "max_image_coverage": 0.0
+      },
+      "coverage": {
+        "layer_chars": 41,
+        "in_blocks": 3,
+        "hidden": 38,
+        "replaced": 0,
+        "rescued": 0
       }
     }
   ],

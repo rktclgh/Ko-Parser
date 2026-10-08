@@ -1,4 +1,7 @@
-"""쪽 판정: digital·scanned·unreliable과 그 근거(TextLayerStats). 기준값은 공공누리 8건으로 조정한 상수다."""
+"""쪽 판정: digital·scanned·unreliable과 그 근거(TextLayerStats), 그리고 판정에 따른 처리 모드. 기준값은 공공누리 8건으로
+조정한 상수다."""
+
+from typing import Literal
 
 from hanji_contracts import TextLayerState, TextLayerStats
 
@@ -9,6 +12,9 @@ IMAGE_PAGE_MIN_COVERAGE = 0.15  # 가장 큰 그림이 쪽의 이 비율 이상�
 IMAGE_PAGE_MAX_CHARS = 50  # 보이는 글자가 이보다 적으면 scanned(본문이 그림 한 장인 쪽)
 UNMAPPED_MIN = 0.1  # 유니코드로 못 읽는 글자 비율이 이 이상이면 unreliable
 PUA_MIN = 0.1  # 사용자 정의 영역 글자 비율이 이 이상이면 unreliable
+# 쪽을 어떻게 읽나(쪽 상태와 따로): layer = 텍스트 레이어로 블록(digital, OCR 없이 둔 unreliable), scan = 보이는 글자층
+# + 그림 속 글자는 OCR 줄(scanned)
+PageMode = Literal["layer", "scan"]
 
 
 def _is_pua(text: str) -> bool:
@@ -41,3 +47,13 @@ def classify(stats: TextLayerStats) -> TextLayerState:
     if stats.unmapped_ratio >= UNMAPPED_MIN or stats.pua_ratio >= PUA_MIN:
         return "unreliable"
     return "digital"
+
+
+def hidden_chars(page: PageText) -> int:
+    """숨은(렌더 모드 3) 공백 아닌 글자 수. 쪽 상태와 상관없이 블록에 넣지 않는다(글자 장부의 hidden)."""
+    return sum(1 for c in page.chars if c.invisible and not c.text.isspace())
+
+
+def page_mode(state: TextLayerState) -> PageMode:
+    """쪽 상태 → 처리 모드. scanned만 scan이고 digital·unreliable은 텍스트 레이어로 읽는다."""
+    return "scan" if state == "scanned" else "layer"

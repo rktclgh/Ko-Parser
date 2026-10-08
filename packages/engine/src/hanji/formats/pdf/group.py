@@ -6,7 +6,7 @@
 import re
 import unicodedata
 from collections import Counter, defaultdict, deque
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +14,7 @@ from hanji_contracts import TextLayerState
 
 from .extract import UPRIGHT, Axes, Char, PageText
 from .scan import OcrParagraph
+from .triage import PageMode, page_mode
 
 if TYPE_CHECKING:  # tables.py·figures.py가 이 모듈을 import하므로 실행 중에는 가져오지 않는다
     from .figures import Figure
@@ -33,6 +34,7 @@ PARA_INDENT = 1.0  # 왼쪽 시작 차 ≤ 본문 크기 × 1
 MARGIN = 0.08  # 머리말·꼬리말 영역: 쪽 높이의 위·아래 8%(줄의 세로 중심 기준)
 SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
+UNRELIABLE_CONFIDENCE = 0.2  # unreliable 쪽(깨진 글자층) 블록의 신뢰도 상한(쪽 단위)
 CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8,
               "table": 0.6, "figure": 0.7, "caption": 0.7}  # 그림·캡션은 모델 점수(CPU마다 다르다)를 넣지 않는다
 # 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →). 차례 글자는 가~하 열네 글자뿐
@@ -85,6 +87,16 @@ class FigureBlock:
         caption = self.figure.caption
         y = caption.box[1] if caption is not None and caption.above else self.figure.box[1]
         return y / page.height_pt
+
+
+@dataclass(frozen=True, slots=True)
+class Ledger:
+    """쪽 하나에서 블록이 된 텍스트 레이어 글자(보이는, 공백이 아닌 글자). in_blocks는 서로 다른 글자 수, doubled는
+    이미 다른 블록에 든 글자를 또 넣은 횟수(표·그림·캡션이 같은 글자를 나눠 가졌다: 버그 신호)와 쪽에 없는 글자
+    순번을 받은 횟수(이것도 버그 신호)."""
+
+    in_blocks: int = 0
+    doubled: int = 0
 
 
 def step(size: float) -> float:
@@ -334,9 +346,25 @@ def _figure_specs(block: FigureBlock, page: PageText, path: tuple[str, ...], sta
 def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                 tables: Sequence[Sequence["TableSpec"]] | None = None,
                 ocr: Sequence[Sequence[OcrParagraph]] | None = None,
-                figures: Sequence[Sequence[FigureBlock]] | None = None) -> list[dict[str, Any]]:
-    """블록 명세(계약 build_blocks 입력). digital·scanned 쪽은 보이는 글자로 블록을 만들고(숨은 글자는 fragments가
-    버린다), unreliable 쪽은 블록이 없다. tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
+                figures: Sequence[Sequence[FigureBlock]] | None = None,
+                modes: Sequence[PageMode] | None = None) -> list[dict[str, Any]]:
+    """build_page_specs의 블록 명세만."""
+    return build_page_specs(pages, states, tables, ocr, figures, modes)[0]
+
+
+def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
+                     tables: Sequence[Sequence["TableSpec"]] | None = None,
+                     ocr: Sequence[Sequence[OcrParagraph]] | None = None,
+                     figures: Sequence[Sequence[FigureBlock]] | None = None,
+                     modes: Sequence[PageMode] | None = None,
+                     ) -> tuple[list[dict[str, Any]], dict[int, Ledger]]:
+    """(블록 명세, 쪽 번호 → 글자 장부). 장부는 명세를 만들 때 센다: 표·그림·캡션은 char_ids(그림과 짝 캡션은 따로),
+    줄·조각은 블록이 된 조각의 글자 수(표·그림 글자를 뺀 쪽에서 묶어 서로 겹치지 않는다). 숨은 글자·공백은 세지
+    않는다. 블록 명세(계약 build_blocks 입력). 모든 쪽에서 보이는 글자로 블록을 만든다(숨은 글자는 fragments가 버린다).
+    unreliable 쪽(깨진 글자층)도 같은 경로지만 그 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않고(섞인 문서의
+    digital 쪽 블록이 바뀌지 않게. digital·scanned 글자가 없는 문서만 본문 크기를 그 쪽 글자로 정한다), 제목·머리말을
+    만들지 않으며(section_path를 바꾸지 않는다), 그 쪽 블록 신뢰도는 UNRELIABLE_CONFIDENCE 이하다.
+    tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
     빼고(본문 크기·머리말 판정에도 쓰지 않는다), 표마다 table 블록 하나를 표 윗변 위치에 끼운다(앞 문단과 잇지
     않는다). 표는 같은 읽기 방향(TableSpec.axes) 조각 사이에, 그 방향 조각이 없으면 쪽의 첫 방향 조각 사이에
     그 방향 읽기 좌표의 윗변으로 끼운다(조각이 없는 쪽은 표 자신의 방향). 윗변이 같으면 그 좌표의 왼쪽 표가
@@ -345,26 +373,35 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
     section_path는 앞 블록을 따른다. 제목·목록·머리말 판정과 본문 크기에는 쓰지 않는다.
     figures는 쪽마다 그림 블록(FigureBlock): 그림·짝 캡션이 가져간 글자(char_ids)는 표처럼 줄·조각에서 빼고(본문 크기·
     머리말 판정에도 쓰지 않는다), 그림(위 캡션이 있으면 캡션)의 윗변 위치에 caption·figure 블록을 끼운다(OCR 문단과
-    같은 규칙. 아래 캡션은 그림 바로 뒤). 그림 글자가 비어도 그림 블록은 남는다."""
+    같은 규칙. 아래 캡션은 그림 바로 뒤). 그림 글자가 비어도 그림 블록은 남는다.
+    modes는 쪽마다 처리 모드(triage.PageMode. 파서가 넘기고, None이면 쪽 상태에서 page_mode): 쪽 상태와 따로다. layer·scan은
+    모두 텍스트 레이어 조각으로 블록을 만든다(scan 쪽 OCR 문단은 ocr로 받는다). unreliable 쪽 처리는 쪽 상태로 정한다."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     read = list(ocr) if ocr is not None else [[] for _ in pages]
     pictures = list(figures) if figures is not None else [[] for _ in pages]
+    modes = list(modes) if modes is not None else [page_mode(s) for s in states]
+    if len(modes) != len(pages):
+        raise ValueError("modes must give one PageMode per page")
     frags: list[list[Fragment]] = []
-    for page, state, page_tables, page_figures in zip(pages, states, found, pictures, strict=True):
+    for page, page_tables, page_figures in zip(pages, found, pictures, strict=True):
         taken = {i for t in page_tables for i in t.char_ids} | {i for f in page_figures for i in f.char_ids}
         rest = replace(page, chars=tuple(c for i, c in enumerate(page.chars) if i not in taken)) if taken else page
-        frags.append(fragments(rest) if state != "unreliable" else [])
-    body = body_size(frags)
-    margins = repeated_margins(pages, frags)
+        frags.append(fragments(rest))
+    rough = {page.page for page, state in zip(pages, states, strict=True) if state == "unreliable"}
+    clean = [[] if page.page in rough else page_frags for page, page_frags in zip(pages, frags, strict=True)]
+    body = body_size(clean)
+    if body is None:  # digital·scanned 글자가 없다: unreliable 쪽 글자로 줄을 잇는다(바뀔 digital 블록이 없다)
+        body = body_size(frags)
+    margins = repeated_margins(pages, clean)
     # (쪽, 머리말·꼬리말 종류, 조각 묶음 또는 표 또는 OCR 문단 또는 그림 블록)
     items: list[tuple[PageText, str | None, list[Fragment] | TableSpec | OcrParagraph | FigureBlock]] = []
-    for p, (page, page_frags, page_tables, state, paras, page_figures) in enumerate(
-            zip(pages, frags, found, states, read, pictures, strict=True)):
+    for p, (page, page_frags, page_tables, paras, page_figures) in enumerate(
+            zip(pages, frags, found, read, pictures, strict=True)):
         start = len(items)
         present = {f.axes for f in page_frags}
         fallback = page_frags[0].axes if page_frags else UPRIGHT
         placed: dict[Axes, list[tuple[tuple[float, float], TableSpec]]] = defaultdict(list)  # 방향 → ((윗변, 왼변), 표)
-        for t in page_tables if state != "unreliable" else []:
+        for t in page_tables:
             axes = t.axes if t.axes in present or not page_frags else fallback
             placed[axes].append((_table_corner(t, page, axes), t))
         queues = {axes: deque(sorted(q, key=lambda item: item[0])) for axes, q in placed.items()}
@@ -383,20 +420,38 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                 items.append((page, margin, [f]))
         items += [(page, None, t) for queue in queues.values() for _, t in queue]
         extras = _merge_figures(paras, page_figures, page)
-        if extras and state != "unreliable":
+        if extras:
             items[start:] = _merge_ocr(items[start:], extras, page)
 
-    def is_heading(group: Sequence[Fragment]) -> bool:
-        return body is not None and _is_heading_size(group[0], body) and len(group) <= HEADING_MAX_LINES
+    def is_heading(page: PageText, group: Sequence[Fragment]) -> bool:
+        return (body is not None and page.page not in rough and _is_heading_size(group[0], body)
+                and len(group) <= HEADING_MAX_LINES)
 
-    sizes = sorted({g[0].size for _, m, g in items if isinstance(g, list) and m is None and is_heading(g)},
+    sizes = sorted({g[0].size for pg, m, g in items if isinstance(g, list) and m is None and is_heading(pg, g)},
                    reverse=True)
     specs: list[dict[str, Any]] = []
     stack: list[tuple[int, str]] = []  # (단계, 제목 글자)
+    owned: dict[int, set[int]] = defaultdict(set)  # 쪽 번호 → 블록이 된 표·그림·캡션 글자(page.chars 순번)
+    doubled: Counter[int] = Counter()
+    loose: Counter[int] = Counter()  # 쪽 번호 → 블록이 된 조각 글자 수
+
+    def own(page: PageText, char_ids: Iterable[int]) -> None:
+        for i in char_ids:
+            if not 0 <= i < len(page.chars):  # 쪽에 없는 글자 순번: 예외 대신 장부 오류(coverage_mismatch)로
+                doubled[page.page] += 1
+                continue
+            if page.chars[i].invisible or page.chars[i].text.isspace():
+                continue
+            doubled[page.page] += i in owned[page.page]
+            owned[page.page].add(i)
+
     for page, margin, group in items:
         extra: dict[str, Any] = {}
         if isinstance(group, FigureBlock):
             specs.extend(_figure_specs(group, page, tuple(t for _, t in stack), len(specs)))
+            own(page, group.figure.char_ids)
+            if group.figure.caption is not None:
+                own(page, group.figure.caption.char_ids)
             continue
         if isinstance(group, OcrParagraph):
             text = unicodedata.normalize("NFC", group.text)
@@ -416,10 +471,11 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
                           "state": "det", "text_source": "text_layer",
                           "locator": {"kind": "page", "page": page.page,
                                       "bbox": {"x0": x0, "y0": y0, "x1": x1, "y1": y1}}})
+            own(page, group.char_ids)
             continue
         if margin is not None:
             kind, text, path = margin, group[0].text, ()
-        elif is_heading(group):
+        elif is_heading(page, group):
             kind, text = "heading", unicodedata.normalize("NFC", " ".join(f.text for f in group))
             extra["level"] = min(sizes.index(group[0].size) + 1, MAX_LEVEL)
             while stack and stack[-1][0] >= extra["level"]:
@@ -435,4 +491,9 @@ def build_specs(pages: Sequence[PageText], states: Sequence[TextLayerState],
         specs.append({"kind": kind, "text": text, "section_path": path, "confidence": CONFIDENCE[kind],
                       "state": "det", "text_source": "text_layer",
                       "locator": {"kind": "page", "page": page.page, "bbox": _box(group, page)}, **extra})
-    return specs
+        loose[page.page] += sum(len(f.chars) for f in (group[:1] if margin is not None else group))
+    for spec in specs:
+        if spec["locator"]["page"] in rough:
+            spec["confidence"] = min(spec["confidence"], UNRELIABLE_CONFIDENCE)
+    ledgers = {page.page: Ledger(len(owned[page.page]) + loose[page.page], doubled[page.page]) for page in pages}
+    return specs, ledgers

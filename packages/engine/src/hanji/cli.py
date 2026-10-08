@@ -29,7 +29,8 @@ APP_NAME = "hanji"
 DB_ENV = "HANJI_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
-OCR_HELP = "스캔 쪽 OCR을 끈다 (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)"
+OCR_HELP = ("스캔 쪽 OCR을 끈다. 글자층이 깨진(unreliable) 쪽은 OCR과 상관없이 깨진 글자층으로 블록을 만든다(신뢰도 "
+            "0.2 이하) (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)")
 LAYOUT_HELP = ("레이아웃 모델(선·도형 그림·캡션)을 끈다. 사진(이미지 객체)은 그대로 그림 (기본: 레이아웃 추가 설치가 있으면 "
                "켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)")
 FETCH_TO_HELP = "받을 폴더 (기본: 사용자 캐시). 폐쇄망은 이 폴더를 옮겨 HANJI_MODEL_DIR로 가리킨다"

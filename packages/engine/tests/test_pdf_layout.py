@@ -464,3 +464,45 @@ def test_a_page_needing_ocr_the_model_and_a_figure_crop_is_rendered_once(monkeyp
     first = [b for b in parsed.blocks if b["locator"]["page"] == 1]
     assert [(b["kind"], b["text_source"]) for b in first] == [("paragraph", "ocr"), ("figure", "ocr")]
     assert first[1]["figure"]["asset"] in parsed.assets
+
+
+def rough_chart(c: Canvas) -> None:
+    """chart_page에 차트 상자 안 이름표 하나를 더한 쪽: 그림 이미지 바이트가 chart_page 그림과 다르다."""
+    chart_page(c)
+    put(c, 400, 560, 9, "3분기")
+
+
+def test_unreliable_page_keeps_capped_figures_and_takes_only_the_asset_budget_left(monkeypatch):
+    """unreliable 쪽도 그림·짝 캡션(이미지 포함)을 내고 그 쪽 블록은 모두 신뢰도 0.2 이하다. 그 쪽 그림 이미지는
+    digital·scanned 쪽 그림을 다 담은 뒤 남은 예산만 쓴다: 앞 unreliable 쪽 때문에 뒤 digital 쪽 그림의 이미지·처리
+    이력이 바뀌지 않는다(digital 쪽 명세는 caption_ref를 가리키는 캡션 글자로 맞춰 보면 앞 쪽이 빈 쪽일 때와 같다)."""
+    fake_layout(monkeypatch, CHART, CAPTION)
+
+    def parse(data, states):
+        order = iter(states)
+        monkeypatch.setattr(pdf_parser, "classify", lambda stats: next(order))
+        return PdfParser(ocr=False).parse(data, "m.pdf")
+
+    def second(parsed):
+        """둘째 쪽 명세(caption_ref는 가리키는 캡션 글자로)와 처리 이력."""
+        blocks = [{**b, "figure": {**b["figure"], "caption_ref": parsed.blocks[b["figure"]["caption_ref"]]["text"]}}
+                  if "caption_ref" in b.get("figure", {}) else b for b in parsed.blocks]
+        return [b for b in blocks if b["locator"]["page"] == 2], [r for r in parsed.regions if r.locator.page == 2]
+
+    data = pdf(rough_chart, chart_page)
+    full = parse(data, ["unreliable", "digital"])
+    rough = [b for b in full.blocks if b["locator"]["page"] == 1]
+    assert [b["kind"] for b in rough] == ["paragraph", "figure", "caption", "paragraph"]
+    assert {b["confidence"] for b in rough} == {0.2} and len(full.assets) == 2
+    tree = build_tree(full, "m", 1, source("m.pdf", 2))
+    assert tree.blocks[1].figure.caption_block_id == tree.blocks[2].block_id  # 그 쪽 그림도 짝 캡션을 가리킨다
+    monkeypatch.setattr(figures, "ASSET_LIMIT", max(len(png) for png in full.assets.values()))  # 그림 하나만 들어간다
+    alone = parse(pdf(lambda c: None, chart_page), ["digital", "digital"])
+    capped = parse(data, ["unreliable", "digital"])
+    assert second(capped) == second(alone) and "figure" in second(alone)[0][1] and not second(alone)[1]
+    assert "figure" not in capped.blocks[1] and {b["confidence"] for b in capped.blocks[:4]} == {0.2}
+    assert [(r.region_id, r.fallback_reason) for r in capped.regions] == [
+        ("p1-unreliable-text-layer", "unreliable_text_layer_kept"), ("p1-figure-1", pdf_parser.NO_IMAGE_MODEL)]
+    for parsed in (full, capped):  # 글자 장부: 이미지가 있든 없든 그림·캡션·문단 글자가 쪽마다 정확히 한 번
+        assert [(p.coverage.in_blocks, p.coverage.hidden) for p in parsed.pages] == [
+            (p.text_stats.chars, 0) for p in parsed.pages]

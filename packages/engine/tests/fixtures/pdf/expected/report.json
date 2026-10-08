@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.3",
+  "schema_version": "0.4",
   "document_id": "fx-pdf-report",
   "version": 1,
   "layer_state": "det",
@@ -23,6 +23,13 @@
         "unmapped_ratio": 0.0,
         "pua_ratio": 0.0,
         "max_image_coverage": 0.0
+      },
+      "coverage": {
+        "layer_chars": 160,
+        "in_blocks": 160,
+        "hidden": 0,
+        "replaced": 0,
+        "rescued": 0
       }
     },
     {
@@ -38,6 +45,13 @@
         "unmapped_ratio": 0.0,
         "pua_ratio": 0.0,
         "max_image_coverage": 0.0
+      },
+      "coverage": {
+        "layer_chars": 74,
+        "in_blocks": 74,
+        "hidden": 0,
+        "replaced": 0,
+        "rescued": 0
       }
     }
   ],

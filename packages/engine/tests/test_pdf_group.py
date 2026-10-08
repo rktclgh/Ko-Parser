@@ -4,9 +4,13 @@ import pytest
 
 from hanji.formats.pdf.extract import Char, PageText
 from hanji.formats.pdf.figures import Caption, Figure
-from hanji.formats.pdf.group import LIST_MARKER, FigureBlock, body_size, build_specs, fragments, unit_box
+from hanji.formats.pdf.group import (
+    LIST_MARKER, FigureBlock, Ledger, body_size, build_page_specs, build_specs, fragments, unit_box,
+)
 from hanji.formats.pdf.scan import OcrParagraph
-from hanji_contracts import build_blocks
+from hanji.formats.pdf.tables import TableSpec
+from hanji.formats.pdf.triage import page_stats
+from hanji_contracts import Cell, Table, build_blocks
 
 W, H = 595.0, 842.0
 
@@ -174,14 +178,62 @@ def test_header_footer_needs_same_position_on_half_the_pages():
     assert [s["kind"] for s in specs(*pages, states=states)].count("page_footer") == 2
 
 
-def test_scanned_pages_keep_visible_text_unreliable_pages_make_no_blocks():
-    """scanned 쪽도 보이는 글자는 블록이 된다(숨은 글자만 버린다). unreliable 쪽은 블록이 없다."""
-    p1 = page(line("보이는 쪽", 72, 100))
+def test_scanned_pages_keep_visible_text_unreliable_pages_keep_their_text_layer():
+    """scanned 쪽도 보이는 글자는 블록이 된다(숨은 글자만 버린다). unreliable 쪽은 깨진 글자층으로 블록을 만들고 그 쪽
+    블록 신뢰도는 0.2 이하다(숨은 글자는 그 쪽에서도 버린다)."""
+    p1 = page(line("보이는 쪽", 72, 100), line("숨은 글자", 72, 130, invisible=True))
     p2 = page(line("스캔 쪽 숨은 글자", 72, 100, invisible=True), line("스캔 쪽 쪽 번호", 72, 130), number=2)
     result = specs(p1, p2, states=["digital", "scanned"])
     assert [(s["text"], s["locator"]["page"]) for s in result] == [("보이는 쪽", 1), ("스캔 쪽 쪽 번호", 2)]
-    assert [s["locator"]["page"] for s in specs(p1, p2, states=["unreliable", "scanned"])] == [2]
-    assert specs(p1, p2, states=["unreliable", "unreliable"]) == []
+    kept = specs(p1, p2, states=["unreliable", "scanned"])
+    assert [(s["text"], s["locator"]["page"], s["confidence"]) for s in kept] == [
+        ("보이는 쪽", 1, 0.2), ("스캔 쪽 쪽 번호", 2, 0.7)]
+    assert [(s["text"], s["confidence"]) for s in specs(p1, p2, states=["unreliable", "unreliable"])] == [
+        ("보이는 쪽", 0.2), ("스캔 쪽 쪽 번호", 0.2)]
+
+
+def linked(result: list[dict]) -> list[dict]:
+    """그림 명세의 figure.caption_ref(명세 목록의 절대 순번)를 가리키는 캡션 글자로 바꾼다. 앞에 블록이 끼면 순번은
+    계약대로 밀리지만 같은 캡션을 가리켜야 한다."""
+    return [{**s, "figure": {**s["figure"], "caption_ref": result[s["figure"]["caption_ref"]]["text"]}}
+            if "caption_ref" in s.get("figure", {}) else s for s in result]
+
+
+def test_unreliable_page_does_not_change_digital_blocks():
+    """unreliable 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않는다: 섞인 문서의 digital 쪽 블록은 그 쪽이 빈
+    쪽일 때와 같다. 다만 그림의 caption_ref는 명세 목록의 절대 순번이라 앞 쪽 블록 수만큼 밀린다(가리키는 캡션은
+    같다). unreliable 쪽의 큰 글자는 제목이 아니라 문단이고(section_path를 바꾸지 않는다), 머리말 자리 줄도 문단이다."""
+    head, text, under = line("머리말 줄", 72, 30, 9), line("셋째 쪽 본문이다.", 72, 130), line("그림 1. 분기별 실적", 200, 360)
+    at = len(head) + len(text)
+    caption = Caption(box=(200.0, 350.0, 420.0, 363.0), text="그림 1. 분기별 실적",
+                      char_ids=frozenset(range(at, at + len(under))), line_ids=frozenset(), above=False)
+    pictures = [[], [], [FigureBlock(Figure(box=(90.0, 200.0, 510.0, 330.0), category="chart", caption=caption),
+                                     "text_layer", IMAGE)]]
+
+    def doc(middle: PageText) -> list[PageText]:
+        return [page(line("머리말 줄", 72, 30, 9), line("1. 첫째 제목", 72, 100, 16), line("본문 문단이다.", 72, 130)),
+                middle, page(head, text, under, number=3)]
+
+    noisy = page(line("머리말 줄", 72, 30, 9), line("깨진 큰 글자", 72, 100, 24),
+                 *[line("작은 글자가 아주 많이 적힌 깨진 줄이다", 72, 200 + 12 * i, 8) for i in range(30)], number=2)
+    before = build_specs(doc(page(number=2)), ["digital"] * 3, None, None, pictures)
+    after = build_specs(doc(noisy), ["digital", "unreliable", "digital"], None, None, pictures)
+    assert [s["kind"] for s in before] == ["page_header", "heading", "paragraph", "page_header", "paragraph", "figure",
+                                           "caption"]
+    middle = [s for s in after if s["locator"]["page"] == 2]
+    assert (before[5]["figure"]["caption_ref"], after[5 + len(middle)]["figure"]["caption_ref"]) == (6, 6 + len(middle))
+    assert [s for s in linked(after) if s["locator"]["page"] != 2] == linked(before)
+    assert [(s["kind"], s["text"].split("\n")[0], s["confidence"]) for s in middle] == [
+        ("paragraph", "머리말 줄", 0.2), ("paragraph", "깨진 큰 글자", 0.2),
+        ("paragraph", "작은 글자가 아주 많이 적힌 깨진 줄이다", 0.2)]
+    assert {s["section_path"] for s in middle} == {("1. 첫째 제목",)}
+
+
+def test_document_of_only_unreliable_pages_sizes_its_body_from_them():
+    """digital·scanned 글자가 없으면 본문 크기는 unreliable 쪽 글자로 정한다(줄을 문단으로 잇는다). 제목은 없다."""
+    p = page(line("깨진 큰 글자", 72, 80, 20), line("첫 줄이다", 72, 120), line("둘째 줄이다", 72, 134))
+    assert [(s["kind"], s["text"], s["confidence"]) for s in specs(p, states=["unreliable"])] == [
+        ("paragraph", "깨진 큰 글자", 0.2), ("paragraph", "첫 줄이다\n둘째 줄이다", 0.2)]
 
 
 def test_blank_ocr_paragraph_makes_no_block():
@@ -349,10 +401,10 @@ def test_ocr_paragraphs_and_figures_merge_by_top():
         ("paragraph", "ocr", "끝 문단"), ("paragraph", "text_layer", "스캔 쪽 쪽 번호")]
 
 
-def test_unreliable_page_makes_no_figure_block():
+def test_unreliable_page_keeps_its_figure_block_with_low_confidence():
     fig = Figure(box=(72.0, 200.0, 300.0, 400.0), category="image")
-    assert build_specs([page(line("가", 72, 100))], ["unreliable"], None, None,
-                       [[FigureBlock(fig, "text_layer", None)]]) == []
+    result = build_specs([page(line("가", 72, 100))], ["unreliable"], None, None, [[FigureBlock(fig, "text_layer", None)]])
+    assert [(s["kind"], s["text"], s["confidence"]) for s in result] == [("paragraph", "가", 0.2), ("figure", "", 0.2)]
 
 
 def test_figure_and_text_with_the_same_rounded_top_put_the_text_first():
@@ -373,3 +425,67 @@ def test_ocr_paragraph_and_figure_with_the_same_rounded_top_put_the_paragraph_fi
     result = build_specs([page()], ["scanned"], None, [paras], [[FigureBlock(fig, "ocr", None)]])
     assert result[0]["locator"]["bbox"]["y0"] == result[1]["locator"]["bbox"]["y0"] == 0.25
     assert [(s["kind"], s["text"]) for s in result] == [("paragraph", "같은 높이 문단"), ("figure", "")]
+
+
+def test_build_specs_takes_page_modes_apart_from_states():
+    """처리 모드는 쪽 상태와 따로 받는다(파서가 넘긴다. 없으면 쪽 상태에서 page_mode). 쪽마다 하나여야 한다."""
+    p = page(line("보이는 쪽", 72, 100))
+    assert build_specs([p], ["digital"], modes=["layer"]) == specs(p)
+    assert build_specs([p], ["scanned"], modes=["scan"]) == specs(p, states=["scanned"])
+    with pytest.raises(ValueError, match="one PageMode per page"):
+        build_specs([p], ["digital"], modes=[])
+
+
+def ledger_page(table_ids=range(7, 11), figure_ids=(15, 16), caption_ids=range(11, 15)):
+    """글자 장부용 쪽: 문단(0~6), 표 칸 글자(7~10), 캡션(11~14), 그림 속 글자(15~16), 숨은 글자(17~18). 공백이 셋."""
+    p = page(line("본문 문단이다", 72, 100), line("칸 글자", 80, 320), line("그림 1", 72, 500), line("눈금", 100, 600),
+             line("숨은", 72, 760, invisible=True))
+    cells = [Cell(row=r, col=k, text="칸 글자" if (r, k) == (0, 0) else "", text_source="text_layer")
+             for r in range(2) for k in range(2)]
+    table = TableSpec(bbox=(0.1, 0.35, 0.5, 0.42), table=Table(n_rows=2, n_cols=2, cells=cells),
+                      char_ids=frozenset(table_ids) | {17})  # 숨은 글자 순번이 섞여도 세지 않는다
+    caption = Caption(box=(72.0, 490.0, 200.0, 503.0), text="그림 1", char_ids=frozenset(caption_ids),
+                      line_ids=frozenset(), above=True)
+    fig = Figure(box=(72.0, 520.0, 400.0, 700.0), category="chart", text="눈금", char_ids=frozenset(figure_ids),
+                 caption=caption)
+    return p, [[table]], [[FigureBlock(fig, "text_layer", None)]]
+
+
+def test_ledger_counts_each_visible_char_once_whichever_block_has_it():
+    """문단 6 + 표 3 + 캡션 3 + 그림 2 = 14 = 보이는 공백 아닌 글자 수. 공백·숨은 글자는 세지 않는다."""
+    p, tables, figures = ledger_page()
+    result, ledgers = build_page_specs([p], ["digital"], tables, None, figures)
+    assert [s["kind"] for s in result] == ["paragraph", "table", "caption", "figure"]
+    assert ledgers == {1: Ledger(in_blocks=14, doubled=0)} and page_stats(p).chars == 14
+    assert build_specs([p], ["digital"], tables, None, figures) == result
+
+
+def test_ledger_counts_margin_lines_and_every_page():
+    pages = footer_pages(3)
+    _, ledgers = build_page_specs(pages, ["digital"] * 3)
+    assert ledgers == {p.page: Ledger(in_blocks=page_stats(p).chars) for p in pages}
+
+
+@pytest.mark.parametrize("ids", [{"table_ids": range(7, 12)}, {"figure_ids": (14, 15, 16)}])
+def test_ledger_flags_a_char_given_to_two_blocks(ids):
+    """표와 캡션, 그림과 짝 캡션이 같은 글자를 함께 가져가면(FigureBlock.char_ids 합집합은 겹침을 숨긴다) doubled."""
+    p, tables, figures = ledger_page(**ids)
+    _, ledgers = build_page_specs([p], ["digital"], tables, None, figures)
+    assert ledgers == {1: Ledger(in_blocks=14, doubled=1)}
+
+
+@pytest.mark.parametrize("bad", [19, 99, -1])
+def test_ledger_flags_a_char_id_outside_the_page_without_raising(bad):
+    """쪽 글자 수(19) 밖 순번(음수 포함)은 장부 오류: 예외 없이 doubled로 센다(파서가 coverage_mismatch로 남긴다)."""
+    p, tables, figures = ledger_page(table_ids=(*range(7, 11), bad))
+    assert len(p.chars) == 19
+    _, ledgers = build_page_specs([p], ["digital"], tables, None, figures)
+    assert ledgers == {1: Ledger(in_blocks=14, doubled=1)}
+
+
+def test_ledger_counts_broken_text_on_an_unreliable_page():
+    """깨진 글자층(U+FFFD·사용자 정의 영역 U+E000·폭 없는 공백 U+200B)도 보이는 공백 아닌 글자마다 한 번씩 센다."""
+    p = page(line("가�나다", 72, 100), line("라​마 �", 72, 116))
+    assert page_stats(p).chars == 10
+    _, ledgers = build_page_specs([p], ["unreliable"])
+    assert ledgers == {1: Ledger(in_blocks=page_stats(p).chars, doubled=0)}

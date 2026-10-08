@@ -47,8 +47,10 @@ def _table(block: Block) -> dict[str, Any] | None:
                        "header": c.header} for c in cells]}
 
 
-# 쪽 상태별 안내. scanned는 보이는 글자만 블록이 되고(OCR 블록이 있으면 OCR로 읽음), unreliable은 블록이 없다
-_NOTICE = {"scanned": "그림 속 글자는 OCR 필요(보이는 글자만 블록)", "unreliable": "글자가 깨져 블록을 만들지 않았다"}
+# 쪽 상태별 안내. scanned는 보이는 글자만 블록이 되고(OCR 블록이 있으면 OCR로 읽음), unreliable은 깨진 글자층으로
+# 만든 블록이라 믿기 어렵다(신뢰도 0.2 이하)
+_NOTICE = {"scanned": "그림 속 글자는 OCR 필요(보이는 글자만 블록)",
+           "unreliable": "글자층이 깨져 블록 글자를 믿기 어렵다(신뢰도 0.2 이하)"}
 _NOTICE_OCR = "그림 속 글자는 OCR로 읽음(검증 전)"
 LAYOUT_NOTICE = ('선·도형 그림·캡션은 레이아웃 추가 설치가 필요(pip install "hanji[layout]", '
                  "hanji models fetch layout)")

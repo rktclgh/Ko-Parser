@@ -108,6 +108,20 @@ def test_fixture_glyphs_are_the_same_with_layout_on_and_off():
     assert [b["kind"] for b in off.blocks].count("figure") == 1  # 레이아웃 없이도 사진(이미지 객체)은 그림
 
 
+@pytest.mark.parametrize("on", [True, False])
+def test_fixture_ledger_counts_figure_caption_and_table_chars_once(on):
+    """글자 장부: 그림·캡션·표·문단에 든 글자가 쪽마다 정확히 한 번(레이아웃 켬·끔 모두)."""
+    if on:
+        pytest.importorskip("onnxruntime")
+        require_models("layout", "layout-config")
+    parsed = PdfParser(ocr=False, layout=on).parse(FIXTURE.read_bytes(), FIXTURE.name)
+    kinds = {"table", "figure", "caption"} & {b["kind"] for b in parsed.blocks}  # 장부가 세는 블록이 실제로 있다
+    assert kinds == ({"table", "figure", "caption"} if on else {"table", "figure"})
+    assert [(p.coverage.in_blocks, p.coverage.hidden) for p in parsed.pages] == [
+        (p.text_stats.chars, 0) for p in parsed.pages]
+    assert "coverage_mismatch" not in {r.fallback_reason for r in parsed.regions}
+
+
 def test_cli_parse_no_layout_keeps_only_the_photo_figure(capsys, db, monkeypatch):
     no_layout_runtime(monkeypatch)
     code, out, _ = run(capsys, "parse", FIXTURE, "--no-layout", "--db", db)

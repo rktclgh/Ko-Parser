@@ -11,7 +11,10 @@ from reportlab.pdfgen.canvas import Canvas
 from hanji import LocalEngine, MemoryStore
 from hanji.errors import ParseError
 from hanji.formats.detect import default_parsers, detect_parser
-from hanji.formats.pdf import PdfParser, extract
+from hanji.formats.pdf import PdfParser, extract, group
+from hanji.formats.pdf import parser as pdf_parser
+from hanji.formats.pdf.tables import TableSpec
+from hanji_contracts import BBox, Cell, Table, TextCoverage
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -256,3 +259,84 @@ def test_negative_font_size_and_mirrored_text_keep_reading_order():
 
     assert [t for _, t in kinds_texts(PdfParser().parse(draw_pdf(negative), "n.pdf"))] == ["마바 사아", "가나 다라"]
     assert [t for _, t in kinds_texts(PdfParser().parse(draw_pdf(mirrored), "m.pdf"))] == ["가나 다라"]
+
+
+def test_parser_hands_each_page_mode_to_the_block_builder(monkeypatch):
+    """파서는 쪽 상태와 함께 쪽마다 처리 모드를 블록 명세에 넘긴다(digital → layer, scanned → scan)."""
+    seen = []
+    build = pdf_parser.build_page_specs
+
+    def spy(*args, **kw):
+        seen.append(kw["modes"])
+        return build(*args, **kw)
+
+    monkeypatch.setattr(pdf_parser, "build_page_specs", spy)
+    parsed = PdfParser(ocr=False, layout=False).parse(
+        make_pdf([PARAS[0], [(770, "숨은 글자층이다.", 3), (30, "- 2 -", 0)]]), "a.pdf")
+    assert [p.text_layer for p in parsed.pages] == ["digital", "scanned"] and seen == [["layer", "scan"]]
+
+
+def test_unreliable_page_keeps_its_text_layer_and_leaves_a_history_note(monkeypatch):
+    """unreliable 쪽은 OCR을 켤 수 있어도(TC-B 전) digital과 같은 경로로 깨진 글자층에서 블록을 만들고(신뢰도 0.2 이하)
+    쪽마다 처리 이력 한 줄을 남긴다. 같은 문서의 digital 쪽 블록은 그 쪽이 빈 쪽일 때와 같다."""
+    before = PdfParser(layout=False).parse(make_pdf([PARAS[0], [], PARAS[0]]), "a.pdf")
+    states = iter(["digital", "unreliable", "digital"])
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: next(states))
+    after = PdfParser(layout=False).parse(make_pdf([PARAS[0], [(770, "깨진 쪽 글자다.", 0)], PARAS[0]]), "a.pdf")
+    assert [p.text_layer for p in after.pages] == ["digital", "unreliable", "digital"]
+    assert [b for b in after.blocks if b["locator"]["page"] != 2] == list(before.blocks)
+    assert [(b["text"], b["confidence"]) for b in after.blocks if b["locator"]["page"] == 2] == [("깨진 쪽 글자다.", 0.2)]
+    (note,) = after.regions
+    assert (note.region_id, note.kind, note.chosen, note.fallback_reason) == (
+        "p2-unreliable-text-layer", "paragraph", "det", "unreliable_text_layer_kept")
+    assert (note.locator.page, note.locator.bbox) == (2, BBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0))
+    assert note.attempts[0].model_id is None
+
+
+@pytest.mark.parametrize("ocr", [False, None])
+def test_coverage_counts_hidden_chars_on_digital_and_scanned_pages(ocr):
+    """digital 쪽의 숨은 글자도 hidden이다(쪽 상태와 상관없이 버린다). OCR 문단은 글자층 글자가 아니라 세지 않는다.
+    글자가 없는 쪽은 0."""
+    data = make_pdf([[(770, "보이는 쪽이다.", 0), (740, "숨은", 3)], [(770, "숨은 글자층이다.", 3), (30, "- 2 -", 0)], []])
+    parsed = PdfParser(ocr=ocr, layout=False).parse(data, "a.pdf")
+    assert [p.text_layer for p in parsed.pages] == ["digital", "scanned", "digital"]
+    assert [p.coverage for p in parsed.pages] == [TextCoverage(layer_chars=9, in_blocks=7, hidden=2),
+                                                  TextCoverage(layer_chars=11, in_blocks=3, hidden=8),
+                                                  TextCoverage(layer_chars=0, in_blocks=0, hidden=0)]
+    assert not parsed.regions
+
+
+def gate_numbers(note) -> dict[str, tuple[bool, float | None, str | None]]:
+    """coverage_mismatch 처리 이력의 장부 숫자(검사 이름 → (통과, 값, 기준)). 게이트는 늘 실패다."""
+    assert note.gate is not None and not note.gate.passed
+    return {c.name: (c.passed, c.value, c.threshold) for c in note.gate.checks}
+
+
+def test_lost_chars_leave_no_coverage_and_a_history_note(monkeypatch):
+    """장부가 맞지 않으면(여기서는 마지막 줄 조각을 일부러 잃는다) 파싱은 실패하지 않고, 그 쪽 coverage는 None이며
+    처리 이력에 coverage_mismatch 한 줄이 남는다."""
+    fragments = group.fragments
+    monkeypatch.setattr(group, "fragments", lambda page: fragments(page)[:-1])
+    parsed = PdfParser(ocr=False, layout=False).parse(make_pdf(PARAS), "a.pdf")
+    assert [b["text"] for b in parsed.blocks] == ["첫째 문단이다.", "둘째 문단이다."]
+    (page,) = parsed.pages
+    assert page.coverage is None and page.text_stats.chars == 21
+    (note,) = parsed.regions
+    assert (note.region_id, note.kind, note.fallback_reason) == ("p1-coverage", "paragraph", "coverage_mismatch")
+    assert gate_numbers(note) == {"in_blocks": (False, 14, "==21"), "doubled": (True, 0, "==0")}
+
+
+def test_a_char_given_to_two_blocks_leaves_no_coverage_and_one_history_note(monkeypatch):
+    """같은 글자가 두 블록에 들면(여기서는 첫 줄 앞 두 글자를 함께 가진 두 표) 장부 글자 수가 맞아도 이중 배정이라 그
+    쪽 coverage는 None이고 처리 이력에 coverage_mismatch가 정확히 한 줄 남는다(파싱은 실패하지 않는다)."""
+    cells = [Cell(row=0, col=0, text="첫째", text_source="text_layer")]
+    twin = TableSpec(bbox=(0.1, 0.07, 0.3, 0.09), table=Table(n_rows=1, n_cols=1, cells=cells),
+                     char_ids=frozenset(range(2)))
+    monkeypatch.setattr(pdf_parser, "find_tables", lambda page: [twin, twin])
+    parsed = PdfParser(ocr=False, layout=False).parse(make_pdf(PARAS), "a.pdf")
+    assert [b["kind"] for b in parsed.blocks].count("table") == 2
+    (page,) = parsed.pages
+    assert page.coverage is None and page.text_stats.chars == 21
+    assert [(r.region_id, r.kind, r.fallback_reason) for r in parsed.regions] == [
+        ("p1-coverage", "paragraph", "coverage_mismatch")]
+    assert gate_numbers(parsed.regions[0]) == {"in_blocks": (True, 21, "==21"), "doubled": (False, 2, "==0")}

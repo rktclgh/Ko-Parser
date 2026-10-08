@@ -3,7 +3,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from hanji_contracts.geometry import BBox, PageInfo, TextLayerStats
+from hanji_contracts.geometry import BBox, PageInfo, TextCoverage, TextLayerStats
 
 
 def test_bbox_accepts_normalized_box():
@@ -74,3 +74,58 @@ def test_text_layer_rejects_unknown_state():
         PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_layer="ocr", text_stats=stats())
     with pytest.raises(ValidationError):
         stats(extra=1)
+
+
+def coverage(**kw) -> TextCoverage:
+    base = {"layer_chars": 10, "in_blocks": 7, "hidden": 3}
+    return TextCoverage(**{**base, **kw})
+
+
+def test_coverage_ledger_adds_up_and_defaults_to_no_replaced_or_rescued():
+    c = coverage()
+    assert (c.replaced, c.rescued) == (0, 0)
+    assert coverage(layer_chars=12, replaced=2, rescued=7).in_blocks == 7
+    assert coverage(layer_chars=0, in_blocks=0, hidden=0) == TextCoverage(layer_chars=0, in_blocks=0, hidden=0)
+
+
+@pytest.mark.parametrize("kw,message", [
+    ({"in_blocks": 6}, "layer_chars must equal"), ({"layer_chars": 11}, "layer_chars must equal"),
+    ({"replaced": 1}, "layer_chars must equal"), ({"rescued": 8}, "rescued must be <= in_blocks"),
+])
+def test_coverage_rejects_a_ledger_that_does_not_add_up(kw, message):
+    with pytest.raises(ValidationError, match=message):
+        coverage(**kw)
+
+
+@pytest.mark.parametrize("field", ["layer_chars", "in_blocks", "hidden", "replaced", "rescued"])
+def test_coverage_rejects_negative_counts(field):
+    with pytest.raises(ValidationError):
+        coverage(**{field: -1})
+
+
+def test_page_info_coverage_defaults_to_none_and_round_trips():
+    p = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
+    assert p.coverage is None
+    q = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_stats=stats(chars=7),
+                 coverage=coverage())
+    assert PageInfo.model_validate_json(q.model_dump_json()) == q
+
+
+def test_page_info_coverage_must_match_visible_chars_plus_hidden():
+    with pytest.raises(ValidationError, match="text_stats.chars"):
+        PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_stats=stats(chars=8),
+                 coverage=coverage())
+    PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, coverage=coverage())  # 근거가 없으면 장부만
+
+
+@pytest.mark.parametrize("state,ok", [("digital", False), ("scanned", False), ("unreliable", True)])
+def test_replaced_chars_need_an_unreliable_page(state, ok):
+    def make():
+        return PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144, text_layer=state,
+                        text_stats=stats(chars=9), coverage=coverage(layer_chars=12, replaced=2))
+
+    if ok:
+        assert make().coverage.replaced == 2
+    else:
+        with pytest.raises(ValidationError, match="replaced requires an unreliable page"):
+            make()

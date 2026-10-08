@@ -12,7 +12,7 @@ from hanji_contracts import ChangeBatch, DocRef, DocumentChange, DocumentTree, P
 from ..errors import AssetNotFound, DocumentNotFound, HanjiError, VersionNotFound
 from .base import NO_ASSETS, check_commit, check_query, make_batch
 
-FORMAT_VERSION = "3"  # 3 = 계약 0.3 스키마(그림 참조)와 그림 자산 표. 다른 형식은 다시 수집해야 한다
+FORMAT_VERSION = "4"  # 4 = 계약 0.4 스키마(쪽 글자 장부). 다른 형식은 다시 수집해야 한다
 _TABLES = (
     "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS documents (document_id TEXT PRIMARY KEY, current_version INTEGER NOT NULL,"
