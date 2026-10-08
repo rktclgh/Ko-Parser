@@ -7,7 +7,6 @@
 recover: 글자 → 줄 → 낱말 → 덩이 → 열 → 행 → 칸 → 표준 정리. candidates: 줄을 덩이로 나눠 위에서 아래로 묶음을 키운다."""
 
 import re
-import unicodedata
 import weakref
 from collections import Counter
 from collections.abc import Iterable, Sequence
