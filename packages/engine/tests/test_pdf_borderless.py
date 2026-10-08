@@ -15,8 +15,8 @@ from reportlab.pdfgen.canvas import Canvas
 from hanji.formats.pdf import borderless
 from hanji.formats.pdf.borderless import Checks, Failure, Recovery, recover, settle
 from hanji.formats.pdf.extract import UPRIGHT, Char, PageText, extract_pages
-from hanji.formats.pdf.figures import Caption, Figure, Region
-from hanji.formats.pdf.group import build_specs
+from hanji.formats.pdf.figures import Caption, Figure, Region, _iou, _pt
+from hanji.formats.pdf.group import Ledger, build_page_specs, build_specs
 from hanji.formats.pdf.tables import TableSpec, find_tables
 from hanji_contracts import Cell, Table
 
@@ -648,10 +648,6 @@ def table_region(box, score: float = 0.9) -> Region:
     return Region("table", score, box)
 
 
-def ids_of(page: PageText) -> list[int]:
-    return [i for i, c in enumerate(page.chars) if not c.text.isspace()]
-
-
 @pytest.mark.parametrize("draw", [grid_table, open_sided_table])
 def test_model_box_over_a_ruled_table_keeps_the_ruled_table_and_leaves_no_record(draw):
     page = page_of(draw)
@@ -752,10 +748,67 @@ def test_model_box_and_detector_candidate_touching_a_figure_or_its_caption_are_d
     assert settle(page, "layer", [], [], [touching]) == ([], [])
 
 
-def test_chars_of_a_figure_and_its_caption_are_never_taken():
+def test_model_box_and_detector_candidate_touching_only_a_caption_are_dropped():
+    page = page_of(table_4x3)
+    far = Figure((400, 300, 500, 400), "chart", caption=Caption((340, 60, 500, 113), "", frozenset(), frozenset(),
+                                                                 True))  # 그림은 멀리, 캡션만 표 첫 줄 위쪽 1pt
+    assert settle(page, "layer", [], [], []) != ([], [])  # 캡션이 없으면 표가 된다
+    assert settle(page, "layer", [], [table_region((60, 100, 400, 200))], [far]) == ([], [])
+    assert settle(page, "layer", [], [], [far]) == ([], [])
+
+
+def test_overlapping_model_boxes_never_share_a_char():
+    page = page_of(table_4x3)
+    upper, lower = table_region((65, 105, 395, 150), 0.95), table_region((65, 125, 395, 195), 0.9)
+    tables, notes = settle(page, "layer", [], [upper, lower], [])
+    assert [n.region_id for n in notes] == ["p1-borderless-layout-1", "p1-borderless-layout-2"]
+    first, second = tables
+    assert not first.char_ids & second.char_ids
+    _, ledgers = build_page_specs([page], ["digital"], [tables])
+    visible = sum(1 for c in page.chars if not c.invisible and not c.text.isspace())
+    assert ledgers[page.page] == Ledger(in_blocks=visible, doubled=0)  # 표 둘과 문단이 보이는 글자를 한 번씩
+
+
+def test_model_box_holding_most_of_a_ruled_table_with_a_low_iou_is_skipped():
+    page = page_of(grid_table)
+    ruled = find_tables(page)
+    big = (40, 80, 560, 320)  # 선 있는 표가 넓이 100% 들지만 IoU는 0.5 미만
+    assert _iou(_pt(page, ruled[0].bbox), big) < borderless.RULED_IOU
+    assert settle(page, "layer", ruled, [table_region(big)], []) == (ruled, [])
+
+
+def two_tables_stacked(c: Canvas) -> None:
+    rows_at(c, TABLE_4X3, (72, 202, 332), 120)
+    rows_at(c, TABLE_4X3, (72, 202, 332), 300)
+
+
+def two_tables_side_by_side(c: Canvas) -> None:
+    rows_at(c, [["가", "1"], ["나", "2"], ["다", "3"]], (72, 140), 120)
+    rows_at(c, [["라", "4"], ["마", "5"], ["바", "6"]], (320, 388), 120)
+
+
+@pytest.mark.parametrize("draw,first,second", [
+    (two_tables_stacked, (60, 105, 400, 200), (60, 285, 400, 380)),
+    (two_tables_side_by_side, (60, 105, 200, 180), (310, 105, 450, 180)),
+])
+def test_model_boxes_with_the_same_score_go_top_then_left(draw, first, second):
+    page = page_of(draw)
+    tables, notes = settle(page, "layer", [], [table_region(second), table_region(first)], [])
+    assert [n.region_id for n in notes] == ["p1-borderless-layout-1", "p1-borderless-layout-2"]
+    one, two = (n.locator.bbox for n in notes)
+    assert (one.y0, one.x0) < (two.y0, two.x0) and [t.bbox for t in tables] == [
+        (b.x0, b.y0, b.x1, b.y1) for b in (one, two)]
+
+
+@pytest.mark.parametrize("owner", ["figure", "caption"])
+def test_chars_of_a_figure_and_its_caption_are_never_taken(owner):
     page = page_of(table_4x3)
     first_rows = frozenset(i for i, c in enumerate(page.chars) if c.y0 * H < 140)
-    figure = Figure((20, 20, 40, 40), "image", char_ids=first_rows)  # 상자는 멀리, 글자만 가졌다
+    if owner == "figure":
+        figure = Figure((20, 20, 40, 40), "image", char_ids=first_rows)  # 상자는 멀리, 글자만 가졌다
+    else:
+        caption = Caption((20, 41, 40, 50), "", first_rows, frozenset(), False)  # 캡션이 글자를 가졌다
+        figure = Figure((20, 20, 40, 40), "image", caption=caption)
     tables, _ = settle(page, "layer", [], [], [figure])
     (spec,) = tables
     assert not spec.char_ids & first_rows and spec.table.n_rows == 2
