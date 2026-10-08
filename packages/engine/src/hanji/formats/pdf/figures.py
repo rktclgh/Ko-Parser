@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING
 from hanji_contracts import MAX_DOCUMENT_ASSET_BYTES, MAX_FIGURE_SIDE
 from PIL import Image
 
-from .extract import PageText
+from .extract import UPRIGHT, PageText
 from .group import fragments
 from .scan import OcrText, reading_order
-from .tables import TableSpec
+from .tables import TableSpec, _merge, _positions, _reading_segs
 from .triage import PageMode
 
 if TYPE_CHECKING:
@@ -35,6 +35,8 @@ CAPTION_GAP = 30.0  # 캡션은 그림 바로 위·아래 이 간격(pt) 안(스
 CAPTION_OVERLAP = 0.3  # 캡션과 그림(표)의 가로 겹침 ≥ 좁은 쪽 너비 × 0.3
 LAYOUT_MIN_PATHS = 10  # digital 쪽은 path 객체가 이만큼 있거나 그림이 될 이미지 객체가 있을 때만 모델을 돌린다.
 # 시작값: 선·도형 세트 정답 61쪽의 path 수 최솟값 14보다 작게(글자만 있는 쪽은 건너뛴다)
+TABLE_RULES = 3  # layer 모드 쪽은 선 있는 표 밖 긴 가로선이 이만큼 있어도 모델을 돌린다(선 없는 표 상자, 스펙 D1)
+TABLE_RULE_WIDTH = 0.3  # 긴 가로선: 쪽 너비의 30% 이상
 MIN_IMAGE_SIDE = 24.0  # 장식이 아닌 이미지 객체: 양변 ≥ 24pt이고
 MIN_IMAGE_AREA = 0.025  # 쪽 면적의 2.5% 이상(스펙 §4.2)
 BACKGROUND_CHARS = 50  # 보이는 글자가 이만큼 얹힌 이미지 객체는 배경(쪽 배경·워터마크): 그림도 합치기 대상도 아니다
@@ -200,12 +202,24 @@ def photo_boxes(page: PageText) -> list[Box]:
     return list(_image_boxes(page)[0])
 
 
-def wants_layout(page: PageText, mode: PageMode) -> bool:
+def table_rules(page: PageText, tables: Sequence[TableSpec] = ()) -> int:
+    """선 있는 표(tables) 상자(±2pt) 밖의 긴 가로선 수: 같은 위치·끝이 이어진 조각을 모은(tables._merge) 가로선 가운데
+    길이 ≥ 쪽 너비 × TABLE_RULE_WIDTH인 것. 같은 위치(± SNAP)의 선은 하나로 센다."""
+    w, h = page.width_pt, page.height_pt
+    boxes = [_pt(page, t.bbox) for t in tables]
+    long = [s.pos for s in _merge(_reading_segs(page.rules, UPRIGHT, w, h))
+            if s.axis == "h" and s.end - s.start >= TABLE_RULE_WIDTH * w
+            and not any(b[1] - 2 <= s.pos <= b[3] + 2 and s.start >= b[0] - 2 and s.end <= b[2] + 2 for b in boxes)]
+    return len(_positions(long))
+
+
+def wants_layout(page: PageText, mode: PageMode, tables: Sequence[TableSpec] = ()) -> bool:
     """레이아웃 모델을 돌릴 쪽(§4.2): scan 모드 쪽, 그리고 그림이 될 이미지 객체가 있거나 path 객체가
-    LAYOUT_MIN_PATHS 이상인 layer 모드 쪽(digital, 글자층으로 읽는 unreliable)."""
+    LAYOUT_MIN_PATHS 이상이거나 선 있는 표(tables) 밖 긴 가로선이 TABLE_RULES 이상인 layer 모드 쪽(digital, 글자층으로
+    읽는 unreliable)."""
     if mode == "scan":
         return True
-    return page.paths >= LAYOUT_MIN_PATHS or bool(photo_boxes(page))
+    return page.paths >= LAYOUT_MIN_PATHS or bool(photo_boxes(page)) or table_rules(page, tables) >= TABLE_RULES
 
 
 def page_regions(boxes: Sequence["LayoutBox"], size: tuple[int, int], page: PageText) -> list[Region]:

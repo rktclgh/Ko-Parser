@@ -55,7 +55,9 @@ def test_report_headings_lists_and_paragraphs():
                      "- 셋째, 협약을 체결한다."]
     texts = [b.text for b in tree.blocks]
     assert "큰 글자로 쓴 강조 문단은\n세 줄 이상 이어지면\n제목이 아니라 문단이다." in texts
-    assert ["구분", "금액(원)", "인건비", "4,250,000"] == texts[-4:]  # 줄 조각, 위→아래·왼→오
+    *_, last = tree.blocks  # 두 줄 두 열 정렬 글자는 2×2 선 없는 표다(스펙 결정 D2)
+    assert (last.kind, last.confidence, [c.text for c in last.table.cells]) == (
+        "table", 0.4, ["구분", "금액(원)", "인건비", "4,250,000"])
     assert tree.blocks[4].section_path == ("2026년 사업 계획 (초안)", "1. 추진 배경", "가. 세부 목표")
     assert {p.text_layer for p in tree.pages} == {"digital"} and tree.source.page_count == 2
 

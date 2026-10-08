@@ -95,7 +95,10 @@ def test_fixture_figures_captions_tables_and_history():
 
     assert {"1Q", "5Q"} <= words(figs[0].locator.page) and {"1월", "11월"} <= words(figs[2].locator.page)
     regions = {r.region_id for r in engine.history(tree.document_id).regions}
-    assert {"p2-table-in-figure-1", "p2-layout-table-1"} <= regions
+    # 2쪽만 본다(모델 출력이 OS마다 조금 달라 다른 쪽 기록은 고정하지 않는다): 모델 table 상자는 선 있는 표가 이겨
+    # 기록이 없고 선 없는 표도 없다
+    assert "p2-table-in-figure-1" in regions and "p2-layout-table-1" not in regions
+    assert not any(r.startswith("p2-borderless-") for r in regions)
 
 
 def test_fixture_glyphs_are_the_same_with_layout_on_and_off():

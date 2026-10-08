@@ -167,6 +167,12 @@ def _context(page: PageText) -> _Context:
     return ctx
 
 
+def forget() -> None:
+    """마지막 쪽 캐시를 비운다: 파싱이 끝난 뒤(오류로 끝나도) 쪽 글자를 붙들지 않는다."""
+    global _last
+    _last = None
+
+
 def _page_leading(chars: Sequence[_Item], h: float) -> float | None:
     """쪽 글자의 흔한 줄 간격(× 크기): 이어진 두 줄(같은 크기, 가로로 짧은 쪽 50% 이상 겹침)의 기준선 차/크기를
     0.05 단위로 센 최빈값(같으면 작은 쪽). 그런 줄 쌍이 3개 미만이면 None."""
