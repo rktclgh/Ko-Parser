@@ -992,7 +992,7 @@ def settle(page: PageText, mode: PageMode, tables: Sequence[TableSpec], layout_t
             counts["failed"] += 1
             unit = (box[0] / page.width_pt, box[1] / page.height_pt, box[2] / page.width_pt, box[3] / page.height_pt)
             notes.append(_record(page, f"borderless-failed-{counts['failed']}", unit, BORDERLESS_FAILED, True,
-                                 _gate(rec.checks, False)))
+                                 _gate(rec.checks, False, grid=rec.reason != "bad_grid")))
     for box in candidates(page, free):
         if not clear(box):
             continue
@@ -1010,8 +1010,9 @@ def _spec(page: PageText, rec: Recovery) -> TableSpec:
     return TableSpec(bbox=(x0, y0, x1, y1), table=rec.table, char_ids=rec.char_ids, ruled=False)
 
 
-def _gate(checks: Checks, detector: bool) -> GateResult:
-    """잰 값마다 검사 하나(못 잰 값은 뺀다). 검출기 표만 filled를 본다."""
+def _gate(checks: Checks, detector: bool, grid: bool = True) -> GateResult:
+    """잰 값마다 검사 하나(못 잰 값은 뺀다). 검출기 표만 filled를 본다. 계약 Table이 격자를 거부했으면(grid=False)
+    잰 값은 모두 통과해도 실패한 grid 검사를 남겨, 실패 기록의 gate가 왜 실패인지 말하게 한다."""
     limits = [("chars", checks.chars, ">=2", checks.chars >= 2),
               ("rows", checks.rows, ">=2", checks.rows is not None and checks.rows >= 2),
               ("cols", checks.cols, ">=2", checks.cols is not None and checks.cols >= 2),
@@ -1024,6 +1025,8 @@ def _gate(checks: Checks, detector: bool) -> GateResult:
                        checks.filled is not None and checks.filled >= BORDERLESS_MIN_FILLED))
     found = tuple(GateCheck(name=name, passed=ok, value=value, threshold=limit)
                   for name, value, limit, ok in limits if value is not None)
+    if not grid:
+        found += (GateCheck(name="grid", passed=False, threshold="contract Table"),)
     return GateResult(passed=all(c.passed for c in found), checks=found)
 
 

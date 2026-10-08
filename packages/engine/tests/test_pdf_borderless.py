@@ -695,6 +695,22 @@ def test_failed_model_box_keeps_ownership_and_leaves_a_failed_record():
         ("chars", 9, True), ("rows", 1, False), ("cols", 1, False), ("cells", 1, True)]
 
 
+def test_bad_grid_failed_record_carries_a_failing_grid_check(monkeypatch):
+    """계약이 격자를 거부한 실패(bad_grid)는 잰 값이 모두 통과해도 gate가 왜 실패인지 grid 검사로 남긴다."""
+    def reject(**_):
+        raise ValueError("bad grid")
+
+    monkeypatch.setattr(borderless, "Table", reject)
+    page = page_of(table_4x3)
+    tables, notes = settle(page, "layer", [], [table_region((60, 100, 400, 200))], [])
+    assert tables == []
+    (note,) = notes
+    assert note.fallback_reason == "borderless_table_failed"
+    assert not note.gate.passed
+    assert [(g.name, g.passed, g.threshold) for g in note.gate.checks if g.name == "grid"] == [
+        ("grid", False, "contract Table")]
+
+
 def test_model_box_partly_over_a_ruled_table_reads_only_the_free_chars():
     def draw(c):
         grid_table(c)
