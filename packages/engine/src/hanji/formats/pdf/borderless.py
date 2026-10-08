@@ -15,11 +15,17 @@ from dataclasses import dataclass, field
 from itertools import accumulate
 from typing import Literal
 
-from hanji_contracts import MAX_TABLE_CELLS, MAX_TABLE_EXPANDED_CHARS, Cell, Table
+from hanji_contracts import (
+    MAX_TABLE_CELLS, MAX_TABLE_EXPANDED_CHARS, Attempt, BBox, Cell, GateCheck, GateResult, PageLocator, RegionRecord,
+    Table,
+)
 
 from .extract import UPRIGHT, Char, PageText
-from .group import LIST_MARKER, step
-from .tables import _cell_text, _merge, _reading_segs, _Seg
+from .figures import TABLE_MIN_SCORE, Figure, Region, _inside, _inter, _iou, _pt
+from .group import LIST_MARKER, step, unit_box
+from .layout import MODEL_ID
+from .tables import TableSpec, _cell_text, _dominant_axes, _merge, _reading_segs, _Seg
+from .triage import PageMode
 
 Box = tuple[float, float, float, float]  # 보이는 쪽 pt (x0, y0, x1, y1)
 _Item = tuple[int, Char, Box]  # (page.chars 순번, 글자, 글자 상자 pt)
@@ -918,3 +924,106 @@ def _accepted(ls: list, gutters: list[dict], size: float, ctx: _Context,
         if sides * 2 >= len(ls):
             return False
     return True
+
+
+# ---- 쪽 하나의 소유와 우선순위(parser가 쪽마다 한 번 부른다)
+
+BORDERLESS_MIN_FILLED = 0.7  # 검출기 후보는 저장된 칸 중 글자 있는 칸이 70% 이상일 때만 표(빈 칸 ≤ 30%: 차트 이름표)
+CONTAINED = 0.5  # 안에 든다: 안쪽 상자 넓이의 50% 이상
+RULED_IOU = 0.5  # 모델 상자와 IoU ≥ 0.5인 선 있는 표는 선 있는 표가 이긴다
+BORDERLESS_TABLE = "borderless_table"  # 선 없는 표 블록 하나마다(표시의 정본)
+BORDERLESS_FAILED = "borderless_table_failed"  # 모델 표 상자 복원 실패(소유는 바뀌지 않았다)
+
+
+def applies(page: PageText, mode: PageMode) -> bool:
+    """선 없는 표를 찾는 쪽: layer 모드이고 쪽의 주된 읽기 방향이 바로 선 방향(scan 모드·회전 쪽은 시도하지 않는다)."""
+    return mode == "layer" and _dominant_axes(page) == UPRIGHT
+
+
+def settle(page: PageText, mode: PageMode, tables: Sequence[TableSpec], layout_tables: Sequence[Region],
+           figures: Sequence[Figure]) -> tuple[list[TableSpec], list[RegionRecord]]:
+    """쪽 하나의 선 없는 표(스펙 §4.3). tables는 남긴 선 있는 표, layout_tables는 모델 table 상자(보이는 쪽 pt),
+    figures는 그림 정리 결과. 그림·짝 캡션·선 있는 표·확정한 선 없는 표의 글자는 쓰지 않는다. 그림·캡션 상자와 겹치는
+    후보는 버린다. 1) 모델 상자(점수 높은 순): 선 있는 표와 겹치면(IoU ≥ 0.5 또는 그 표 넓이의 50% 이상이 상자 안)
+    선 있는 표가 이기고, 확정한 표 안에 넓이 50% 이상이 들면 건너뛴다. 실패하면 borderless_table_failed 기록만.
+    2) 검출기 후보: 확정한 표 안에 50% 이상 들면 버리고, 빈 칸 비율 ≤ 0.3일 때만 확정한다(아니면 기록 없이 버린다).
+    반환: (선 있는 표 + 선 없는 표(ruled=False), 처리 이력). 시도하지 않는 쪽(applies 거짓)은 입력 그대로."""
+    if not applies(page, mode):
+        return list(tables), []
+    protected = [f.box for f in figures] + [f.caption.box for f in figures if f.caption is not None]
+    taken = {i for t in tables for i in t.char_ids}
+    for f in figures:
+        taken |= f.char_ids | (f.caption.char_ids if f.caption is not None else frozenset())
+    free = frozenset(i for i, c in enumerate(page.chars) if not c.invisible and i not in taken)
+    ruled = [_pt(page, t.bbox) for t in tables]
+    made: list[Box] = []
+    out = list(tables)
+    notes: list[RegionRecord] = []
+    counts: Counter[str] = Counter()
+
+    def clear(box: Box) -> bool:
+        return not any(_inter(box, p) > 0 for p in protected) and not any(_inside(box, m) >= CONTAINED for m in made)
+
+    def keep(rec: Recovery, tag: str, model: bool) -> None:
+        nonlocal free
+        spec = _spec(page, rec)
+        made.append(rec.bbox)
+        out.append(spec)
+        free -= rec.char_ids
+        counts[tag] += 1
+        notes.append(_record(page, f"borderless-{tag}-{counts[tag]}", spec.bbox, BORDERLESS_TABLE, model,
+                             _gate(rec.checks, not model)))
+
+    for region in sorted(layout_tables, key=lambda r: (-r.score, r.box[1], r.box[0])):
+        box = region.box
+        if (region.score < TABLE_MIN_SCORE or not clear(box)
+                or any(_iou(r, box) >= RULED_IOU or _inside(r, box) >= CONTAINED for r in ruled)):
+            continue
+        rec = recover(page, box, free)
+        if isinstance(rec, Recovery):
+            keep(rec, "layout", True)
+        else:
+            counts["failed"] += 1
+            unit = (box[0] / page.width_pt, box[1] / page.height_pt, box[2] / page.width_pt, box[3] / page.height_pt)
+            notes.append(_record(page, f"borderless-failed-{counts['failed']}", unit, BORDERLESS_FAILED, True,
+                                 _gate(rec.checks, False)))
+    for box in candidates(page, free):
+        if not clear(box):
+            continue
+        rec = recover(page, box, free)
+        if isinstance(rec, Recovery) and rec.checks.filled >= BORDERLESS_MIN_FILLED:
+            keep(rec, "rule", False)
+    return out, notes
+
+
+def _spec(page: PageText, rec: Recovery) -> TableSpec:
+    """복원 → 표 명세(bbox는 보이는 쪽 0~1, 소수 셋째 자리: 선 있는 표와 같다)."""
+    w, h = page.width_pt, page.height_pt
+    x0, y0, x1, y1 = (round(min(max(v, 0.0), 1.0), 3) for v in (
+        rec.bbox[0] / w, rec.bbox[1] / h, rec.bbox[2] / w, rec.bbox[3] / h))
+    return TableSpec(bbox=(x0, y0, x1, y1), table=rec.table, char_ids=rec.char_ids, ruled=False)
+
+
+def _gate(checks: Checks, detector: bool) -> GateResult:
+    """잰 값마다 검사 하나(못 잰 값은 뺀다). 검출기 표만 filled를 본다."""
+    limits = [("chars", checks.chars, ">=2", checks.chars >= 2),
+              ("rows", checks.rows, ">=2", checks.rows is not None and checks.rows >= 2),
+              ("cols", checks.cols, ">=2", checks.cols is not None and checks.cols >= 2),
+              ("cells", checks.cells, f"<={MAX_TABLE_CELLS}",
+               checks.cells is not None and checks.cells <= MAX_TABLE_CELLS),
+              ("expanded_chars", checks.expanded_chars, f"<={MAX_TABLE_EXPANDED_CHARS}",
+               checks.expanded_chars is not None and checks.expanded_chars <= MAX_TABLE_EXPANDED_CHARS)]
+    if detector:
+        limits.append(("filled", checks.filled, f">={BORDERLESS_MIN_FILLED}",
+                       checks.filled is not None and checks.filled >= BORDERLESS_MIN_FILLED))
+    found = tuple(GateCheck(name=name, passed=ok, value=value, threshold=limit)
+                  for name, value, limit, ok in limits if value is not None)
+    return GateResult(passed=all(c.passed for c in found), checks=found)
+
+
+def _record(page: PageText, tag: str, box: tuple[float, float, float, float], reason: str, model: bool,
+            gate: GateResult) -> RegionRecord:
+    """처리 이력 한 줄(parser._region과 같은 모양). box는 보이는 쪽 0~1."""
+    return RegionRecord(region_id=f"p{page.page}-{tag}", kind="table", chosen="det", fallback_reason=reason, gate=gate,
+                        locator=PageLocator(page=page.page, bbox=BBox(**unit_box(*box))),
+                        attempts=(Attempt(layer="det", model_id=MODEL_ID if model else None),))

@@ -51,12 +51,14 @@ CellPos = tuple[int, int, int, int]  # row, col, rowspan, colspan
 class TableSpec:
     """표 하나. bbox는 보이는 쪽 기준 0~1(x0, y0, x1, y1), 소수 셋째 자리. char_ids는 표 안 글자(보이는, 쪽의
     주된 읽기 방향 글자 중 상자 중심이 표 안인 것, 공백 포함)의 page.chars 순번: 블록 묶기에서 뺄 글자.
-    axes는 표를 읽은 방향(쪽의 주된 읽기 방향): 블록 순서를 정할 때 그 방향의 읽기 좌표로 윗변을 잰다."""
+    axes는 표를 읽은 방향(쪽의 주된 읽기 방향): 블록 순서를 정할 때 그 방향의 읽기 좌표로 윗변을 잰다.
+    ruled는 선 있는 표인지(엔진 안에서만: 거짓이면 선 없는 표 borderless.settle이 만든 것, char_ids는 칸에 넣은 글자)."""
 
     bbox: tuple[float, float, float, float]
     table: Table
     char_ids: frozenset[int]
     axes: Axes = UPRIGHT
+    ruled: bool = True
 
 
 @dataclass(slots=True)
