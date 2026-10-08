@@ -133,6 +133,28 @@ def ruled_table(c: Canvas) -> None:
     c.showPage()
 
 
+def borderless(c: Canvas) -> None:
+    """제목·문단 뒤 선 없는 표, 가로선만 있는 삼선표, 글머리표 목록(표 아님). 레이아웃 모델 없이 검출기가 찾는다."""
+    text(c, 72, 770, 16, "1. 사업비 현황")
+    text(c, 72, 745, 11, "항목별 사업비는 아래와 같다.")
+    for i, row in enumerate([("구분", "2025년", "2026년"), ("인건비", "1,200", "1,350"), ("운영비", "850", "900"),
+                             ("합계", "2,050", "2,250")]):
+        for x, s in zip((72, 220, 340), row):
+            text(c, x, 715 - 18 * i, 11, s)
+    text(c, 72, 620, 16, "2. 분기 실적")
+    c.line(72, 600, 420, 600)
+    for i, row in enumerate([("분기", "건수", "금액"), ("1분기", "3건", "120"), ("2분기", "5건", "210"),
+                             ("3분기", "4건", "180")]):
+        for x, s in zip((72, 220, 340), row):
+            text(c, x, 585 - 20 * i - (4 if i else 0), 11, s)
+    c.line(72, 572, 420, 572)
+    c.line(72, 512, 420, 512)
+    for i, s in enumerate(["첫째, 실적은 분기마다 갱신한다.", "둘째, 금액 단위는 만원이다.", "셋째, 건수는 계약 기준이다."]):
+        text(c, 72, 480 - 18 * i, 11, "•")
+        text(c, 88, 480 - 18 * i, 11, s)
+    c.showPage()
+
+
 def empty(c: Canvas) -> None:
     """글자도 그림도 없는 쪽 → digital, 블록 없음."""
     c.showPage()
@@ -140,7 +162,7 @@ def empty(c: Canvas) -> None:
 
 SAMPLES: dict[str, Callable[[Canvas], None]] = {
     "report.pdf": report, "header_footer.pdf": header_footer, "scanned_invisible.pdf": scanned_invisible,
-    "image_page.pdf": image_page, "empty.pdf": empty, "table.pdf": ruled_table,
+    "image_page.pdf": image_page, "empty.pdf": empty, "table.pdf": ruled_table, "borderless.pdf": borderless,
 }
 
 
