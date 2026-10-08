@@ -133,6 +133,9 @@ def test_core_install_without_numpy_or_onnxruntime_gives_the_borderless_golden(m
     """hanji-core(레이아웃·OCR 추가 설치 없음): 두 모듈을 import할 수 없게 막아도 검출기 경로로 같은 골든이 나온다."""
     monkeypatch.setitem(sys.modules, "numpy", None)
     monkeypatch.setitem(sys.modules, "onnxruntime", None)
+    from hanji.formats.pdf import layout
+
+    assert not layout.available()  # 막기가 듣지 않으면 이 테스트가 조용히 통과하지 못하게 한다
     engine = LocalEngine(MemoryStore(), default_parsers())  # OCR·레이아웃 자동: 설치가 없는 것으로 본다
     ref = engine.ingest(str(ROOT / "inputs" / "borderless.pdf"), document_id=BUILDER.document_id("borderless.pdf"))
     assert engine.get_tree(ref.document_id) == _expected("borderless.pdf")
