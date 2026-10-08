@@ -387,11 +387,11 @@ def test_free_runs_sweep_matches_the_rescan_on_random_inputs():
 
 
 def test_recover_on_a_dense_page_is_fast():
-    """쪽 전체 상자에 100행 × 32열 글자(4pt, 열마다 줄이 조금씩 비껴 가장자리가 많다): 열 틈 덮임을 구간마다
-    다시 세면 이차로 느려진다(고치기 전 0.9초 실측)."""
-    w, h = 595.0, 842.0
+    """긴 쪽(높이 2440pt) 전체 상자에 300행 × 32열 글자(4pt, 줄마다 조금씩 비껴 가장자리가 행 수만큼 는다): 열 틈
+    덮임을 구간마다 모든 줄에서 다시 세는 옛 이차 계산은 이 컴퓨터에서 8초, 스윕은 0.2초."""
+    w, h = 595.0, 2440.0
     chars = []
-    for row in range(100):
+    for row in range(300):
         for col in range(32):
             x, y = 10 + 18 * col + 0.0001 * row, 20 + 8 * row
             chars.append(Char("A", x / w, (y - 3) / h, (x + 2) / w, (y + 1) / h, y / h, 4.0))
@@ -399,8 +399,8 @@ def test_recover_on_a_dense_page_is_fast():
     start = process_time()
     rec = recover(page, (0, 0, w, h), everything(page))
     seconds = process_time() - start
-    assert isinstance(rec, Recovery) and (rec.table.n_rows, rec.table.n_cols) == (100, 32)
-    assert seconds < 2.0  # 이차로 돌아가면 쪽이 커질수록 수 초가 된다. 느린 CI 러너에도 넉넉히(이 컴퓨터 실측은 보고서)
+    assert isinstance(rec, Recovery) and (rec.table.n_rows, rec.table.n_cols) == (300, 32)
+    assert seconds < 2.0  # 옛 이차 계산(8초)은 넘고, 느린 CI 러너(이 컴퓨터의 몇 배)의 스윕은 넉넉히 들어온다
 
 
 def page_glyphs(page: PageText) -> Counter:
