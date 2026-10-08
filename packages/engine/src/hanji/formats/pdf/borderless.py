@@ -6,6 +6,7 @@
 글자는 원본 (page.chars 순번, Char, 상자)로 끝까지 들고 다닌다: 표의 char_ids는 칸에 실제로 넣은 글자뿐이다.
 recover: 글자 → 줄 → 낱말 → 덩이 → 열 → 행 → 칸 → 표준 정리. candidates: 줄을 덩이로 나눠 위에서 아래로 묶음을 키운다."""
 
+import re
 import unicodedata
 import weakref
 from collections import Counter
@@ -16,7 +17,7 @@ from typing import Literal
 from hanji_contracts import MAX_TABLE_CELLS, MAX_TABLE_EXPANDED_CHARS, Cell, Table
 
 from .extract import UPRIGHT, Char, PageText
-from .group import step
+from .group import LIST_MARKER, step
 from .tables import _cell_text, _merge, _reading_segs, _Seg
 
 Box = tuple[float, float, float, float]  # 보이는 쪽 pt (x0, y0, x1, y1)
@@ -47,6 +48,20 @@ VCENTER = 0.3  # 위아래 행의 그 열이 비고 가운데(s × 0.3 안)에 �
 CURRENCY = frozenset("$€£¥₩")  # 통화 기호만 있는 덩이는 뒤 덩이에 붙인다
 CLOSERS = frozenset("%)")  # 혼자 있는 %·)는 앞 덩이에 붙인다
 EPS = 1e-6
+# 검출기(candidates)
+CHUNK_GAP = 1.0  # 쪽 줄을 덩이로 나누는 틈(× 줄 크기)
+MAX_VGAP = 4.5  # 묶음 안 줄 사이 빈 간격 상한(× s)
+ALIGN = 1.0  # 덩이가 둘 이상인 줄은 열 가장자리 하나가 앞 줄과 s × 1.0 안에서 맞아야 묶음에 든다
+MIN_MULTI = 2  # 덩이가 둘 이상인 줄 수
+MIN_LINES = 2  # 묶음 줄 수
+PROSE_WIDTH = 0.30  # 2단 산문: 첫 틈 양쪽 중 좁은 쪽 중앙값 > 쪽 너비 × 0.3
+LIST_FRAC = 0.6  # 목록: 2열 묶음 왼쪽 덩이의 60% 이상이 목록 표지
+SENTENCE_FRAC = 0.6  # 긴 문장: 덩이가 둘 이상인 줄의 60% 이상이 양쪽 모두 25자 이상
+SENTENCE_CHARS = 25
+CHART_RULES = 4  # 차트: 열 틈 밖에 세로 채움 선 조각 4개 이상
+WIDE_CHUNK = 0.25  # 쪽 단 틈: 쪽 너비 25% 이상인 덩이 둘 사이 틈이
+PAGE_GUTTER_LINES = 3  # 3줄 이상에서 겹치면 쪽 단 틈
+_MARK = re.compile(r"^\s*(\d+[.)]?|\(\d+\)|[가-하][.)]|[①-⑳]|[□■○●◦◆◇▶▷\-–•※ㅇㆍ·∙‣▸▪⇨→*†‡§]+)\s*$")
 
 Reason = Literal["few_chars", "under_2x2", "cells_cap", "chars_cap", "bad_grid"]
 
@@ -738,3 +753,146 @@ def _header_rowspan(cells: list[_Cell], n_rows: int, n_cols: int, rows: list[lis
                     continue
             r += 1
     return [c for c in cells if id(c) not in drop]
+
+
+# ---- 검출기
+
+
+def _text(chunk: _Chunk) -> str:
+    return "".join(_wtext(w) for w in chunk[2])
+
+
+def _line_chunks(line: _Line, size: float) -> list[_Chunk]:
+    return _chunks(line, CHUNK_GAP * line.size if line.size else CHUNK_GAP * size)
+
+
+def _intersect(gutters: list[dict], free: list[tuple[float, float, float, float, float]], min_w: float,
+               tol: float) -> list[dict]:
+    """묶음의 열 틈마다 이 줄의 빈틈과 겹치는 것(겹친 구간으로 좁힌다) 가운데, 틈 옆 글자가 묶음 앞 줄과 tol 안에서
+    맞는 것(왼쪽 열 끝, 오른쪽 열 시작, 오른쪽 열 끝)만 남긴다."""
+    out = []
+    for g in gutters:
+        for f in free:
+            a, b = max(g["lo"], f[0]), min(g["hi"], f[1])
+            if b - a < min_w:
+                continue
+            if not any(abs(f[2] - e[0]) <= tol or abs(f[3] - e[1]) <= tol or abs(f[4] - e[2]) <= tol
+                       for e in g["feats"]):
+                continue
+            out.append({"lo": a, "hi": b, "feats": [*g["feats"], f[2:]]})
+            break
+    return out
+
+
+def _page_gutter(lines: list[_Line], size: float, width: float) -> tuple[float, float] | None:
+    """쪽의 두 단 사이 틈: 한 줄에서 쪽 너비 WIDE_CHUNK 이상 덩이 둘 사이 틈 가운데 가장 많이 겹치는 것(3줄 이상)."""
+    wide = WIDE_CHUNK * width
+    gaps = []
+    for ln in lines:
+        ch = _line_chunks(ln, size)
+        gaps += [(a[1], b[0]) for a, b in zip(ch, ch[1:]) if a[1] - a[0] >= wide and b[1] - b[0] >= wide]
+    if len(gaps) < PAGE_GUTTER_LINES:
+        return None
+    best, count = None, 0
+    for g in gaps:
+        n = sum(1 for h in gaps if h[0] < g[1] and h[1] > g[0])
+        if n > count:
+            best, count = g, n
+    return best if count >= PAGE_GUTTER_LINES else None
+
+
+def candidates(page: PageText, free: frozenset[int]) -> list[Box]:
+    """free 글자(바로 선, 보이는) 가운데 선 없는 표로 보이는 영역 상자(보이는 쪽 pt, 위→아래). 줄을 s × CHUNK_GAP
+    틈에서 덩이로 나누고 위에서 아래로 묶음을 키운 뒤, 끝의 0열 꼬리 줄을 떼고 산문·목록·긴 문장·차트·쪽 단을 버린다."""
+    ctx = _context(page)
+    chars = [t for t in ctx.chars if t[0] in free]
+    ink = [t for t in chars if not t[1].text.isspace()]
+    if not ink:
+        return []
+    size = _body(ink)
+    lines = sorted(_lines(chars, size, ctx.height), key=lambda ln: (ln.y0 + ln.y1) / 2)
+    min_w = 0.5 * CHUNK_GAP * size
+    page_gutter = _page_gutter(lines, size, ctx.width)
+    blocks: list[dict] = []
+    cur: dict | None = None
+    for ln in lines:
+        ch = _line_chunks(ln, size)
+        multi = len(ch) >= 2
+        if cur is not None and ln.y0 - cur["y1"] > MAX_VGAP * size:
+            blocks.append(cur)
+            cur = None
+        if cur is not None:
+            if multi:
+                g = _intersect(cur["gutters"], [(a[1], b[0], a[1], b[0], b[1]) for a, b in zip(ch, ch[1:])], min_w,
+                               ALIGN * size)
+                if g:
+                    cur["gutters"] = g
+                    cur["lines"].append((ln, ch, True))
+                    cur["y1"] = ln.y1
+                    continue
+            elif not any(c[0] < g["hi"] and c[1] > g["lo"] for c in ch for g in cur["gutters"]):
+                cur["lines"].append((ln, ch, False))
+                cur["y1"] = ln.y1
+                continue
+            blocks.append(cur)
+            cur = None
+        if multi:
+            gutters = [{"lo": a[1], "hi": b[0], "feats": [(a[1], b[0], b[1])]} for a, b in zip(ch, ch[1:])
+                       if b[0] - a[1] >= min_w]
+            cur = {"lines": [(ln, ch, True)], "gutters": gutters, "y1": ln.y1} if gutters else None
+    if cur is not None:
+        blocks.append(cur)
+    out = []
+    for b in blocks:
+        ls = _trim_col0_tail(b["lines"], b["gutters"])
+        if _accepted(ls, b["gutters"], size, ctx, page_gutter):
+            out.append((min(c[0] for _, ch, _ in ls for c in ch), min(ln.y0 for ln, _, _ in ls),
+                        max(c[1] for _, ch, _ in ls for c in ch), max(ln.y1 for ln, _, _ in ls)))
+    return out
+
+
+def _trim_col0_tail(ls: list, gutters: list[dict]) -> list:
+    """묶음 끝에서 덩이 하나뿐이고 첫 열 틈보다 왼쪽에서 끝나는 줄(표 아래 이어지는 문단 첫 줄)을 차례로 떼어 낸다."""
+    g0 = min(g["lo"] for g in gutters)
+    while ls and not ls[-1][2] and ls[-1][1][-1][1] <= g0:
+        ls = ls[:-1]
+    return ls
+
+
+def _accepted(ls: list, gutters: list[dict], size: float, ctx: _Context,
+              page_gutter: tuple[float, float] | None) -> bool:
+    """덩이가 둘 이상인 줄 ≥ MIN_MULTI, 줄 ≥ MIN_LINES이고 2단 산문·목록·긴 문장·차트·쪽 단 틈이 아닌 묶음."""
+    multis = [x for x in ls if x[2]]
+    if len(multis) < MIN_MULTI or len(ls) < MIN_LINES:
+        return False
+    g0, g1 = gutters[0]["lo"], gutters[0]["hi"]
+    narrow: list[float] = []
+    sentences = marks = 0
+    for _, ch, _ in multis:
+        left = [c for c in ch if c[1] <= g0 + EPS]
+        right = [c for c in ch if c[0] >= g1 - EPS]
+        if not left or not right:
+            continue
+        narrow.append(min(left[-1][1] - left[0][0], right[-1][1] - right[0][0]))
+        sentences += min(len(_text(left[-1])), len(_text(right[0]))) >= SENTENCE_CHARS
+        lt = _text(left[0])
+        marks += bool(_MARK.match(lt) or LIST_MARKER.match(lt + " "))
+    narrow.sort()
+    if narrow and narrow[len(narrow) // 2] > PROSE_WIDTH * ctx.width:
+        return False
+    if len(gutters) == 1 and marks >= LIST_FRAC * len(multis):
+        return False
+    if sentences >= SENTENCE_FRAC * len(multis):
+        return False
+    bx0, bx1 = min(c[0] for _, ch, _ in ls for c in ch), max(c[1] for _, ch, _ in ls for c in ch)
+    by0, by1 = min(ln.y0 for ln, _, _ in ls), max(ln.y1 for ln, _, _ in ls)
+    inner = sum(1 for r in ctx.vrules if r.fill and bx0 + size < r.pos < bx1 - size and r.start > by0 - size
+                and r.end < by1 + size and not any(g["lo"] - size <= r.pos <= g["hi"] + size for g in gutters))
+    if inner >= CHART_RULES:
+        return False
+    if page_gutter is not None and g0 < page_gutter[1] and g1 > page_gutter[0]:
+        wide = WIDE_CHUNK * ctx.width
+        sides = sum(any(c[1] - c[0] >= wide for c in ch if c[1] <= g0 + EPS or c[0] >= g1 - EPS) for _, ch, _ in ls)
+        if sides * 2 >= len(ls):
+            return False
+    return True

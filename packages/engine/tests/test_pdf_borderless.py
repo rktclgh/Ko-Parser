@@ -326,3 +326,116 @@ def test_first_column_label_row_does_not_widen_over_a_cell_merged_from_above():
     out = borderless._projected_row_headers(cells, 2, 3)
     assert [(c.row, c.col, c.rowspan, c.colspan) for c in out] == [(0, 0, 1, 1), (0, 1, 2, 1), (0, 2, 1, 1),
                                                                    (1, 0, 1, 1), (1, 2, 1, 1)]
+
+
+def page_glyphs(page: PageText) -> Counter:
+    return sum((glyphs(c.text) for c in page.chars), Counter())
+
+
+@pytest.mark.parametrize("draw,shape", [(table_4x3, (4, 3)), (table_5x2, (5, 2)), (wrapped_labels, (8, 4)),
+                                        (money, (4, 3)), (centred_label, (4, 3))])
+def test_detector_finds_an_aligned_table_and_recover_rebuilds_it(draw, shape):
+    page = page_of(draw)
+    (box,) = borderless.candidates(page, everything(page))
+    rec = recover(page, box, everything(page))
+    assert isinstance(rec, Recovery) and (rec.table.n_rows, rec.table.n_cols) == shape
+    assert sum((glyphs(page.chars[i].text) for i in rec.char_ids), Counter()) == page_glyphs(page)
+
+
+def test_detector_starts_a_booktabs_table_at_its_first_multi_column_line():
+    """booktabs 위 줄의 걸친 머리('실적' 한 덩이)는 묶음을 시작하지 않는다: 표는 '구분' 줄부터다."""
+    page = page_of(booktabs)
+    (box,) = borderless.candidates(page, everything(page))
+    rec = recover(page, box, everything(page))
+    assert isinstance(rec, Recovery)
+    assert cells(rec) == [(r, k, 1, 1, s) for r, row in enumerate([["구분", "2024년", "2025년"], *TABLE_4X3[1:]])
+                          for k, s in enumerate(row)]
+
+
+def test_detector_sees_only_free_chars():
+    page = page_of(table_4x3)
+    assert borderless.candidates(page, frozenset()) == []
+    top_rows = frozenset(i for i, c in enumerate(page.chars) if c.y0 * H < 140)  # 위 두 줄만
+    (box,) = borderless.candidates(page, top_rows)
+    assert box[3] < 140
+
+
+def bullets(c: Canvas) -> None:
+    for i in range(6):
+        put(c, 72, 120 + 18 * i, "•")
+        put(c, 90, 120 + 18 * i, f"가나다 라마바 사아자 차카타 {i}")
+
+
+def two_column_prose(c: Canvas) -> None:
+    line = "가나다라 마바사아 자차카타 파하가나 다라마바 사아"
+    for i in range(12):
+        put(c, 50, 120 + 15 * i, line, 10.5)
+        put(c, 310, 120 + 15 * i, line, 10.5)
+
+
+def bar_chart(c: Canvas) -> None:
+    """채운 막대 6개와 아래 연도·위 값 이름표."""
+    for k in range(6):
+        c.rect(100 + 70 * k, H - 450, 20, 50 + 30 * k, stroke=0, fill=1)
+        put(c, 92 + 70 * k, 465, f"{2020 + k}", 8)
+        put(c, 95 + 70 * k, 387 - 30 * k, f"{10 + 5 * k}", 8)
+
+
+def heading_with_unit(c: Canvas) -> None:
+    put(c, 72, 120, "1. 사업 개요", 14)
+    put(c, 450, 120, "(단위: 백만원)", 9)
+    put(c, 72, 150, "본문 한 줄이다.")
+
+
+CONTENTS = ["1. 서론", "2. 추진 배경", "3. 세부 과제", "4. 예산 계획", "5. 일정", "6. 맺음말"]
+
+
+def dotted_contents(c: Canvas) -> None:
+    for i, s in enumerate(CONTENTS):
+        put(c, 72, 120 + 18 * i, f"{s} {'.' * (60 - 2 * len(s))} {3 + 4 * i}", 10.5)
+
+
+@pytest.mark.parametrize("draw", [bullets, two_column_prose, bar_chart, heading_with_unit, dotted_contents])
+def test_detector_leaves_lists_prose_charts_headings_and_dotted_contents(draw):
+    page = page_of(draw)
+    assert borderless.candidates(page, everything(page)) == []
+
+
+def unmarked_pairs(c: Canvas) -> None:
+    items = ["사과 상자", "배 상자", "포도 상자", "감 상자", "귤 상자", "밤 상자"]
+    for i in range(6):
+        put(c, 72, 120 + 18 * i, items[i], 10.5)
+        put(c, 320, 120 + 18 * i, items[(i + 3) % 6] + " 묶음", 10.5)
+
+
+def short_three_columns(c: Canvas) -> None:
+    words = ["가나다 라마바 사아", "자차카 타파하 가나", "다라마 바사아 자차", "카타파 하가나 다라"]
+    for k in range(3):
+        for i in range(12):
+            put(c, 50 + 175 * k, 120 + 15 * i, words[(i + k) % 4], 10.5)
+
+
+def form_fields(c: Canvas) -> None:
+    for i, (a, b) in enumerate([("성명", "생년월일"), ("주소", "우편번호"), ("연락처", "전자우편"), ("소속", "직위")]):
+        put(c, 72, 120 + 22 * i, a + ":", 10.5)
+        put(c, 150, 120 + 22 * i, "__________", 10.5)
+        put(c, 320, 120 + 22 * i, b + ":", 10.5)
+        put(c, 410, 120 + 22 * i, "__________", 10.5)
+
+
+def plain_contents(c: Canvas) -> None:
+    for i, s in enumerate(CONTENTS):
+        put(c, 72, 120 + 18 * i, s, 10.5)
+        put(c, 500, 120 + 18 * i, str(3 + 4 * i), 10.5)
+
+
+@pytest.mark.parametrize("draw,shape", [(unmarked_pairs, (6, 2)), (short_three_columns, (12, 6)),
+                                        (form_fields, (4, 4)), (plain_contents, (6, 3))])
+def test_aligned_text_that_is_not_a_table_becomes_one_out_of_scope(draw, shape):
+    """지원 범위 밖(스펙 §1.3): 표지 없는 2열 목록·짧은 3단 글·정렬된 양식 칸·점선 없는 차례는 표가 된다. 글자는
+    그대로다(표가 쪽 글자를 모두 칸에 담는다). 범위를 넓히면 이 기대를 바꾼다."""
+    page = page_of(draw)
+    (box,) = borderless.candidates(page, everything(page))
+    rec = recover(page, box, everything(page))
+    assert isinstance(rec, Recovery) and (rec.table.n_rows, rec.table.n_cols) == shape
+    assert sum((glyphs(page.chars[i].text) for i in rec.char_ids), Counter()) == page_glyphs(page)
