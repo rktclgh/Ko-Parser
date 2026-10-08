@@ -361,30 +361,83 @@ def test_detector_sees_only_free_chars():
 
 
 def bullets(c: Canvas) -> None:
+    """글머리표 열과 본문 사이에 덩이 틈(28pt)이 있다: 2열 묶음이 되지만 왼쪽 덩이가 모두 목록 표지다."""
     for i in range(6):
         put(c, 72, 120 + 18 * i, "•")
-        put(c, 90, 120 + 18 * i, f"가나다 라마바 사아자 차카타 {i}")
+        put(c, 100, 120 + 18 * i, f"가나다 라마바 사아자 차카타 {i}")
+
+
+PROSE_LINE = "가나다라 마바사아 자차카타 파하가나 다라마바 사아"
 
 
 def two_column_prose(c: Canvas) -> None:
-    line = "가나다라 마바사아 자차카타 파하가나 다라마바 사아"
+    """두 단 산문 12줄(단 폭 약 213pt, 틈 47pt): 산문 폭과 쪽 단 틈 둘 다에 걸린다."""
     for i in range(12):
-        put(c, 50, 120 + 15 * i, line, 10.5)
-        put(c, 310, 120 + 15 * i, line, 10.5)
+        put(c, 50, 120 + 15 * i, PROSE_LINE, 9)
+        put(c, 310, 120 + 15 * i, PROSE_LINE, 9)
+
+
+def two_line_prose(c: Canvas) -> None:
+    """두 단 산문 두 줄: 쪽 단 틈(3줄 이상)에는 모자라고 산문 폭에만 걸린다."""
+    for i in range(2):
+        put(c, 50, 120 + 15 * i, PROSE_LINE, 9)
+        put(c, 310, 120 + 15 * i, PROSE_LINE, 9)
+
+
+def page_columns(c: Canvas) -> None:
+    """단 폭 155pt 두 단 12줄: 산문 폭(쪽 너비 30%)보다 좁지만 쪽 너비 25% 이상 덩이 둘 사이 틈이 쪽 단 틈이다."""
+    for i in range(12):
+        put(c, 50, 120 + 15 * i, "가나다라 마바사아 자차카타 파하")
+        put(c, 300, 120 + 15 * i, "가나다라 마바사아 자차카타 파하")
+
+
+def long_sentences(c: Canvas) -> None:
+    """틈 양쪽 덩이가 공백 빼고 25자(폭 135pt, 산문·쪽 단 틈 기준보다 좁다)."""
+    for i in range(6):
+        put(c, 72, 120 + 18 * i, f"abcdefgh ijklmnop qrstuvwx{i}")
+        put(c, 300, 120 + 18 * i, f"zyxwvuts rqponmlk jihgfedc{i}")
 
 
 def bar_chart(c: Canvas) -> None:
-    """채운 막대 6개와 아래 연도·위 값 이름표."""
+    """위 값 이름표 줄과 아래 연도 줄 사이 채운 막대 6개(폭 4pt, 이름표 가운데 아래): 세로 채움 선 12개가 열 틈 밖이다."""
     for k in range(6):
-        c.rect(100 + 70 * k, H - 450, 20, 50 + 30 * k, stroke=0, fill=1)
-        put(c, 92 + 70 * k, 465, f"{2020 + k}", 8)
-        put(c, 95 + 70 * k, 387 - 30 * k, f"{10 + 5 * k}", 8)
+        x = 120 + 60 * k
+        put(c, x - 8, 120, f"{10 + 5 * k}.5", 8)
+        c.rect(x - 2, H - 150, 4, 22, stroke=0, fill=1)
+        put(c, x - 12, 160, f"{2020 + k}년", 8)
 
 
 def heading_with_unit(c: Canvas) -> None:
+    """제목 줄 오른쪽 단위와 그 아래 기준 줄: 덩이가 둘 이상인 줄이 하나뿐이다."""
     put(c, 72, 120, "1. 사업 개요", 14)
     put(c, 450, 120, "(단위: 백만원)", 9)
-    put(c, 72, 150, "본문 한 줄이다.")
+    put(c, 450, 134, "기준: 2025년 말", 9)
+
+
+@pytest.mark.parametrize("draw,off", [
+    (bullets, {"LIST_FRAC": 10.0}),
+    (two_line_prose, {"PROSE_WIDTH": 10.0}),
+    (two_column_prose, {"PROSE_WIDTH": 10.0, "PAGE_GUTTER_LINES": 10**6}),
+    (page_columns, {"PAGE_GUTTER_LINES": 10**6}),
+    (long_sentences, {"SENTENCE_FRAC": 10.0}),
+    (bar_chart, {"CHART_RULES": 10**6}),
+    (heading_with_unit, {"MIN_MULTI": 1}),
+], ids=["list", "prose", "prose_and_page_gutter", "page_gutter", "long_sentences", "chart", "one_multi_line"])
+def test_each_filter_is_what_rejects_its_case(draw, off, monkeypatch):
+    """음성마다 그 거르기까지 가서 버려진다: 그 거르기(off)만 끄면 상자 하나가 나온다."""
+    page = page_of(draw)
+    assert borderless.candidates(page, everything(page)) == []
+    for name, value in off.items():
+        monkeypatch.setattr(borderless, name, value)
+    assert len(borderless.candidates(page, everything(page))) == 1
+
+
+def test_both_prose_filters_reject_long_two_column_prose_on_their_own(monkeypatch):
+    page = page_of(two_column_prose)
+    for name, value in [("PROSE_WIDTH", 10.0), ("PAGE_GUTTER_LINES", 10**6)]:
+        with monkeypatch.context() as m:
+            m.setattr(borderless, name, value)
+            assert borderless.candidates(page, everything(page)) == []
 
 
 CONTENTS = ["1. 서론", "2. 추진 배경", "3. 세부 과제", "4. 예산 계획", "5. 일정", "6. 맺음말"]
@@ -395,10 +448,58 @@ def dotted_contents(c: Canvas) -> None:
         put(c, 72, 120 + 18 * i, f"{s} {'.' * (60 - 2 * len(s))} {3 + 4 * i}", 10.5)
 
 
-@pytest.mark.parametrize("draw", [bullets, two_column_prose, bar_chart, heading_with_unit, dotted_contents])
-def test_detector_leaves_lists_prose_charts_headings_and_dotted_contents(draw):
-    page = page_of(draw)
+def test_dot_leaders_join_a_contents_line_into_one_chunk_so_no_group_starts():
+    page = page_of(dotted_contents)
     assert borderless.candidates(page, everything(page)) == []
+
+
+def table_then_note(c: Canvas) -> None:
+    rows_at(c, TABLE_5X2, (72, 300), 120)
+    put(c, 72, 210, "주석")  # 첫 열 폭 안의 짧은 줄(표 아래 문단 첫 줄)
+
+
+def test_short_first_column_line_right_below_a_table_is_trimmed_from_the_box():
+    page = page_of(table_then_note)
+    (box,) = borderless.candidates(page, everything(page))
+    assert 190 < box[3] < 200  # 마지막 행(기준선 192)까지, 주석 줄(기준선 210)은 밖
+
+
+def misaligned_tables(c: Canvas) -> None:
+    rows_at(c, TABLE_5X2[:3], (72, 300), 120)
+    rows_at(c, TABLE_5X2[3:], (150, 400), 174)  # 열 가장자리가 위 행들과 s 넘게 어긋난다
+
+
+def test_a_line_with_misaligned_columns_starts_a_new_group(monkeypatch):
+    page = page_of(misaligned_tables)
+    upper, lower = borderless.candidates(page, everything(page))
+    assert upper[3] < 160 < lower[1] and lower[0] > 140
+    monkeypatch.setattr(borderless, "ALIGN", 1e9)
+    assert len(borderless.candidates(page, everything(page))) == 1
+
+
+def tables_far_apart(c: Canvas) -> None:
+    rows_at(c, TABLE_5X2[:3], (72, 300), 120)
+    rows_at(c, TABLE_5X2[3:], (72, 300), 216)  # 빈 간격 약 50pt > 4.5 × 10pt
+
+
+def test_a_vertical_gap_over_the_limit_splits_the_group(monkeypatch):
+    page = page_of(tables_far_apart)
+    upper, lower = borderless.candidates(page, everything(page))
+    assert upper[3] < 160 < 200 < lower[1]
+    monkeypatch.setattr(borderless, "MAX_VGAP", 1e9)
+    assert len(borderless.candidates(page, everything(page))) == 1
+
+
+def years_table(c: Canvas) -> None:
+    rows_at(c, [["2021", "1,200"], ["2022", "850"], ["2023", "2,400"], ["2024", "310"]], (72, 300), 120)
+
+
+def test_known_limit_two_column_table_with_integer_first_column_is_dropped_as_a_list(monkeypatch):
+    # 알려진 한계(스펙 §1.3·§4.6): 표지 정규식이 정수 하나도 목록 표지로 본다. 3열 이상이면 찾는다.
+    page = page_of(years_table)
+    assert borderless.candidates(page, everything(page)) == []
+    monkeypatch.setattr(borderless, "LIST_FRAC", 10.0)
+    assert len(borderless.candidates(page, everything(page))) == 1
 
 
 def unmarked_pairs(c: Canvas) -> None:
