@@ -158,6 +158,31 @@ def test_page_with_three_long_rules_runs_the_model(monkeypatch):
     assert [b["confidence"] for b in parsed.blocks if b["kind"] == "table"] == [0.4, 0.6]
 
 
+def test_model_table_boxes_reach_settle_through_the_parser(monkeypatch):
+    """바로 선 layer 쪽의 모델 table 상자는 settle로 간다: 표를 덮는 상자는 선 없는 표(모델 이름), 글자 없는 상자는
+    복원 실패 기록. 시도한 쪽이라 LAYOUT_TABLE 기록은 없다."""
+    fake_layout(monkeypatch, ("table", 0.9, (60.0, 110.0, 420.0, 205.0)), ("table", 0.9, (60.0, 400.0, 400.0, 500.0)))
+    parsed = PdfParser(ocr=False).parse(pdf(booktabs_page), "t.pdf")
+    assert [(r.region_id, r.fallback_reason) for r in parsed.regions] == [
+        ("p1-borderless-layout-1", "borderless_table"), ("p1-borderless-failed-1", "borderless_table_failed")]
+    assert parsed.regions[0].attempts[0].model_id == layout.MODEL_ID == "PP-DocLayout_plus-L"
+    assert not any("layout-table" in r.region_id for r in parsed.regions)
+    assert [(b["kind"], b["confidence"]) for b in parsed.blocks] == [("table", 0.4)]
+    table = parsed.blocks[0]["table"]
+    assert [[c.text for c in table.cells if c.row == r] for r in range(table.n_rows)] == TABLE
+    (page,) = parsed.pages
+    assert page.coverage.in_blocks == page.text_stats.chars and page.coverage.hidden == 0
+
+
+def test_gate_on_without_the_layout_install_still_gives_the_detector_table(monkeypatch):
+    """긴 가로선 3개로 게이트가 켜져도 레이아웃 추가 설치가 없으면 모델 없이 검출기가 표를 찾는다."""
+    monkeypatch.setattr(layout, "available", lambda: False)
+    monkeypatch.setattr(layout, "detect", lambda image: pytest.fail("설치가 없으면 모델을 돌리지 않는다"))
+    parsed = PdfParser(ocr=False).parse(pdf(booktabs_page), "t.pdf")
+    assert [(b["kind"], b["confidence"]) for b in parsed.blocks] == [("table", 0.4)]
+    assert [(r.region_id, r.fallback_reason) for r in parsed.regions] == [("p1-borderless-rule-1", "borderless_table")]
+
+
 def lines_page(c: Canvas) -> None:
     """선 12개(path ≥ LAYOUT_MIN_PATHS)와 정렬된 글자."""
     for i in range(12):

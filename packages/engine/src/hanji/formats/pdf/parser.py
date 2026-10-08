@@ -2,9 +2,9 @@
 제외)로 선 있는 표(table 블록)와 나머지 블록을 만들고, scanned 쪽은 OCR을 켰으면 그림 속 글자를 OCR 문단 블록
 (text_source="ocr")으로 더한다. layer 모드의 바로 선 쪽은 선 없는 표(borderless.settle: 글자 정렬, 신뢰도
 group.BORDERLESS_CONFIDENCE, 처리 이력 borderless_table)도 table 블록으로 낸다. 그림은 digital 쪽 이미지 객체(사진)와
-레이아웃 모델(선·도형 그림·스캔 쪽 그림·캡션)로
-찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다. unreliable 쪽(글자층이 깨진 쪽)은 digital과 같은
-경로로 깨진 글자층에서 블록을 만들고(신뢰도 상한 group.UNRELIABLE_CONFIDENCE) 처리 이력에 한 줄 남긴다.
+레이아웃 모델(선·도형 그림·스캔 쪽 그림·캡션)로 찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다.
+unreliable 쪽(글자층이 깨진 쪽)은 digital과 같은 경로로 깨진 글자층에서 블록을 만들고(신뢰도 상한
+group.UNRELIABLE_CONFIDENCE) 처리 이력에 한 줄 남긴다.
 쪽마다 글자 장부(PageInfo.coverage)를 센다. 장부가 맞지 않으면 그 쪽 coverage는 None이고 처리 이력에 한 줄 남긴다.
 쪽 렌더는 필요한 쪽만 한 번(PDFIUM_LOCK 안), OCR·모델·PNG 인코딩은 잠금 밖에서 한다."""
 
