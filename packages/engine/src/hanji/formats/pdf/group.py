@@ -410,7 +410,10 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
             if i and f.axes != page_frags[i - 1].axes:  # 앞 방향 조각이 끝났다: 그 방향에 남은 표를 먼저
                 items += [(page, None, t) for _, t in queues.pop(page_frags[i - 1].axes, ())]
             queue = queues.get(f.axes)
-            while queue and queue[0][0][0] <= f.y0:
+            h = frame_size(page, f.axes)[1]
+            # 표 윗변(bbox는 소수 셋째 자리)과 조각 윗변을 같은 자리수(보이는 쪽 0~1, 셋째 자리)로 견준다: 윗변이
+            # 같으면 반올림 방향과 상관없이 표가 먼저다
+            while queue and round(queue[0][0][0] / h, 3) <= round(f.y0 / h, 3):
                 items.append((page, None, queue.popleft()[1]))
             margin = margins.get((p, i))
             last = items[-1] if items else None

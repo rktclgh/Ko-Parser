@@ -174,6 +174,25 @@ def test_model_table_boxes_reach_settle_through_the_parser(monkeypatch):
     assert page.coverage.in_blocks == page.text_stats.chars and page.coverage.hidden == 0
 
 
+
+@pytest.mark.parametrize("baseline", [120.0, 130.0])
+def test_table_and_paragraph_with_the_same_top_keep_one_order(monkeypatch, baseline):
+    """윗변이 같은 선 없는 표와 오른쪽 문단: 표 윗변(소수 셋째 자리 bbox)과 조각 윗변을 같은 자리수로 견줘
+    반올림 방향과 상관없이 늘 표가 먼저다(기존 규칙: 표 윗변 ≤ 조각 윗변이면 표 먼저)."""
+    def draw(c: Canvas) -> None:
+        rows_at(c, TABLE, (72, 202, 332), baseline)
+        put(c, 450, baseline, "오른쪽 설명 글")
+        for y in (700, 720, 740):  # 긴 가로선 3개: 모델 게이트를 켠다(표와 떨어져 있다)
+            rule(c, y, 72, 523)
+
+    top = baseline - 15
+    fake_layout(monkeypatch, ("table", 0.9, (60.0, top, 400.0, top + 80)))
+    parsed = PdfParser(ocr=False).parse(pdf(draw), "t.pdf")
+    blocks = [(b["kind"], b["locator"]["bbox"]["y0"]) for b in parsed.blocks]
+    assert [k for k, _ in blocks] == ["table", "paragraph"]
+    assert blocks[0][1] == blocks[1][1]  # 두 블록 윗변이 같다(블록 상자는 소수 셋째 자리)
+    assert [r.region_id for r in parsed.regions] == ["p1-borderless-layout-1"]
+
 def test_gate_on_without_the_layout_install_still_gives_the_detector_table(monkeypatch):
     """긴 가로선 3개로 게이트가 켜져도 레이아웃 추가 설치가 없으면 모델 없이 검출기가 표를 찾는다."""
     monkeypatch.setattr(layout, "available", lambda: False)
