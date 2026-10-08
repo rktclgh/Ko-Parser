@@ -8,9 +8,11 @@ recover: 글자 → 줄 → 낱말 → 덩이 → 열 → 행 → 칸 → 표준
 
 import re
 import weakref
+from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from itertools import accumulate
 from typing import Literal
 
 from hanji_contracts import MAX_TABLE_CELLS, MAX_TABLE_EXPANDED_CHARS, Cell, Table
@@ -323,13 +325,10 @@ def _free_runs(edges: Sequence[float], lines: Sequence[Sequence[_Chunk]],
                allowed: int) -> list[tuple[float, float, tuple[float, float]]]:
     """이웃 가장자리 사이 구간 중 allowed줄 이하만 덮는 구간을 이은 것들. (a, b, (pa, pb)): (pa, pb)는 그 안에서 가장
     적게 덮인 가장 넓은 구간(열 경계는 그 가운데)."""
+    spans = [(a, b) for a, b in zip(edges, edges[1:]) if b - a > EPS]
     runs: list[list] = []
     cur: list | None = None
-    for a, b in zip(edges, edges[1:]):
-        if b - a <= EPS:
-            continue
-        mid = (a + b) / 2
-        cover = sum(1 for ch in lines if any(c[0] < mid < c[1] for c in ch))
+    for (a, b), cover in zip(spans, _covers([(a + b) / 2 for a, b in spans], lines)):
         if cover <= allowed:
             if cur and abs(cur[1] - a) < EPS:
                 cur[1] = b
@@ -352,6 +351,30 @@ def _free_runs(edges: Sequence[float], lines: Sequence[Sequence[_Chunk]],
             else:
                 span = None
         out.append((a, b, (best[0], best[1])))
+    return out
+
+
+def _covers(mids: Sequence[float], lines: Sequence[Sequence[_Chunk]]) -> list[int]:
+    """점마다 그 점을 열린 구간 안에 품는 덩이가 있는 줄 수. 줄마다 덩이를 합집합으로 이어(맞닿기만 한 끝은 잇지
+    않는다) 차분 배열로 센다: 줄 수 × 덩이 수만큼 점을 다시 훑지 않는다."""
+    order = sorted(range(len(mids)), key=mids.__getitem__)
+    pts = [mids[i] for i in order]
+    diff = [0] * (len(pts) + 1)
+    for ch in lines:
+        merged: list[list[float]] = []
+        for lo, hi in sorted((c[0], c[1]) for c in ch if c[0] < c[1]):
+            if merged and lo < merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], hi)
+            else:
+                merged.append([lo, hi])
+        for lo, hi in merged:
+            i, j = bisect_right(pts, lo), bisect_left(pts, hi)
+            if i < j:
+                diff[i] += 1
+                diff[j] -= 1
+    out = [0] * len(pts)
+    for k, n in zip(order, accumulate(diff[:-1])):
+        out[k] = n
     return out
 
 

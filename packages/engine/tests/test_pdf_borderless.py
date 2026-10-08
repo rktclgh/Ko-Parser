@@ -2,8 +2,10 @@
 사유를 고정한다. 글꼴은 미임베드 한국어 CID 글꼴(한글 너비 = 크기, ASCII = 크기/2)."""
 
 import io
+import random
 import unicodedata
 from collections import Counter
+from time import process_time
 
 import pytest
 from reportlab.pdfbase import pdfmetrics
@@ -12,7 +14,7 @@ from reportlab.pdfgen.canvas import Canvas
 
 from hanji.formats.pdf import borderless
 from hanji.formats.pdf.borderless import Checks, Failure, Recovery, recover
-from hanji.formats.pdf.extract import UPRIGHT, PageText, extract_pages
+from hanji.formats.pdf.extract import UPRIGHT, Char, PageText, extract_pages
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -326,6 +328,79 @@ def test_first_column_label_row_does_not_widen_over_a_cell_merged_from_above():
     out = borderless._projected_row_headers(cells, 2, 3)
     assert [(c.row, c.col, c.rowspan, c.colspan) for c in out] == [(0, 0, 1, 1), (0, 1, 2, 1), (0, 2, 1, 1),
                                                                    (1, 0, 1, 1), (1, 2, 1, 1)]
+
+
+def free_runs_by_rescan(edges, lines, allowed):
+    """_free_runs의 옛 계산(구간마다 모든 줄·덩이를 다시 훑는다): 스윕 계산과 결과가 같아야 한다."""
+    runs: list[list] = []
+    cur: list | None = None
+    for a, b in zip(edges, edges[1:]):
+        if b - a <= borderless.EPS:
+            continue
+        mid = (a + b) / 2
+        cover = sum(1 for ch in lines if any(c[0] < mid < c[1] for c in ch))
+        if cover <= allowed:
+            if cur and abs(cur[1] - a) < borderless.EPS:
+                cur[1] = b
+                cur[2].append((a, b, cover))
+            else:
+                cur = [a, b, [(a, b, cover)]]
+                runs.append(cur)
+        else:
+            cur = None
+    out = []
+    for a, b, parts in runs:
+        low = min(p[2] for p in parts)
+        best: list[float] | None = None
+        span: list[float] | None = None
+        for pa, pb, cv in parts:
+            if cv == low:
+                span = [span[0], pb] if span and abs(span[1] - pa) < borderless.EPS else [pa, pb]
+                if best is None or span[1] - span[0] > best[1] - best[0]:
+                    best = list(span)
+            else:
+                span = None
+        out.append((a, b, (best[0], best[1])))
+    return out
+
+
+def test_free_runs_sweep_matches_the_rescan_on_random_inputs():
+    """덩이끼리 겹치거나 맞닿고, 덩이 끝이 가장자리이거나 구간 가운데 점과 같고(가장자리에서 일부 덩이 끝을 뺀다),
+    폭 0·EPS 안 가장자리가 섞인 입력."""
+    touching = [[[0.0, 1.0, []], [1.0, 2.0, []]]]  # 맞닿은 두 덩이: 가운데 점 1.0은 어느 덩이 안에도 없다
+    assert borderless._free_runs([0.5, 1.5], touching, 0) == free_runs_by_rescan([0.5, 1.5], touching, 0) == [
+        (0.5, 1.5, (0.5, 1.5))]
+    rng = random.Random(20261008)
+    for _ in range(400):
+        grid = [k / 2 for k in range(rng.randint(2, 40))]
+        lines = []
+        for _ in range(rng.randint(0, 8)):
+            chunks = []
+            for _ in range(rng.randint(0, 5)):
+                a = rng.choice(grid)
+                chunks.append([a, a + rng.choice([0.0, 0.5, 1.0, 1.5, 3.0, rng.random() * 4]), []])
+            lines.append(sorted(chunks, key=lambda c: c[0]))
+        edges = sorted({x for ch in lines for c in ch for x in (c[0], c[1]) if rng.random() < 0.7}
+                       | {rng.choice(grid) + rng.choice([0.0, 1e-7, 0.25]) for _ in range(rng.randint(0, 6))})
+        allowed = rng.randint(0, 3)
+        assert borderless._free_runs(edges, lines, allowed) == free_runs_by_rescan(edges, lines, allowed)
+
+
+def test_recover_on_a_dense_page_is_fast():
+    """쪽 전체 상자에 100행 × 32열 글자(4pt, 열마다 줄이 조금씩 비껴 가장자리가 많다): 열 틈 덮임을 구간마다
+    다시 세면 이차로 느려진다(고치기 전 0.9초 실측)."""
+    w, h = 595.0, 842.0
+    chars = []
+    for row in range(100):
+        for col in range(32):
+            x, y = 10 + 18 * col + 0.0001 * row, 20 + 8 * row
+            chars.append(Char("A", x / w, (y - 3) / h, (x + 2) / w, (y + 1) / h, y / h, 4.0))
+    page = PageText(page=1, width_pt=w, height_pt=h, rotation=0, chars=tuple(chars), image_coverage=())
+    start = process_time()
+    rec = recover(page, (0, 0, w, h), everything(page))
+    seconds = process_time() - start
+    assert isinstance(rec, Recovery) and (rec.table.n_rows, rec.table.n_cols) == (100, 32)
+    assert seconds < 2.0  # 이차로 돌아가면 쪽이 커질수록 수 초가 된다. 느린 CI 러너에도 넉넉히(이 컴퓨터 실측은 보고서)
 
 
 def page_glyphs(page: PageText) -> Counter:
