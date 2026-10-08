@@ -441,6 +441,11 @@ def recover(page: PageText, box: Box, free: frozenset[int]) -> Recovery | Failur
                     bounds = [*bounds[:k - 1], (lo + hi) / 2, *bounds[k + 1:]]
                     changed = True
                     break
+        # 첫·끝 열에 덩이 중심이 없으면 바깥 경계를 버린다(글자 밖 테두리 세로선도)
+        while bounds and not any(x < bounds[0] for x in centers):
+            bounds = bounds[1:]
+        while bounds and not any(x >= bounds[-1] for x in centers):
+            bounds = bounds[:-1]
     n_cols = len(bounds) + 1
     hr = [s for s in ctx.hrules if y0 <= s.pos <= y1 and s.end > x0 and s.start < x1]
     rows, lc = _rows(lines, bounds, hr, size, gap, (x0, x1), ctx.leading)

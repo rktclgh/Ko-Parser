@@ -91,6 +91,22 @@ def test_aligned_numbers_recover_every_cell_and_own_exactly_their_chars(draw, ro
     assert_owns_exactly_its_cells(page, rec)
 
 
+def table_with_side_borders(c: Canvas) -> None:
+    """왼쪽·오른쪽 테두리 세로선만 있다(글자 밖)."""
+    table_4x3(c)
+    for x in (64, 372):
+        c.line(x, H - 105, x, H - 182)
+
+
+def test_outer_border_verticals_do_not_add_empty_outer_columns():
+    page = page_of(table_with_side_borders)
+    rec = recover(page, (55, 100, 380, 185), everything(page))
+    assert isinstance(rec, Recovery)
+    assert (rec.table.n_rows, rec.table.n_cols, rec.checks.filled) == (4, 3, 1.0)
+    assert cells(rec) == [(r, k, 1, 1, s) for r, row in enumerate(TABLE_4X3) for k, s in enumerate(row)]
+    assert_owns_exactly_its_cells(page, rec)
+
+
 def wrapped_labels(c: Canvas) -> None:
     """행 간격 20pt, 둘째 줄로 넘어간 라벨은 11pt 아래."""
     for x, s in zip((72, 250, 350, 450), ("항목", "1분기", "2분기", "3분기")):
@@ -236,6 +252,7 @@ def test_turned_chars_and_chars_outside_free_stay_out_of_the_table():
     rec = recover(page, (60, 100, 400, 200), everything(page))
     assert isinstance(rec, Recovery) and not rec.char_ids & turned
     assert cells(rec) == [(r, k, 1, 1, s) for r, row in enumerate(TABLE_4X3) for k, s in enumerate(row)]
+    assert_owns_exactly_its_cells(page, rec)
     last_row = {i for i, c in enumerate(page.chars) if c.axes == UPRIGHT and c.y0 * H > 160}
     rec = recover(page, (60, 100, 400, 200), everything(page) - last_row)
     assert isinstance(rec, Recovery) and not rec.char_ids & last_row
