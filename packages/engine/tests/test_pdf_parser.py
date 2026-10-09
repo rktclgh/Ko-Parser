@@ -468,3 +468,31 @@ def test_auto_mode_with_a_broken_ocr_install_raises_on_an_unreliable_page(monkey
     assert [r.fallback_reason for r in kept.regions] == ["unreliable_text_layer_kept"]
     with pytest.raises(OcrUnavailable, match="--no-ocr"):
         PdfParser(layout=False).parse(data, "a.pdf")
+
+
+def test_ocr_error_on_an_unreliable_page_is_raised_not_turned_into_the_kept_path(monkeypatch):
+    """OCR로 읽을 unreliable 쪽에서 OCR 실행이 예외를 내면 그대로 오류다: 받아들인 OCR 글자가 없을 때의 유지 경로로
+    조용히 돌아가지 않는다(유지 경로는 OCR이 돌았는데 글자가 없을 때뿐)."""
+    def fail(image):
+        raise RuntimeError("ocr run failed")
+
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "get_reader", lambda: None)
+    monkeypatch.setattr(ocr, "read_lines", fail)
+    with pytest.raises(RuntimeError, match="ocr run failed"):
+        PdfParser(layout=False).parse(make_pdf([[(770, "깨진 쪽 글자다.", 0)]]), "a.pdf")
+
+
+def test_unreliable_page_whose_ocr_lines_are_all_blank_falls_back_to_its_text_layer(monkeypatch):
+    """점수가 높아도 공백뿐인 OCR 줄은 받아들인 OCR 글자가 아니다: 보이는 글자층이 있으면 유지 경로(깨진 글자층 블록,
+    처리 이력 unreliable_text_layer_kept + 실패한 ocr_text 검사)이고 OCR 처리 이력은 남지 않는다."""
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    fake_ocr(monkeypatch, [("   ", 0.99, OVER_BROKEN)])
+    parsed = PdfParser(layout=False).parse(make_pdf([[(770, "깨진 쪽 글자다.", 0)]]), "a.pdf")
+    assert [(b["text"], b["text_source"], b["confidence"]) for b in parsed.blocks] == [
+        ("깨진 쪽 글자다.", "text_layer", 0.2)]
+    assert parsed.pages[0].coverage == TextCoverage(layer_chars=7, in_blocks=7, hidden=0, replaced=0)
+    (note,) = parsed.regions
+    assert (note.region_id, note.fallback_reason) == ("p1-unreliable-text-layer", "unreliable_text_layer_kept")
+    assert [(c.name, c.passed, c.value, c.threshold) for c in note.gate.checks] == [("ocr_text", False, 0, ">0")]

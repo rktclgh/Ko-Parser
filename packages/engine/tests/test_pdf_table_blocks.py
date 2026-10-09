@@ -127,6 +127,30 @@ def test_unreliable_page_keeps_its_tables_with_low_confidence(monkeypatch):
     build_blocks("d", specs)
 
 
+def test_unreliable_page_without_ocr_text_falls_back_and_keeps_its_tables(monkeypatch):
+    """OCR을 쓸 수 있어도 받아들인 OCR 글자가 없어 깨진 글자층으로 돌아온 unreliable 쪽은 표 찾기도 그 최종 모드
+    (layer)로 한다: 선 있는 표가 OCR을 끈 TC-A 유지 경로와 똑같이 신뢰도 0.2 table 블록으로 남고, 처리 이력은
+    unreliable_text_layer_kept + 실패한 ocr_text 검사다."""
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(595.0, H), invariant=1, pageCompression=0)
+    report(c)
+    c.showPage()
+    c.save()
+    kept = PdfParser(ocr=False, layout=False).parse(buf.getvalue(), "t.pdf")
+    monkeypatch.setattr(pdf_parser.ocr_runtime, "available", lambda: True)
+    monkeypatch.setattr(pdf_parser.ocr_runtime, "get_reader", lambda: None)
+    monkeypatch.setattr(pdf_parser.ocr_runtime, "read_lines", lambda image: [])
+    parsed = PdfParser(layout=False).parse(buf.getvalue(), "t.pdf")
+    assert [(s["kind"], s["confidence"]) for s in parsed.blocks] == [
+        ("list_item", 0.2), ("paragraph", 0.2), ("table", 0.2), ("paragraph", 0.2)]
+    assert [[c.text for c in parsed.blocks[2]["table"].cells if c.row == r] for r in range(3)] == ROWS
+    assert parsed.blocks == kept.blocks
+    (note,) = parsed.regions
+    assert (note.fallback_reason, [(k.name, k.passed) for k in note.gate.checks]) == (
+        "unreliable_text_layer_kept", [("ocr_text", False)])
+
+
 def rotated_page(own_direction: bool) -> list[dict]:
     """/Rotate 90 쪽(MediaBox 842×595): 보통으로 그린 글(표 포함)은 보이는 쪽에서 세로로 흐르고(쪽에서 가장 많은
     방향), 90° 돌려 그린 줄은 보이는 쪽에서 바로 선다. own_direction이면 표와 같은 방향 문단이 표 위·아래에도 있다."""
