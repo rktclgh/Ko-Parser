@@ -13,8 +13,12 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
 from hanji.formats.pdf import borderless
-from hanji.formats.pdf.borderless import Checks, Failure, Recovery, recover
+from hanji.formats.pdf.borderless import Checks, Failure, Recovery, recover, settle
 from hanji.formats.pdf.extract import UPRIGHT, Char, PageText, extract_pages
+from hanji.formats.pdf.figures import Caption, Figure, Region, _iou, _pt
+from hanji.formats.pdf.group import Ledger, build_page_specs, build_specs
+from hanji.formats.pdf.tables import TableSpec, find_tables
+from hanji_contracts import Cell, Table
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -615,3 +619,222 @@ def test_aligned_text_that_is_not_a_table_becomes_one_out_of_scope(draw, shape):
     rec = recover(page, box, everything(page))
     assert isinstance(rec, Recovery) and (rec.table.n_rows, rec.table.n_cols) == shape
     assert sum((glyphs(page.chars[i].text) for i in rec.char_ids), Counter()) == page_glyphs(page)
+
+
+# ---- settle: 쪽 하나의 소유와 우선순위(B2)
+
+
+def grid_table(c: Canvas, top: float = 100.0) -> None:
+    """선 있는 3×3 표(칸 높이 20pt, 선 8개: path 8개)."""
+    xs, ys = (72, 172, 272, 372), [top + 20 * i for i in range(4)]
+    for y in ys:
+        rule(c, y, xs[0], xs[-1])
+    for x in xs:
+        c.line(x, H - ys[0], x, H - ys[-1])
+    rows_at(c, [["가", "나", "다"], ["라", "마", "바"], ["사", "아", "자"]], [x + 8 for x in xs[:3]], top + 14, 20)
+
+
+def open_sided_table(c: Canvas, top: float = 100.0) -> None:
+    """가로선과 바깥 세로선만 있는 3×3 표(안쪽 열은 글자 정렬로 나뉜다)."""
+    ys = [top + 20 * i for i in range(4)]
+    for y in ys:
+        rule(c, y, 72, 372)
+    for x in (72, 372):
+        c.line(x, H - ys[0], x, H - ys[-1])
+    rows_at(c, [["가나", "다라", "마바"], ["사아", "자차", "카타"], ["파하", "거너", "더러"]], (80, 180, 280), top + 14, 20)
+
+
+def table_region(box, score: float = 0.9) -> Region:
+    return Region("table", score, box)
+
+
+@pytest.mark.parametrize("draw", [grid_table, open_sided_table])
+def test_model_box_over_a_ruled_table_keeps_the_ruled_table_and_leaves_no_record(draw):
+    page = page_of(draw)
+    ruled = find_tables(page)
+    assert len(ruled) == 1
+    assert settle(page, "layer", ruled, [table_region((70, 98, 374, 162))], []) == (ruled, [])
+
+
+def test_scan_mode_and_turned_pages_are_not_tried():
+    page = page_of(table_4x3)
+    assert settle(page, "scan", [], [table_region((60, 100, 400, 200))], []) == ([], [])
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(W, H), invariant=1, pageCompression=0)
+    c.setPageRotation(90)
+    rows_at(c, TABLE_4X3, (72, 202, 332), 400)  # 돌린 쪽은 MediaBox가 눕는다: 그 안에 그린다
+    c.showPage()
+    c.save()
+    (turned,) = extract_pages(buf.getvalue(), "t.pdf")
+    assert not borderless.applies(turned, "layer") and borderless.applies(page, "layer")
+    assert settle(turned, "layer", [], [table_region((60, 100, 400, 200))], []) == ([], [])
+
+
+def test_detector_table_is_owned_and_recorded():
+    page = page_of(table_4x3)
+    tables, notes = settle(page, "layer", [], [], [])
+    (spec,) = tables
+    assert not spec.ruled and spec.bbox == (0.121, 0.134, 0.592, 0.208) and spec.axes == UPRIGHT
+    assert sum((glyphs(page.chars[i].text) for i in spec.char_ids), Counter()) == page_glyphs(page)
+    (note,) = notes
+    assert (note.region_id, note.kind, note.fallback_reason, note.attempts[0].model_id) == (
+        "p1-borderless-rule-1", "table", "borderless_table", None)
+    assert note.locator.bbox.model_dump() == {"x0": 0.121, "y0": 0.134, "x1": 0.592, "y1": 0.208}
+    assert note.gate.passed and [(g.name, g.value) for g in note.gate.checks] == [
+        ("chars", 31), ("rows", 4), ("cols", 3), ("cells", 12), ("expanded_chars", 31), ("filled", 1.0)]
+
+
+def test_failed_model_box_keeps_ownership_and_leaves_a_failed_record():
+    page = page_of(lambda c: put(c, 72, 120, "가나다 라마바 사아자"))
+    tables, notes = settle(page, "layer", [], [table_region((60, 100, 400, 130))], [])
+    assert tables == []
+    (note,) = notes
+    assert (note.region_id, note.fallback_reason, note.attempts[0].model_id) == (
+        "p1-borderless-failed-1", "borderless_table_failed", "PP-DocLayout_plus-L")
+    assert not note.gate.passed and [(g.name, g.value, g.passed) for g in note.gate.checks] == [
+        ("chars", 9, True), ("rows", 1, False), ("cols", 1, False), ("cells", 1, True)]
+
+
+def test_bad_grid_failed_record_carries_a_failing_grid_check(monkeypatch):
+    """계약이 격자를 거부한 실패(bad_grid)는 잰 값이 모두 통과해도 gate가 왜 실패인지 grid 검사로 남긴다."""
+    def reject(**_):
+        raise ValueError("bad grid")
+
+    monkeypatch.setattr(borderless, "Table", reject)
+    page = page_of(table_4x3)
+    tables, notes = settle(page, "layer", [], [table_region((60, 100, 400, 200))], [])
+    assert tables == []
+    (note,) = notes
+    assert note.fallback_reason == "borderless_table_failed"
+    assert not note.gate.passed
+    assert [(g.name, g.passed, g.threshold) for g in note.gate.checks if g.name == "grid"] == [
+        ("grid", False, "contract Table")]
+
+
+def test_model_box_partly_over_a_ruled_table_reads_only_the_free_chars():
+    def draw(c):
+        grid_table(c)
+        put(c, 72, 190, "표 아래 문단이다.")
+
+    page = page_of(draw)
+    ruled = find_tables(page)
+    tables, notes = settle(page, "layer", ruled, [table_region((60, 145, 400, 200))], [])
+    assert tables == ruled  # 선 있는 표는 그대로, 상자의 나머지 글자(문단 한 줄)로는 표가 되지 않는다
+    assert [n.fallback_reason for n in notes] == ["borderless_table_failed"]
+
+
+@pytest.mark.parametrize("draw,shape", [(unmarked_pairs, (6, 2)), (short_three_columns, (12, 6))])
+def test_wrong_model_box_over_aligned_text_makes_an_out_of_scope_table(draw, shape):
+    page = page_of(draw)
+    tables, notes = settle(page, "layer", [], [table_region((40, 100, 560, 320))], [])
+    (spec,) = tables
+    assert (spec.table.n_rows, spec.table.n_cols) == shape and not spec.ruled
+    assert [(n.region_id, n.attempts[0].model_id) for n in notes] == [("p1-borderless-layout-1", "PP-DocLayout_plus-L")]
+    assert "filled" not in [g.name for g in notes[0].gate.checks]  # 모델 상자는 빈 칸 비율로 거르지 않는다
+
+
+def sparse_grid(c: Canvas) -> None:
+    rows_at(c, [["가", "1", "", ""], ["나", "", "2", ""], ["다", "", "", "3"], ["라", "4", "", ""]],
+            (72, 200, 300, 400), 120)
+
+
+def test_detector_candidate_with_too_many_blank_cells_is_dropped_but_a_model_box_is_not():
+    page = page_of(sparse_grid)
+    (box,) = borderless.candidates(page, everything(page))
+    assert recover(page, box, everything(page)).checks.filled < borderless.BORDERLESS_MIN_FILLED
+    assert settle(page, "layer", [], [], []) == ([], [])  # 기록 없이 버린다(글자는 문단에 남는다)
+    tables, notes = settle(page, "layer", [], [table_region((60, 105, 450, 200))], [])
+    assert len(tables) == 1 and notes[0].fallback_reason == "borderless_table"
+
+
+def test_higher_scoring_model_box_wins_and_boxes_inside_a_made_table_are_skipped():
+    page = page_of(table_4x3)
+    low, high = table_region((80, 115, 340, 170), 0.6), table_region((65, 105, 395, 195), 0.95)
+    tables, notes = settle(page, "layer", [], [low, high], [])
+    assert len(tables) == 1 and [n.region_id for n in notes] == ["p1-borderless-layout-1"]
+    assert notes[0].locator.bbox.model_dump() == {"x0": 0.121, "y0": 0.134, "x1": 0.592, "y1": 0.208}
+
+
+def test_model_box_and_detector_candidate_touching_a_figure_or_its_caption_are_dropped():
+    page = page_of(table_4x3)
+    figure = Figure((350, 100, 500, 190), "chart", caption=Caption((350, 191, 500, 205), "", frozenset(),
+                                                                    frozenset(), False))
+    assert settle(page, "layer", [], [table_region((60, 100, 400, 200))], [figure]) == ([], [])
+    touching = Figure((340, 60, 500, 113), "chart")  # 표 첫 줄 위쪽 1pt
+    assert settle(page, "layer", [], [], [touching]) == ([], [])
+
+
+def test_model_box_and_detector_candidate_touching_only_a_caption_are_dropped():
+    page = page_of(table_4x3)
+    far = Figure((400, 300, 500, 400), "chart", caption=Caption((340, 60, 500, 113), "", frozenset(), frozenset(),
+                                                                 True))  # 그림은 멀리, 캡션만 표 첫 줄 위쪽 1pt
+    assert settle(page, "layer", [], [], []) != ([], [])  # 캡션이 없으면 표가 된다
+    assert settle(page, "layer", [], [table_region((60, 100, 400, 200))], [far]) == ([], [])
+    assert settle(page, "layer", [], [], [far]) == ([], [])
+
+
+def test_overlapping_model_boxes_never_share_a_char():
+    page = page_of(table_4x3)
+    upper, lower = table_region((65, 105, 395, 150), 0.95), table_region((65, 125, 395, 195), 0.9)
+    tables, notes = settle(page, "layer", [], [upper, lower], [])
+    assert [n.region_id for n in notes] == ["p1-borderless-layout-1", "p1-borderless-layout-2"]
+    first, second = tables
+    assert not first.char_ids & second.char_ids
+    _, ledgers = build_page_specs([page], ["digital"], [tables])
+    visible = sum(1 for c in page.chars if not c.invisible and not c.text.isspace())
+    assert ledgers[page.page] == Ledger(in_blocks=visible, doubled=0)  # 표 둘과 문단이 보이는 글자를 한 번씩
+
+
+def test_model_box_holding_most_of_a_ruled_table_with_a_low_iou_is_skipped():
+    page = page_of(grid_table)
+    ruled = find_tables(page)
+    big = (40, 80, 560, 320)  # 선 있는 표가 넓이 100% 들지만 IoU는 0.5 미만
+    assert _iou(_pt(page, ruled[0].bbox), big) < borderless.RULED_IOU
+    assert settle(page, "layer", ruled, [table_region(big)], []) == (ruled, [])
+
+
+def two_tables_stacked(c: Canvas) -> None:
+    rows_at(c, TABLE_4X3, (72, 202, 332), 120)
+    rows_at(c, TABLE_4X3, (72, 202, 332), 300)
+
+
+def two_tables_side_by_side(c: Canvas) -> None:
+    rows_at(c, [["가", "1"], ["나", "2"], ["다", "3"]], (72, 140), 120)
+    rows_at(c, [["라", "4"], ["마", "5"], ["바", "6"]], (320, 388), 120)
+
+
+@pytest.mark.parametrize("draw,first,second", [
+    (two_tables_stacked, (60, 105, 400, 200), (60, 285, 400, 380)),
+    (two_tables_side_by_side, (60, 105, 200, 180), (310, 105, 450, 180)),
+])
+def test_model_boxes_with_the_same_score_go_top_then_left(draw, first, second):
+    page = page_of(draw)
+    tables, notes = settle(page, "layer", [], [table_region(second), table_region(first)], [])
+    assert [n.region_id for n in notes] == ["p1-borderless-layout-1", "p1-borderless-layout-2"]
+    one, two = (n.locator.bbox for n in notes)
+    assert (one.y0, one.x0) < (two.y0, two.x0) and [t.bbox for t in tables] == [
+        (b.x0, b.y0, b.x1, b.y1) for b in (one, two)]
+
+
+@pytest.mark.parametrize("owner", ["figure", "caption"])
+def test_chars_of_a_figure_and_its_caption_are_never_taken(owner):
+    page = page_of(table_4x3)
+    first_rows = frozenset(i for i, c in enumerate(page.chars) if c.y0 * H < 140)
+    if owner == "figure":
+        figure = Figure((20, 20, 40, 40), "image", char_ids=first_rows)  # 상자는 멀리, 글자만 가졌다
+    else:
+        caption = Caption((20, 41, 40, 50), "", first_rows, frozenset(), False)  # 캡션이 글자를 가졌다
+        figure = Figure((20, 20, 40, 40), "image", caption=caption)
+    tables, _ = settle(page, "layer", [], [], [figure])
+    (spec,) = tables
+    assert not spec.char_ids & first_rows and spec.table.n_rows == 2
+
+
+def test_table_and_paragraph_with_the_same_top_put_the_table_first():
+    page = page_of(lambda c: put(c, 400, 130, "옆 문단이다."))
+    table = Table(n_rows=2, n_cols=2, cells=tuple(Cell(row=r, col=k, text=f"{r}{k}", text_source="text_layer")
+                                                  for r in range(2) for k in range(2)))
+    top = round(min(c.y0 for c in page.chars), 3)
+    spec = TableSpec(bbox=(0.1, top, 0.3, top + 0.05), table=table, char_ids=frozenset(), ruled=False)
+    assert [(s["kind"], s["confidence"]) for s in build_specs([page], ["digital"], [[spec]])] == [
+        ("table", 0.4), ("paragraph", 0.7)]

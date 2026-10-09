@@ -35,6 +35,7 @@ MARGIN = 0.08  # 머리말·꼬리말 영역: 쪽 높이의 위·아래 8%(줄�
 SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
 UNRELIABLE_CONFIDENCE = 0.2  # unreliable 쪽(깨진 글자층) 블록의 신뢰도 상한(쪽 단위)
+BORDERLESS_CONFIDENCE = 0.4  # 선 없는 표 블록(정책값, 보정된 확률 아님: 칸 배정·칸 안 순서를 장담하지 못한다)
 CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8,
               "table": 0.6, "figure": 0.7, "caption": 0.7}  # 그림·캡션은 모델 점수(CPU마다 다르다)를 넣지 않는다
 # 스펙 §5.2-5의 앞머리 + 공공누리에서 본 글머리표(ㅇ ㆍ · ∙ ‣ ▸ ▪ ⇨ →). 차례 글자는 가~하 열네 글자뿐
@@ -409,7 +410,10 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
             if i and f.axes != page_frags[i - 1].axes:  # 앞 방향 조각이 끝났다: 그 방향에 남은 표를 먼저
                 items += [(page, None, t) for _, t in queues.pop(page_frags[i - 1].axes, ())]
             queue = queues.get(f.axes)
-            while queue and queue[0][0][0] <= f.y0:
+            h = frame_size(page, f.axes)[1]
+            # 표 윗변(bbox는 소수 셋째 자리)과 조각 윗변을 같은 자리수(보이는 쪽 0~1, 셋째 자리)로 견준다: 윗변이
+            # 같으면 반올림 방향과 상관없이 표가 먼저다
+            while queue and round(queue[0][0][0] / h, 3) <= round(f.y0 / h, 3):
                 items.append((page, None, queue.popleft()[1]))
             margin = margins.get((p, i))
             last = items[-1] if items else None
@@ -467,7 +471,8 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
         if not isinstance(group, list):
             (x0, x1), (y0, y1) = _widen(group.bbox[0], group.bbox[2]), _widen(group.bbox[1], group.bbox[3])
             specs.append({"kind": "table", "table": group.table, "text": group.table.plain_text(),
-                          "section_path": tuple(t for _, t in stack), "confidence": CONFIDENCE["table"],
+                          "section_path": tuple(t for _, t in stack),
+                          "confidence": CONFIDENCE["table"] if group.ruled else BORDERLESS_CONFIDENCE,
                           "state": "det", "text_source": "text_layer",
                           "locator": {"kind": "page", "page": page.page,
                                       "bbox": {"x0": x0, "y0": y0, "x1": x1, "y1": y1}}})

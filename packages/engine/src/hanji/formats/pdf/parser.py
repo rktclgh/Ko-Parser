@@ -1,8 +1,10 @@
 """PDF → ParsedSource. 쪽마다 판정(text_layer·text_stats)을 붙인다. digital·scanned 쪽은 보이는 글자(렌더 모드 3
 제외)로 선 있는 표(table 블록)와 나머지 블록을 만들고, scanned 쪽은 OCR을 켰으면 그림 속 글자를 OCR 문단 블록
-(text_source="ocr")으로 더한다. 그림은 digital 쪽 이미지 객체(사진)와 레이아웃 모델(선·도형 그림·스캔 쪽 그림·캡션)로
-찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다. unreliable 쪽(글자층이 깨진 쪽)은 digital과 같은
-경로로 깨진 글자층에서 블록을 만들고(신뢰도 상한 group.UNRELIABLE_CONFIDENCE) 처리 이력에 한 줄 남긴다.
+(text_source="ocr")으로 더한다. layer 모드의 바로 선 쪽은 선 없는 표(borderless.settle: 글자 정렬, 신뢰도
+group.BORDERLESS_CONFIDENCE, 처리 이력 borderless_table)도 table 블록으로 낸다. 그림은 digital 쪽 이미지 객체(사진)와
+레이아웃 모델(선·도형 그림·스캔 쪽 그림·캡션)로 찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다.
+unreliable 쪽(글자층이 깨진 쪽)은 digital과 같은 경로로 깨진 글자층에서 블록을 만들고(신뢰도 상한
+group.UNRELIABLE_CONFIDENCE) 처리 이력에 한 줄 남긴다.
 쪽마다 글자 장부(PageInfo.coverage)를 센다. 장부가 맞지 않으면 그 쪽 coverage는 None이고 처리 이력에 한 줄 남긴다.
 쪽 렌더는 필요한 쪽만 한 번(PDFIUM_LOCK 안), OCR·모델·PNG 인코딩은 잠금 밖에서 한다."""
 
@@ -15,10 +17,11 @@ from hanji_contracts import (
 from PIL import Image
 
 from ..base import ParsedSource
-from . import figures, scan
+from . import borderless, figures, scan
 from . import layout as layout_runtime
 from . import ocr as ocr_runtime
 from .extract import PageText, extract_pages
+from .figures import Region
 from .group import FigureBlock, Ledger, build_page_specs, unit_box
 from .scan import OcrParagraph
 from .tables import TableSpec, find_tables
@@ -45,6 +48,7 @@ class _PageResult:
     paras: list[OcrParagraph] = field(default_factory=list)
     figures: list[FigureBlock] = field(default_factory=list)
     regions: list[RegionRecord] = field(default_factory=list)
+    layout_tables: tuple[Region, ...] = ()  # 모델 table 상자(선 없는 표 settle 입력)
 
 
 class PdfParser:
@@ -64,6 +68,12 @@ class PdfParser:
 
     def parse(self, data: bytes, name: str) -> ParsedSource:
         """암호화·손상 PDF는 ParseError."""
+        try:
+            return self._parse(data, name)
+        finally:
+            borderless.forget()  # 선 없는 표의 한 쪽 캐시가 파싱 뒤 쪽 글자를 붙들지 않게(오류로 끝나도)
+
+    def _parse(self, data: bytes, name: str) -> ParsedSource:
         pages = extract_pages(data, name)
         stats = [page_stats(page) for page in pages]
         states = [classify(s) for s in stats]
@@ -78,15 +88,20 @@ class PdfParser:
         results: dict[int, _PageResult] = {}
         for index in sorted(range(len(pages)), key=lambda k: states[k] == "unreliable"):
             page, state, mode = pages[index], states[index], modes[index]
-            want = figures.wants_layout(page, mode)  # 쪽 루프 안에서: 이미지 객체 상자를 쪽마다 한 번만 구한다
+            # 선 있는 표를 처리 모드를 정한 뒤 한 번 찾고, 그 결과로 모델 게이트를 정한다(표 밖 긴 가로선). 지금(TC-A)은
+            # 모든 쪽이 글자층에서 표를 찾고, TC-B에서 OCR로 대신 읽는 쪽이 생기면 그 쪽은 표 찾기를 건너뛴다
+            found = find_tables(page)
+            want = figures.wants_layout(page, mode, found)  # 쪽 루프 안에서: 이미지 객체 상자를 쪽마다 한 번만 구한다
             if want and use_layout is None:
                 use_layout = bool(self.layout or (self.layout is None and layout_runtime.available()))
                 if use_layout:
                     layout_runtime.get_detector()  # 깨진 설치는 쪽을 그리기 전에 알린다(렌더하는 쪽은 모두 want)
-            # 표는 처리 모드를 정한 뒤에 찾는다. 지금(TC-A)은 모든 쪽이 글자층에서 표를 찾고, TC-B에서 OCR로 대신 읽는
-            # 쪽이 생기면 그 쪽은 표 찾기를 건너뛴다
-            result = _page(data, name, index, page, mode, find_tables(page), use_ocr and state == "scanned",
+            result = _page(data, name, index, page, mode, found, use_ocr and state == "scanned",
                            bool(use_layout) and want, budget)
+            # 선 없는 표: 렌더 여부와 상관없이 쪽마다 한 번(그림 정리 뒤 남은 글자로)
+            result.tables, notes = borderless.settle(page, mode, result.tables, result.layout_tables,
+                                                     [f.figure for f in result.figures])
+            result.regions += notes
             if state == "unreliable":
                 result.regions.insert(0, _region(page, "unreliable-text-layer", FULL_PAGE, "paragraph",
                                                  UNRELIABLE_KEPT, False))
@@ -134,7 +149,7 @@ def _page(data: bytes, name: str, index: int, page: PageText, mode: PageMode, ta
     lines = scan.page_lines(image, page) if ocr_here else []
     regions = figures.page_regions(layout_runtime.detect(image), image.size, page) if layout_here else []
     plan = figures.arrange(page, mode, regions, tables, lines)
-    out = _PageResult(tables=list(plan.tables))
+    out = _PageResult(tables=list(plan.tables), layout_tables=plan.layout_tables)
     source = "ocr" if ocr_here else "text_layer"
     for k, figure in enumerate(plan.figures, 1):
         fields = _store(image, figure, page, budget)
@@ -146,8 +161,9 @@ def _page(data: bytes, name: str, index: int, page: PageText, mode: PageMode, ta
     out.paras = scan.paragraphs(scan.reading_order(rest), page)
     out.regions += [_region(page, f"table-in-figure-{k}", t.bbox, "table", TABLE_IN_FIGURE, layout_here)
                     for k, t in enumerate(plan.dropped, 1)]  # 표를 버리는 것은 모델이 찾은 그림뿐(리뷰 I1)
-    out.regions += [_region(page, f"layout-table-{k}", _unit(r.box, page), "table", LAYOUT_TABLE, True)
-                    for k, r in enumerate(plan.layout_tables, 1)]
+    if not borderless.applies(page, mode):  # 선 없는 표를 시도하지 않는 쪽(scan 모드·회전 쪽)의 모델 표 상자만
+        out.regions += [_region(page, f"layout-table-{k}", _unit(r.box, page), "table", LAYOUT_TABLE, True)
+                        for k, r in enumerate(plan.layout_tables, 1)]
     return out
 
 

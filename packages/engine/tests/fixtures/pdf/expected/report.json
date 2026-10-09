@@ -394,12 +394,53 @@
       "region_id": null
     },
     {
-      "block_id": "b_3dd97f04b18b731591d38216",
-      "content_hash": "c_8838ca95afafec1fb31f295b95a95a25",
+      "block_id": "b_98f81599d83f3b031f2abfec",
+      "content_hash": "c_d975bd96e8398f24ee122338b501c52e",
       "order": 12,
-      "kind": "paragraph",
-      "text": "구분",
-      "table": null,
+      "kind": "table",
+      "text": "구분\t금액(원)\n인건비\t4,250,000",
+      "table": {
+        "n_rows": 2,
+        "n_cols": 2,
+        "cells": [
+          {
+            "row": 0,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "구분",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 0,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "금액(원)",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 0,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "인건비",
+            "header": "none",
+            "text_source": "text_layer"
+          },
+          {
+            "row": 1,
+            "col": 1,
+            "rowspan": 1,
+            "colspan": 1,
+            "text": "4,250,000",
+            "header": "none",
+            "text_source": "text_layer"
+          }
+        ]
+      },
       "figure": null,
       "level": null,
       "section_path": [
@@ -413,98 +454,11 @@
         "bbox": {
           "x0": 0.121,
           "y0": 0.278,
-          "x1": 0.158,
-          "y1": 0.289
-        }
-      },
-      "confidence": 0.7,
-      "state": "det",
-      "text_source": "text_layer",
-      "region_id": null
-    },
-    {
-      "block_id": "b_2c4e44e2f530f8abc84a61ba",
-      "content_hash": "c_2bf5b288ca9c7fecb975eebfb4c336ce",
-      "order": 13,
-      "kind": "paragraph",
-      "text": "금액(원)",
-      "table": null,
-      "figure": null,
-      "level": null,
-      "section_path": [
-        "2026년 사업 계획 (초안)",
-        "2. 예산",
-        "핵심 지표"
-      ],
-      "locator": {
-        "kind": "page",
-        "page": 2,
-        "bbox": {
-          "x0": 0.504,
-          "y0": 0.278,
-          "x1": 0.578,
-          "y1": 0.289
-        }
-      },
-      "confidence": 0.7,
-      "state": "det",
-      "text_source": "text_layer",
-      "region_id": null
-    },
-    {
-      "block_id": "b_29cc2a336907fa2516ea5161",
-      "content_hash": "c_a2b4a7dedb49e3c6d22203bb5aab3b9d",
-      "order": 14,
-      "kind": "paragraph",
-      "text": "인건비",
-      "table": null,
-      "figure": null,
-      "level": null,
-      "section_path": [
-        "2026년 사업 계획 (초안)",
-        "2. 예산",
-        "핵심 지표"
-      ],
-      "locator": {
-        "kind": "page",
-        "page": 2,
-        "bbox": {
-          "x0": 0.121,
-          "y0": 0.297,
-          "x1": 0.176,
-          "y1": 0.308
-        }
-      },
-      "confidence": 0.7,
-      "state": "det",
-      "text_source": "text_layer",
-      "region_id": null
-    },
-    {
-      "block_id": "b_7f0a00c54d9a6a2a8829bee1",
-      "content_hash": "c_eeb17fc57a955f00c32a185fcc08253b",
-      "order": 15,
-      "kind": "paragraph",
-      "text": "4,250,000",
-      "table": null,
-      "figure": null,
-      "level": null,
-      "section_path": [
-        "2026년 사업 계획 (초안)",
-        "2. 예산",
-        "핵심 지표"
-      ],
-      "locator": {
-        "kind": "page",
-        "page": 2,
-        "bbox": {
-          "x0": 0.504,
-          "y0": 0.297,
           "x1": 0.587,
           "y1": 0.308
         }
       },
-      "confidence": 0.7,
+      "confidence": 0.4,
       "state": "det",
       "text_source": "text_layer",
       "region_id": null

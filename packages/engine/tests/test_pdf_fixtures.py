@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -55,7 +56,9 @@ def test_report_headings_lists_and_paragraphs():
                      "- 셋째, 협약을 체결한다."]
     texts = [b.text for b in tree.blocks]
     assert "큰 글자로 쓴 강조 문단은\n세 줄 이상 이어지면\n제목이 아니라 문단이다." in texts
-    assert ["구분", "금액(원)", "인건비", "4,250,000"] == texts[-4:]  # 줄 조각, 위→아래·왼→오
+    *_, last = tree.blocks  # 두 줄 두 열 정렬 글자는 2×2 선 없는 표다(스펙 결정 D2)
+    assert (last.kind, last.confidence, [c.text for c in last.table.cells]) == (
+        "table", 0.4, ["구분", "금액(원)", "인건비", "4,250,000"])
     assert tree.blocks[4].section_path == ("2026년 사업 계획 (초안)", "1. 추진 배경", "가. 세부 목표")
     assert {p.text_layer for p in tree.pages} == {"digital"} and tree.source.page_count == 2
 
@@ -111,3 +114,28 @@ def test_golden_pages_carry_a_ledger_that_adds_up():
             assert (p.coverage.replaced, p.coverage.rescued) == (0, 0)
             hidden[(name, p.page)] = p.coverage.hidden
     assert {k: v for k, v in hidden.items() if v} == {("scanned_invisible.pdf", 1): 38}
+
+
+def test_borderless_fixture_has_two_borderless_tables_and_a_list():
+    tree = _expected("borderless.pdf")
+    assert [(b.kind, b.confidence) for b in tree.blocks] == [
+        ("heading", 0.6), ("paragraph", 0.7), ("table", 0.4), ("heading", 0.6), ("table", 0.4), ("list_item", 0.7),
+        ("list_item", 0.7), ("list_item", 0.7)]
+    first, second = (b.table for b in tree.blocks if b.kind == "table")
+    assert [[c.text for c in first.cells if c.row == r] for r in range(first.n_rows)] == [
+        ["구분", "2025년", "2026년"], ["인건비", "1,200", "1,350"], ["운영비", "850", "900"], ["합계", "2,050", "2,250"]]
+    assert [[c.text for c in second.cells if c.row == r] for r in range(second.n_rows)] == [
+        ["분기", "건수", "금액"], ["1분기", "3건", "120"], ["2분기", "5건", "210"], ["3분기", "4건", "180"]]
+    assert tree.blocks[4].section_path == ("2. 분기 실적",)
+
+
+def test_core_install_without_numpy_or_onnxruntime_gives_the_borderless_golden(monkeypatch):
+    """hanji-core(레이아웃·OCR 추가 설치 없음): 두 모듈을 import할 수 없게 막아도 검출기 경로로 같은 골든이 나온다."""
+    monkeypatch.setitem(sys.modules, "numpy", None)
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)
+    from hanji.formats.pdf import layout
+
+    assert not layout.available()  # 막기가 듣지 않으면 이 테스트가 조용히 통과하지 못하게 한다
+    engine = LocalEngine(MemoryStore(), default_parsers())  # OCR·레이아웃 자동: 설치가 없는 것으로 본다
+    ref = engine.ingest(str(ROOT / "inputs" / "borderless.pdf"), document_id=BUILDER.document_id("borderless.pdf"))
+    assert engine.get_tree(ref.document_id) == _expected("borderless.pdf")

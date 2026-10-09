@@ -278,7 +278,8 @@ def test_auto_mode_with_a_broken_layout_install_raises_before_rendering(monkeypa
 def test_auto_mode_does_not_check_the_layout_install_on_text_only_documents(monkeypatch):
     monkeypatch.setattr(layout, "available", lambda: pytest.fail("모델을 돌릴 쪽이 없으면 설치를 확인하지 않는다"))
     parsed = PdfParser(ocr=False).parse((FIXTURES / "report.pdf").read_bytes(), "report.pdf")
-    assert parsed.blocks and not parsed.assets and not parsed.regions
+    assert parsed.blocks and not parsed.assets  # 2쪽 두 줄 두 열 정렬 글자는 선 없는 표(검출기, 모델 없이)
+    assert [r.fallback_reason for r in parsed.regions] == ["borderless_table"]
 
 
 def test_layout_off_or_not_installed_gives_the_same_output_without_the_model(monkeypatch):
