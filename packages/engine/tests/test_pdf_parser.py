@@ -9,10 +9,11 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
 from hanji import LocalEngine, MemoryStore
-from hanji.errors import ParseError
+from hanji.errors import OcrUnavailable, ParseError
 from hanji.formats.detect import default_parsers, detect_parser
-from hanji.formats.pdf import PdfParser, extract, group
+from hanji.formats.pdf import PdfParser, extract, group, ocr, scan
 from hanji.formats.pdf import parser as pdf_parser
+from hanji.formats.pdf.ocr import OcrLine
 from hanji.formats.pdf.tables import TableSpec
 from hanji_contracts import BBox, Cell, Table, TextCoverage
 
@@ -276,13 +277,16 @@ def test_parser_hands_each_page_mode_to_the_block_builder(monkeypatch):
     assert [p.text_layer for p in parsed.pages] == ["digital", "scanned"] and seen == [["layer", "scan"]]
 
 
-def test_unreliable_page_keeps_its_text_layer_and_leaves_a_history_note(monkeypatch):
-    """unreliable 쪽은 OCR을 켤 수 있어도(TC-B 전) digital과 같은 경로로 깨진 글자층에서 블록을 만들고(신뢰도 0.2 이하)
-    쪽마다 처리 이력 한 줄을 남긴다. 같은 문서의 digital 쪽 블록은 그 쪽이 빈 쪽일 때와 같다."""
-    before = PdfParser(layout=False).parse(make_pdf([PARAS[0], [], PARAS[0]]), "a.pdf")
+@pytest.mark.parametrize("setting", [False, None])
+def test_unreliable_page_keeps_its_text_layer_when_ocr_is_off_or_not_installed(monkeypatch, setting):
+    """OCR을 끄거나(--no-ocr) 추가 설치가 없으면 unreliable 쪽은 digital과 같은 경로로 깨진 글자층에서 블록을 만들고
+    (신뢰도 0.2 이하) 쪽마다 처리 이력 한 줄을 남긴다. 같은 문서의 digital 쪽 블록은 그 쪽이 빈 쪽일 때와 같다."""
+    monkeypatch.setattr(ocr, "available", lambda: False)
+    before = PdfParser(ocr=setting, layout=False).parse(make_pdf([PARAS[0], [], PARAS[0]]), "a.pdf")
     states = iter(["digital", "unreliable", "digital"])
     monkeypatch.setattr(pdf_parser, "classify", lambda stats: next(states))
-    after = PdfParser(layout=False).parse(make_pdf([PARAS[0], [(770, "깨진 쪽 글자다.", 0)], PARAS[0]]), "a.pdf")
+    after = PdfParser(ocr=setting, layout=False).parse(
+        make_pdf([PARAS[0], [(770, "깨진 쪽 글자다.", 0)], PARAS[0]]), "a.pdf")
     assert [p.text_layer for p in after.pages] == ["digital", "unreliable", "digital"]
     assert [b for b in after.blocks if b["locator"]["page"] != 2] == list(before.blocks)
     assert [(b["text"], b["confidence"]) for b in after.blocks if b["locator"]["page"] == 2] == [("깨진 쪽 글자다.", 0.2)]
@@ -340,3 +344,127 @@ def test_a_char_given_to_two_blocks_leaves_no_coverage_and_one_history_note(monk
     assert [(r.region_id, r.kind, r.fallback_reason) for r in parsed.regions] == [
         ("p1-coverage", "paragraph", "coverage_mismatch")]
     assert gate_numbers(parsed.regions[0]) == {"in_blocks": (True, 21, "==21"), "doubled": (False, 2, "==0")}
+
+
+def fake_ocr(monkeypatch, *reads) -> None:
+    """OCR 추가 설치가 있는 것처럼(모델 없이): 그린 쪽마다 차례로 줄 목록 하나를 읽는다. 줄은 (글자, 점수, 보이는 쪽 pt
+    상자)이고 그림 화소(A4 너비 기준 배율)로 바꿔 돌려준다(scan.to_page가 다시 pt로 옮긴다)."""
+    order = iter(reads)
+
+    def read_lines(image):
+        px = image.size[0] / 595.0
+        return [OcrLine(box=((x0 * px, y0 * px), (x1 * px, y0 * px), (x1 * px, y1 * px), (x0 * px, y1 * px)),
+                        text=text, score=score) for text, score, (x0, y0, x1, y1) in next(order)]
+
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "get_reader", lambda: None)
+    monkeypatch.setattr(ocr, "read_lines", read_lines)
+
+
+OVER_BROKEN = (70.0, 60.0, 170.0, 78.0)  # 기준선 y=770(보이는 쪽 72pt) 11pt 줄을 덮는 OCR 줄 상자(pt)
+
+
+def test_unreliable_page_is_read_by_ocr_instead_of_its_text_layer(monkeypatch):
+    """OCR을 쓸 수 있으면 unreliable 쪽은 scanned처럼 쪽을 그려 OCR 문단으로 낸다: 깨진 글자층과 겹친 OCR 줄도 버리지
+    않고(겹침 거르기를 쓰지 않는다), 표를 찾지 않으며, 보이는 글자층 글자는 replaced(숨은 글자는 그대로 hidden)이고
+    처리 이력에 unreliable_text_layer_ocr를 남긴다. OCR 문단 신뢰도는 scanned 쪽처럼 평균 점수 × 0.5다(상한 0.2를
+    씌우지 않는다). 같은 문서의 digital 쪽 블록은 그 쪽이 빈 쪽일 때와 같다."""
+    before = PdfParser(layout=False).parse(make_pdf([PARAS[0], [], PARAS[0]]), "a.pdf")
+    states = iter(["digital", "unreliable", "digital"])
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: next(states))
+    fake_ocr(monkeypatch, [("다시 읽은 쪽 글자다.", 0.9, OVER_BROKEN)])
+    tried = []
+    find = pdf_parser.find_tables
+    monkeypatch.setattr(pdf_parser, "find_tables", lambda page: tried.append(page.page) or find(page))
+    after = PdfParser(layout=False).parse(
+        make_pdf([PARAS[0], [(770, "깨진 쪽 글자다.", 0), (740, "숨은", 3)], PARAS[0]]), "a.pdf")
+    assert [p.text_layer for p in after.pages] == ["digital", "unreliable", "digital"] and tried == [1, 3]
+    assert [b for b in after.blocks if b["locator"]["page"] != 2] == list(before.blocks)
+    assert [(b["text"], b["text_source"], b["confidence"]) for b in after.blocks if b["locator"]["page"] == 2] == [
+        ("다시 읽은 쪽 글자다.", "ocr", 0.45)]
+    assert after.pages[1].coverage == TextCoverage(layer_chars=9, in_blocks=0, hidden=2, replaced=7)
+    (note,) = after.regions
+    assert (note.region_id, note.kind, note.fallback_reason, note.locator.bbox, note.gate) == (
+        "p2-unreliable-text-layer", "paragraph", "unreliable_text_layer_ocr", BBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0),
+        None)
+
+
+def test_scanned_page_keeps_the_text_layer_first_next_to_an_ocr_read_unreliable_page(monkeypatch):
+    """겹침 거르기를 끄는 것은 OCR로 대신 읽는 unreliable 쪽뿐이다: 같은 문서의 scanned 쪽은 보이는 글자와 겹친 OCR
+    줄을 그대로 버린다(텍스트 레이어 우선)."""
+    states = iter(["scanned", "unreliable"])
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: next(states))
+    fake_ocr(monkeypatch, [("다시 읽은 줄이다.", 0.9, OVER_BROKEN)], [("다시 읽은 줄이다.", 0.9, OVER_BROKEN)])
+    parsed = PdfParser(layout=False).parse(make_pdf([[(770, "보이는 글자다.", 0)], [(770, "깨진 쪽 글자다.", 0)]]), "a.pdf")
+    assert [(b["locator"]["page"], b["text_source"], b["text"]) for b in parsed.blocks] == [
+        (1, "text_layer", "보이는 글자다."), (2, "ocr", "다시 읽은 줄이다.")]
+    assert [p.coverage.replaced for p in parsed.pages] == [0, 7]
+
+
+def test_unreliable_page_without_accepted_ocr_text_falls_back_to_its_text_layer(monkeypatch):
+    """받아들인 OCR 글자가 없고(여기서는 점수가 낮은 줄뿐) 보이는 글자층이 있으면 그 쪽은 TC-A 유지 경로로 돌아간다:
+    깨진 글자층 블록(사진 그림 포함, 신뢰도 0.2 이하), 장부 in_blocks(replaced 0), 처리 이력 unreliable_text_layer_kept와
+    OCR 글자가 없었다는 실패 검사. 원문이 결과물에 남는다. 쪽은 한 번만 그린다(OCR에 쓴 그림을 사진 자르기에 다시 쓴다)."""
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    fake_ocr(monkeypatch, [("흐린 줄이다", 0.3, OVER_BROKEN)])
+    renders = []
+    render = scan.render
+    monkeypatch.setattr(scan, "render", lambda data, name, index: renders.append(index) or render(data, name, index))
+
+    def broken(c):
+        put(c, 72, 770, 11, "깨진 쪽 글자다.")
+        c.drawImage(ImageReader(io.BytesIO(GRAY_JPEG)), 72, 400, width=200, height=150)
+
+    parsed = PdfParser(layout=False).parse(draw_pdf(broken), "a.pdf")
+    assert [(b["kind"], b["text_source"], b["confidence"]) for b in parsed.blocks] == [
+        ("paragraph", "text_layer", 0.2), ("figure", "text_layer", 0.2)]
+    assert renders == [0] and len(parsed.assets) == 1
+    assert parsed.pages[0].coverage == TextCoverage(layer_chars=7, in_blocks=7, hidden=0, replaced=0)
+    (note,) = parsed.regions
+    assert (note.region_id, note.fallback_reason, note.gate.passed) == (
+        "p1-unreliable-text-layer", "unreliable_text_layer_kept", False)
+    assert [(c.name, c.passed, c.value, c.threshold) for c in note.gate.checks] == [("ocr_text", False, 0, ">0")]
+
+
+def test_unreliable_page_without_visible_text_or_ocr_text_has_no_blocks(monkeypatch):
+    """보이는 글자층도 받아들인 OCR 글자도 없는 unreliable 쪽(숨은 글자뿐)은 되돌릴 원문이 없어 ocr 쪽 그대로다: 블록이
+    없고 장부는 숨은 글자뿐이며(replaced 0) 처리 이력은 unreliable_text_layer_ocr다."""
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    fake_ocr(monkeypatch, [])
+    parsed = PdfParser(layout=False).parse(make_pdf([[(770, "숨은", 3)]]), "a.pdf")
+    assert parsed.blocks == () and parsed.pages[0].coverage == TextCoverage(layer_chars=2, in_blocks=0, hidden=2,
+                                                                           replaced=0)
+    assert [(r.region_id, r.fallback_reason) for r in parsed.regions] == [
+        ("p1-unreliable-text-layer", "unreliable_text_layer_ocr")]
+
+
+@pytest.mark.parametrize("ledger,checks", [
+    (group.Ledger(in_blocks=2, doubled=0), {"in_blocks": (False, 2, "==0"), "doubled": (True, 0, "==0")}),
+    (group.Ledger(in_blocks=0, doubled=1), {"in_blocks": (True, 0, "==0"), "doubled": (False, 1, "==0")})])
+def test_ocr_read_page_whose_ledger_does_not_add_up_leaves_no_coverage_and_one_note(monkeypatch, ledger, checks):
+    """ocr 쪽은 블록에 든 텍스트 레이어 글자가 0이어야 한다. 깨진 글자가 블록에 새거나(in_blocks > 0) 두 번 들면
+    (doubled) 파싱은 이어지고 그 쪽 coverage는 None, 처리 이력 coverage_mismatch 한 줄(기준 ==0)이 남는다."""
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    fake_ocr(monkeypatch, [("다시 읽은 쪽 글자다.", 0.9, OVER_BROKEN)])
+    build = pdf_parser.build_page_specs
+    monkeypatch.setattr(pdf_parser, "build_page_specs", lambda *a, **kw: (build(*a, **kw)[0], {1: ledger}))
+    parsed = PdfParser(layout=False).parse(make_pdf([[(770, "깨진 쪽 글자다.", 0)]]), "a.pdf")
+    assert [b["text"] for b in parsed.blocks] == ["다시 읽은 쪽 글자다."] and parsed.pages[0].coverage is None
+    assert [r.fallback_reason for r in parsed.regions] == ["unreliable_text_layer_ocr", "coverage_mismatch"]
+    assert gate_numbers(parsed.regions[1]) == checks
+
+
+def test_auto_mode_with_a_broken_ocr_install_raises_on_an_unreliable_page(monkeypatch):
+    """자동 모드: unreliable 쪽도 OCR로 읽을 쪽이라, 설치는 있는데 읽개를 못 만들면 깨진 글자층으로 조용히 물러나지 않고
+    OcrUnavailable이다(scanned 쪽과 같다. 종료 코드 1). 끄면(--no-ocr) 글자층 유지 경로다."""
+    def broken():
+        raise OcrUnavailable("OCR models could not be loaded: x; run with --no-ocr")
+
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "get_reader", broken)
+    data = make_pdf([[(770, "깨진 쪽 글자다.", 0)]])
+    kept = PdfParser(ocr=False, layout=False).parse(data, "a.pdf")
+    assert [r.fallback_reason for r in kept.regions] == ["unreliable_text_layer_kept"]
+    with pytest.raises(OcrUnavailable, match="--no-ocr"):
+        PdfParser(layout=False).parse(data, "a.pdf")

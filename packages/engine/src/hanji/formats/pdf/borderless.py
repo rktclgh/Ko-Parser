@@ -942,7 +942,8 @@ BORDERLESS_FAILED = "borderless_table_failed"  # 모델 표 상자 복원 실패
 
 
 def applies(page: PageText, mode: PageMode) -> bool:
-    """선 없는 표를 찾는 쪽: layer 모드이고 쪽의 주된 읽기 방향이 바로 선 방향(scan 모드·회전 쪽은 시도하지 않는다)."""
+    """선 없는 표를 찾는 쪽: layer 모드이고 쪽의 주된 읽기 방향이 바로 선 방향(scan·ocr 모드·회전 쪽은 시도하지
+    않는다)."""
     return mode == "layer" and _dominant_axes(page) == UPRIGHT
 
 

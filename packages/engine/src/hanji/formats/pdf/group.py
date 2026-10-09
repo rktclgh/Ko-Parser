@@ -362,7 +362,7 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
     """(블록 명세, 쪽 번호 → 글자 장부). 장부는 명세를 만들 때 센다: 표·그림·캡션은 char_ids(그림과 짝 캡션은 따로),
     줄·조각은 블록이 된 조각의 글자 수(표·그림 글자를 뺀 쪽에서 묶어 서로 겹치지 않는다). 숨은 글자·공백은 세지
     않는다. 블록 명세(계약 build_blocks 입력). 모든 쪽에서 보이는 글자로 블록을 만든다(숨은 글자는 fragments가 버린다).
-    unreliable 쪽(깨진 글자층)도 같은 경로지만 그 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않고(섞인 문서의
+    unreliable 쪽(깨진 글자층, layer 모드)도 같은 경로지만 그 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않고(섞인 문서의
     digital 쪽 블록이 바뀌지 않게. digital·scanned 글자가 없는 문서만 본문 크기를 그 쪽 글자로 정한다), 제목·머리말을
     만들지 않으며(section_path를 바꾸지 않는다), 그 쪽 블록 신뢰도는 UNRELIABLE_CONFIDENCE 이하다.
     tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
@@ -378,6 +378,7 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
     modes는 쪽마다 처리 모드(triage.PageMode. 파서가 넘기고, None이면 쪽 상태에서 page_mode(OCR 없음)): 쪽 상태와
     따로다. layer·scan은 텍스트 레이어 조각으로 블록을 만든다(scan 쪽 OCR 문단은 ocr로 받는다). ocr 쪽(깨진 글자층 대신
     OCR로 읽는 unreliable)은 텍스트 레이어 조각을 만들지 않고(장부 in_blocks에 들지 않는다) 받은 OCR 문단·그림만 낸다.
+    전제(파서가 보장한다): ocr 쪽은 tables가 비어 있고 그림에 텍스트 레이어 char_ids가 없다.
     위 unreliable 쪽 처리(문서 판정에서 빼기·신뢰도 상한)는 layer 모드 unreliable 쪽에만 쓴다."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     read = list(ocr) if ocr is not None else [[] for _ in pages]

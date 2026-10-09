@@ -116,8 +116,9 @@ def test_scanned_page_gets_tables_from_its_visible_text():
 
 
 def test_unreliable_page_keeps_its_tables_with_low_confidence(monkeypatch):
-    """OCR 없이 둔 unreliable 쪽도 digital처럼 표를 찾는다. 그 쪽 블록은 신뢰도 0.2 이하이고 제목을 만들지 않는다
-    ("1. 수출입 현황"은 앞머리가 있어 목록 항목)."""
+    """OCR 추가 설치가 없어 깨진 글자층으로 읽는 unreliable 쪽도 digital처럼 표를 찾는다. 그 쪽 블록은 신뢰도 0.2
+    이하이고 제목을 만들지 않는다("1. 수출입 현황"은 앞머리가 있어 목록 항목)."""
+    monkeypatch.setattr(pdf_parser.ocr_runtime, "available", lambda: False)
     monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
     specs = parse(report)
     assert [(s["kind"], s["confidence"]) for s in specs] == [
