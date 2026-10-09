@@ -1,8 +1,8 @@
 import hashlib
 import io
 import json
-import re
 import os
+import re
 import sqlite3
 import stat
 import sys
