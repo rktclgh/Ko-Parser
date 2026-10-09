@@ -489,3 +489,21 @@ def test_ledger_counts_broken_text_on_an_unreliable_page():
     assert page_stats(p).chars == 10
     _, ledgers = build_page_specs([p], ["unreliable"])
     assert ledgers == {1: Ledger(in_blocks=page_stats(p).chars, doubled=0)}
+
+
+def test_ocr_mode_page_makes_no_text_layer_blocks_and_keeps_ocr_confidence():
+    """ocr 모드 쪽(글자층 대신 OCR로 읽는 unreliable)은 텍스트 레이어 글자로 블록을 만들지 않는다(장부 in_blocks 0: 파서가
+    replaced로 센다). OCR 문단·그림은 깨진 글자층에서 나온 글자가 아니라 신뢰도 상한 0.2를 받지 않는다. 같은 문서의
+    digital 쪽 블록은 그 쪽이 빈 쪽일 때와 같다(그 쪽 큰 글자·작은 글자가 본문 크기·제목 단계에 들지 않는다)."""
+    first = page(line("1. 첫째 제목", 72, 100, 16), line("본문 문단이다.", 72, 130))
+    broken = page(line("깨진 큰 글자", 72, 100, 24),
+                  *[line("작은 글자가 아주 많이 적힌 깨진 줄이다", 72, 200 + 12 * i, 8) for i in range(30)], number=2)
+    para = OcrParagraph(text="다시 읽은 문단이다.", bbox=(0.1, 0.1, 0.5, 0.12), confidence=0.45)
+    chart = Figure(box=(90.0, 500.0, 510.0, 700.0), category="chart", text="가로축", line_ids=frozenset({1}))
+    before = build_specs([first, page(number=2)], ["digital", "digital"])
+    result, ledgers = build_page_specs([first, broken], ["digital", "unreliable"], None, [[], [para]],
+                                       [[], [FigureBlock(chart, "ocr", None)]], modes=["layer", "ocr"])
+    assert [s for s in result if s["locator"]["page"] == 1] == before
+    assert [(s["kind"], s["text"], s["text_source"], s["confidence"]) for s in result if s["locator"]["page"] == 2] == [
+        ("paragraph", "다시 읽은 문단이다.", "ocr", 0.45), ("figure", "가로축", "ocr", 0.7)]
+    assert ledgers[2] == Ledger(in_blocks=0, doubled=0)

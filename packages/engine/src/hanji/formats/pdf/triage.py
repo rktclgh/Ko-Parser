@@ -13,8 +13,8 @@ IMAGE_PAGE_MAX_CHARS = 50  # 보이는 글자가 이보다 적으면 scanned(본
 UNMAPPED_MIN = 0.1  # 유니코드로 못 읽는 글자 비율이 이 이상이면 unreliable
 PUA_MIN = 0.1  # 사용자 정의 영역 글자 비율이 이 이상이면 unreliable
 # 쪽을 어떻게 읽나(쪽 상태와 따로): layer = 텍스트 레이어로 블록(digital, OCR 없이 둔 unreliable), scan = 보이는 글자층
-# + 그림 속 글자는 OCR 줄(scanned)
-PageMode = Literal["layer", "scan"]
+# + 그림 속 글자는 OCR 줄(scanned), ocr = 깨진 글자층 대신 쪽 전체를 OCR 줄로(OCR을 쓸 수 있는 unreliable)
+PageMode = Literal["layer", "scan", "ocr"]
 
 
 def _is_pua(text: str) -> bool:
@@ -54,6 +54,8 @@ def hidden_chars(page: PageText) -> int:
     return sum(1 for c in page.chars if c.invisible and not c.text.isspace())
 
 
-def page_mode(state: TextLayerState) -> PageMode:
-    """쪽 상태 → 처리 모드. scanned만 scan이고 digital·unreliable은 텍스트 레이어로 읽는다."""
-    return "scan" if state == "scanned" else "layer"
+def page_mode(state: TextLayerState, ocr: bool = False) -> PageMode:
+    """쪽 상태 → 처리 모드. scanned는 scan, unreliable은 OCR을 쓸 수 있으면(ocr) ocr이고 아니면 digital처럼 layer."""
+    if state == "scanned":
+        return "scan"
+    return "ocr" if ocr and state == "unreliable" else "layer"

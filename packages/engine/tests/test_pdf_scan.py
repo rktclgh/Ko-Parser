@@ -207,3 +207,13 @@ def test_ocr_boxes_on_a_rotated_scanned_page_are_in_visible_page_coordinates():
                 (top - ink[1] * pt) / 600, (left + ink[2] * pt) / 800)
     assert para.text == "돌린 쪽의 글자도 바로 읽는다."
     assert all(abs(got - want) <= 0.02 for got, want in zip(para.bbox, expected)), (para.bbox, expected)
+
+
+def test_page_read_instead_of_its_text_layer_keeps_lines_over_visible_text():
+    """글자층 대신 OCR로 읽는 쪽(layer=False)은 겹침을 보지 않는다: 보이는 글자가 덮은 줄도 남긴다(깨진 글자층이 본문을
+    덮고 있어 겹침을 보면 OCR 줄이 모두 버려진다). 점수 거르기는 같다."""
+    covered = line(100, 100, 300, 120)
+    visible = page([char(c, 105 + 40 * i, 103, 140 + 40 * i, 117) for i, c in enumerate("가나다라")])
+    assert scan.keep(covered, visible) is False and scan.keep(covered, visible, layer=False) is True
+    assert scan.keep(line(100, 100, 300, 120, score=0.49), visible, layer=False) is False
+    assert scan.keep(line(100, 100, 300, 120, "가나", 0.69), visible, layer=False) is False

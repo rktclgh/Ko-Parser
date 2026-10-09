@@ -271,3 +271,18 @@ def test_photos_under_a_model_decor_box_are_not_figures():
     assert figures.arrange(p, "layer", regions).figures == ()
     assert len(figures.arrange(p, "layer").figures) == 2
     assert len(figures.arrange(p, "layer", [region("seal", (420, 600, 560, 740), 0.49)]).figures) == 2
+
+
+def test_ocr_mode_page_takes_ocr_lines_for_figures_like_a_scanned_page():
+    """ocr 모드 쪽(글자층 대신 OCR로 읽는 unreliable)은 scanned 쪽처럼 그림·캡션 글자를 OCR 줄에서 가져오고 깨진 텍스트
+    레이어 글자는 가져가지 않는다. 이미지 객체도 scan처럼 합치지 않는다(사진 속 글자는 OCR 문단이 된다). 레이아웃 모델은
+    scan처럼 늘 돌린다."""
+    lines = [OcrText("가로축", 0.9, 100, 280, 160, 292), OcrText("그림 1. 다시 읽은 차트", 0.9, 200, 320, 300, 332)]
+    regions = [region("chart", (90, 100, 510, 300)), region("figure_title", (195, 318, 305, 334))]
+    p = page(line("깨진 글자", 100, 290), images=[(100, 500, 400, 700)])
+    plan = figures.arrange(p, "ocr", regions, (), lines)
+    (chart,) = plan.figures
+    assert (chart.text, chart.caption.text, plan.used_lines) == ("가로축", "그림 1. 다시 읽은 차트", frozenset({0, 1}))
+    assert chart.char_ids | chart.caption.char_ids == frozenset()
+    assert plan == figures.arrange(p, "scan", regions, (), lines)
+    assert figures.wants_layout(page(), "ocr")

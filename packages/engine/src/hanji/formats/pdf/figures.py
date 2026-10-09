@@ -214,10 +214,10 @@ def table_rules(page: PageText, tables: Sequence[TableSpec] = ()) -> int:
 
 
 def wants_layout(page: PageText, mode: PageMode, tables: Sequence[TableSpec] = ()) -> bool:
-    """레이아웃 모델을 돌릴 쪽(§4.2): scan 모드 쪽, 그리고 그림이 될 이미지 객체가 있거나 path 객체가
-    LAYOUT_MIN_PATHS 이상이거나 선 있는 표(tables) 밖 긴 가로선이 TABLE_RULES 이상인 layer 모드 쪽(digital, 글자층으로
-    읽는 unreliable)."""
-    if mode == "scan":
+    """레이아웃 모델을 돌릴 쪽(§4.2): scan·ocr 모드 쪽(어차피 쪽을 그린다), 그리고 그림이 될 이미지 객체가 있거나 path
+    객체가 LAYOUT_MIN_PATHS 이상이거나 선 있는 표(tables) 밖 긴 가로선이 TABLE_RULES 이상인 layer 모드 쪽(digital,
+    글자층으로 읽는 unreliable)."""
+    if mode != "layer":
         return True
     return page.paths >= LAYOUT_MIN_PATHS or bool(photo_boxes(page)) or table_rules(page, tables) >= TABLE_RULES
 
@@ -342,11 +342,11 @@ def _pair(figure_boxes: Sequence[Box], captions: Sequence[Box]) -> dict[int, tup
 
 def _capture(page: PageText, mode: PageMode, box: Box, taken: set[int], lines: Sequence[OcrText],
              used: set[int]) -> tuple[str, frozenset[int], frozenset[int]]:
-    """상자(CAPTURE_PAD만큼 넓혀) 안에 중심이 드는 글자: scan 모드 쪽은 OCR 줄(읽기 순서, used는 이미 가져간 줄),
-    아니면 보이는 텍스트 레이어 글자(taken은 이미 표·캡션이 가져간 글자). 반환: (글자(NFC, 줄은 \\n), 글자 순번,
-    줄 순번)."""
+    """상자(CAPTURE_PAD만큼 넓혀) 안에 중심이 드는 글자: scan·ocr 모드 쪽은 OCR 줄(읽기 순서, used는 이미 가져간 줄),
+    layer 모드 쪽은 보이는 텍스트 레이어 글자(taken은 이미 표·캡션이 가져간 글자). 반환: (글자(NFC, 줄은 \\n), 글자
+    순번, 줄 순번)."""
     x0, y0, x1, y1 = box[0] - CAPTURE_PAD, box[1] - CAPTURE_PAD, box[2] + CAPTURE_PAD, box[3] + CAPTURE_PAD
-    if mode == "scan":
+    if mode != "layer":
         ids = [i for i, t in enumerate(lines) if i not in used
                and x0 <= (t.x0 + t.x1) / 2 <= x1 and y0 <= (t.y0 + t.y1) / 2 <= y1]
         text = "\n".join(t.text for t in reading_order([lines[i] for i in ids]))
@@ -361,9 +361,10 @@ def _capture(page: PageText, mode: PageMode, box: Box, taken: set[int], lines: S
 def arrange(page: PageText, mode: PageMode, regions: Sequence[Region] = (), tables: Sequence[TableSpec] = (),
             lines: Sequence[OcrText] = ()) -> PagePlan:
     """한 쪽의 그림·캡션(§4.3~4.5). regions는 레이아웃 상자(보이는 쪽 pt), tables는 find_tables 결과, lines는
-    scan 모드 쪽의 거른 OCR 줄. layer 모드 쪽은 이미지 객체(page.images)도 본다. 순서: 분류·점수 기준 → 감싸는 상자
+    scan·ocr 모드 쪽의 거른 OCR 줄. layer 모드 쪽은 이미지 객체(page.images)도 본다. 순서: 분류·점수 기준 → 감싸는 상자
     버리기 → (layer) 이미지 객체 합치기 → 겹침·조각 정리 → 그림 우선(표) → 표 제목 거르기 → 캡션 짝 → 캡션 글자 →
-    그림 글자. scan 모드 쪽은 OCR 줄만 그림·캡션으로 옮긴다: 상자 안 텍스트 레이어 글자는 문단으로 남는다."""
+    그림 글자. scan·ocr 모드 쪽은 OCR 줄만 그림·캡션으로 옮긴다: scan 쪽 상자 안 텍스트 레이어 글자는 문단으로 남고,
+    ocr 쪽 텍스트 레이어 글자는 블록이 되지 않는다(글자 장부의 replaced)."""
     cands: list[_Candidate] = [(r.box, FIGURE_CLASSES[r.cls], r.score) for r in regions
                                if r.cls in FIGURE_CLASSES and r.score >= FIGURE_MIN_SCORE and area(r.box) > 0]
     caption_boxes = [r.box for r in regions if r.cls == CAPTION_CLASS and r.score >= CAPTION_MIN_SCORE and area(r.box) > 0]

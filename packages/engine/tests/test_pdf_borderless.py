@@ -656,9 +656,11 @@ def test_model_box_over_a_ruled_table_keeps_the_ruled_table_and_leaves_no_record
     assert settle(page, "layer", ruled, [table_region((70, 98, 374, 162))], []) == (ruled, [])
 
 
-def test_scan_mode_and_turned_pages_are_not_tried():
+def test_scan_and_ocr_mode_and_turned_pages_are_not_tried():
     page = page_of(table_4x3)
-    assert settle(page, "scan", [], [table_region((60, 100, 400, 200))], []) == ([], [])
+    for mode in ("scan", "ocr"):  # OCR 줄을 읽는 쪽은 선 없는 표를 시도하지 않는다(ocr 쪽은 표를 아예 만들지 않는다)
+        assert settle(page, mode, [], [table_region((60, 100, 400, 200))], []) == ([], [])
+        assert not borderless.applies(page, mode)
     buf = io.BytesIO()
     c = Canvas(buf, pagesize=(W, H), invariant=1, pageCompression=0)
     c.setPageRotation(90)
