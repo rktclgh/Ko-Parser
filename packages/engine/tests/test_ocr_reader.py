@@ -254,6 +254,20 @@ def test_release_is_registered_at_exit():
     assert out.stdout.split() == ["False", "True"]
 
 
+@pytest.mark.parametrize(("preset", "expected"), [(None, "1"), ("0", "0")])
+def test_ocr_module_turns_off_onnxruntime_telemetry_before_import(preset, expected):
+    """onnxruntime 원격 측정 스레드는 import 전에만 끌 수 있다: OCR 모듈 import가 기본값으로 끈다(사용자가 정한 값은 둔다).
+    이 프로세스의 환경은 이미 바뀌어 있으므로 하위 프로세스에서 본다."""
+    env = {k: v for k, v in os.environ.items() if k != "ORT_DISABLE_TELEMETRY"}
+    if preset is not None:
+        env["ORT_DISABLE_TELEMETRY"] = preset
+    code = "import os\nfrom hanji.formats.pdf import ocr\nprint(os.environ['ORT_DISABLE_TELEMETRY'])"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False,
+                         env=env)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == expected
+
+
 def test_reader_runs_only_detection_and_recognition():
     """방향 판정(180° 분류)은 쓰지 않는다: 긴 한국어 줄을 뒤집어 글자를 잃는다(스펙 §2). 세션은 검출·인식 둘뿐."""
     got = ocr.get_reader()
