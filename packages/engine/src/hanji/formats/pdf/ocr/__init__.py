@@ -7,6 +7,7 @@ OCR 추가 설치(hanji[ocr])가 없어도 이 모듈은 import된다: numpy·on
 
 import atexit
 import importlib.util
+import os
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -25,6 +26,11 @@ __all__ = ["MODEL_NAMES", "OcrLine", "OcrUnavailable", "available", "get_reader"
 INSTALL_HINT = 'pip install "hanji[ocr]"'
 MODULES = ("numpy", "onnxruntime", "pyclipper")  # OCR 추가 설치가 까는 모듈
 MODEL_NAMES = ("ocr-det", "ocr-rec", "ocr-rec-config")  # hanji.models 이름(검출·인식·인식 설정)
+
+# onnxruntime(1.30)은 POSIX에서도 원격 측정(1DS)을 켠다: import할 때 세션과 무관한 스레드를 띄우고 libcurl로
+# mobile.events.data.microsoft.com에 올린다. 그 스레드는 _release로 놓을 수 없어 프로세스 끝(C++ 정적 소멸자)까지 살아
+# 있다(macOS 종료 abort 134의 원인 후보). onnxruntime을 import하기 전에만 끌 수 있다. 사용자가 정한 값은 둔다
+os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
 
 
 @dataclass(frozen=True, slots=True)

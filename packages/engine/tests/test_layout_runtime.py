@@ -1,6 +1,7 @@
 """레이아웃 실행부의 설치 확인·세션 캐시. onnxruntime·실제 모델 없이 돈다(설치 확인과 만들기를 바꿔 끼우고, 모델은
 HANJI_MODEL_DIR의 가짜 파일)."""
 
+import os
 import subprocess
 import sys
 import threading
@@ -146,3 +147,16 @@ def test_detector_that_rejects_the_model_is_unavailable_and_retried(monkeypatch,
     assert layout._detector is None
     monkeypatch.setattr(detector, "LayoutDetector", lambda model, config: "built")
     assert layout.get_detector() == "built"
+
+
+@pytest.mark.parametrize(("preset", "expected"), [(None, "1"), ("0", "0")])
+def test_layout_module_turns_off_onnxruntime_telemetry_before_import(preset, expected):
+    """OCR 모듈과 같다: 레이아웃 모듈 import가 onnxruntime 원격 측정을 기본값으로 끈다(사용자가 정한 값은 둔다)."""
+    env = {k: v for k, v in os.environ.items() if k != "ORT_DISABLE_TELEMETRY"}
+    if preset is not None:
+        env["ORT_DISABLE_TELEMETRY"] = preset
+    code = "import os\nfrom hanji.formats.pdf import layout\nprint(os.environ['ORT_DISABLE_TELEMETRY'])"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", check=False,
+                         env=env)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == expected

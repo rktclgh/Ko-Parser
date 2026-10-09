@@ -7,6 +7,7 @@ inference.yml)은 hanji.models가 찾는다(HANJI_MODEL_DIR → `hanji models fe
 
 import atexit
 import importlib.util
+import os
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -25,6 +26,8 @@ INSTALL_HINT = 'pip install "hanji[layout]"'
 MODULES = ("numpy", "onnxruntime")  # 레이아웃 추가 설치가 까는 모듈
 MODEL_NAMES = ("layout", "layout-config")  # hanji.models 이름(모델·설정)
 MODEL_ID = "PP-DocLayout_plus-L"
+
+os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")  # onnxruntime import 전에 원격 측정을 끈다(OCR 실행부와 같은 이유)
 
 
 @dataclass(frozen=True, slots=True)
