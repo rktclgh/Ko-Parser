@@ -6,7 +6,9 @@ import pytest
 from hanji.core import build_tree
 from hanji.formats.base import ParsedSource
 from hanji.viewer import render_html
-from hanji_contracts import DocumentTree, PageInfo, SourceInfo, TextLayerStats
+from hanji_contracts import (
+    Attempt, BBox, DocumentTree, PageInfo, PageLocator, ProcessingHistory, RegionRecord, SourceInfo, TextLayerStats,
+)
 
 DATA = re.compile(r'<script type="application/json" id="ko-data">(.*?)</script>', re.DOTALL)
 A4 = PageInfo(page=1, width_pt=595.0, height_pt=842.0, render_dpi=144)
@@ -241,3 +243,28 @@ def test_figure_and_caption_blocks_carry_category_pairing_and_the_layout_notice(
     assert cap["figure"] is None and cap["figure_of"] == fig["id"]
     assert data_of(page)["document"]["layout_notice"].startswith("선·도형 그림·캡션은 레이아웃 추가 설치가 필요")
     assert "function thumb(" in page and data_of(render_html(tree))["document"]["layout_notice"] is None
+
+
+def test_unreliable_page_notice_follows_its_history_record():
+    """unreliable 쪽 안내는 블록이 아니라 처리 이력의 결과를 따른다: OCR로 다시 읽은 쪽은(그림 블록만 있고 OCR 문단이
+    없어도) OCR 안내, 글자층으로 블록을 만든 쪽은(OCR 글자가 없어 돌아온 쪽 포함) 믿기 어렵다는 안내. 처리 이력을 받지
+    않으면 OCR 블록이 있어도 TC-A 안내다."""
+    stats = TextLayerStats(chars=120, invisible_ratio=0.0, unmapped_ratio=0.4, pua_ratio=0.0, max_image_coverage=0.0)
+    pages = tuple(PageInfo(page=n, width_pt=595.0, height_pt=842.0, render_dpi=144, text_layer="unreliable",
+                           text_stats=stats) for n in (1, 2))
+    source = SourceInfo(name="깨짐.pdf", mime="application/pdf", content_hash="sha256:" + "2" * 64, page_count=2)
+    figure_only = {**spec("", 0.3, "figure"), "text_source": "ocr"}
+    kept = {**spec("깨진 글자", 0.2, page=2), "confidence": 0.2}
+    tree = build_tree(ParsedSource(mime="application/pdf", pages=pages, blocks=[figure_only, kept]), "u1", 1, source)
+
+    def note(n: int, reason: str) -> RegionRecord:
+        return RegionRecord(region_id=f"p{n}-unreliable-text-layer", kind="paragraph", chosen="det",
+                            fallback_reason=reason, attempts=(Attempt(layer="det"),),
+                            locator=PageLocator(page=n, bbox=BBox(x0=0.0, y0=0.0, x1=1.0, y1=1.0)))
+
+    history = ProcessingHistory(document_id="u1", version=1, regions=(
+        note(1, "unreliable_text_layer_ocr"), note(2, "unreliable_text_layer_kept")))
+    assert [p["notice"] for p in data_of(render_html(tree, history=history))["pages"]] == [
+        "글자층이 깨져 OCR로 다시 읽음(검증 전)", "글자층이 깨져 블록 글자를 믿기 어렵다(신뢰도 0.2 이하)"]
+    assert [p["notice"] for p in data_of(render_html(tree))["pages"]] == [
+        "글자층이 깨져 블록 글자를 믿기 어렵다(신뢰도 0.2 이하)"] * 2

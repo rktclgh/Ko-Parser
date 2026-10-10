@@ -34,7 +34,7 @@ PARA_INDENT = 1.0  # 왼쪽 시작 차 ≤ 본문 크기 × 1
 MARGIN = 0.08  # 머리말·꼬리말 영역: 쪽 높이의 위·아래 8%(줄의 세로 중심 기준)
 SAME_POSITION = 0.02  # 같은 위치: 세로 중심 차 ≤ 쪽 높이의 2%
 MIN_PAGES_FOR_REPEAT = 3
-UNRELIABLE_CONFIDENCE = 0.2  # unreliable 쪽(깨진 글자층) 블록의 신뢰도 상한(쪽 단위)
+UNRELIABLE_CONFIDENCE = 0.2  # 깨진 글자층으로 블록을 만든(layer 모드) unreliable 쪽 블록의 신뢰도 상한(쪽 단위)
 BORDERLESS_CONFIDENCE = 0.4  # 선 없는 표 블록(정책값, 보정된 확률 아님: 칸 배정·칸 안 순서를 장담하지 못한다)
 CONFIDENCE = {"paragraph": 0.7, "list_item": 0.7, "heading": 0.6, "page_header": 0.8, "page_footer": 0.8,
               "table": 0.6, "figure": 0.7, "caption": 0.7}  # 그림·캡션은 모델 점수(CPU마다 다르다)를 넣지 않는다
@@ -362,7 +362,7 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
     """(블록 명세, 쪽 번호 → 글자 장부). 장부는 명세를 만들 때 센다: 표·그림·캡션은 char_ids(그림과 짝 캡션은 따로),
     줄·조각은 블록이 된 조각의 글자 수(표·그림 글자를 뺀 쪽에서 묶어 서로 겹치지 않는다). 숨은 글자·공백은 세지
     않는다. 블록 명세(계약 build_blocks 입력). 모든 쪽에서 보이는 글자로 블록을 만든다(숨은 글자는 fragments가 버린다).
-    unreliable 쪽(깨진 글자층)도 같은 경로지만 그 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않고(섞인 문서의
+    unreliable 쪽(깨진 글자층, layer 모드)도 같은 경로지만 그 쪽 조각은 본문 크기·머리말 반복·제목 단계에 쓰지 않고(섞인 문서의
     digital 쪽 블록이 바뀌지 않게. digital·scanned 글자가 없는 문서만 본문 크기를 그 쪽 글자로 정한다), 제목·머리말을
     만들지 않으며(section_path를 바꾸지 않는다), 그 쪽 블록 신뢰도는 UNRELIABLE_CONFIDENCE 이하다.
     tables는 쪽마다 표(tables.find_tables): 표 글자(char_ids)는 줄·조각에서
@@ -375,8 +375,11 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
     figures는 쪽마다 그림 블록(FigureBlock): 그림·짝 캡션이 가져간 글자(char_ids)는 표처럼 줄·조각에서 빼고(본문 크기·
     머리말 판정에도 쓰지 않는다), 그림(위 캡션이 있으면 캡션)의 윗변 위치에 caption·figure 블록을 끼운다(OCR 문단과
     같은 규칙. 아래 캡션은 그림 바로 뒤). 그림 글자가 비어도 그림 블록은 남는다.
-    modes는 쪽마다 처리 모드(triage.PageMode. 파서가 넘기고, None이면 쪽 상태에서 page_mode): 쪽 상태와 따로다. layer·scan은
-    모두 텍스트 레이어 조각으로 블록을 만든다(scan 쪽 OCR 문단은 ocr로 받는다). unreliable 쪽 처리는 쪽 상태로 정한다."""
+    modes는 쪽마다 처리 모드(triage.PageMode. 파서가 넘기고, None이면 쪽 상태에서 page_mode(OCR 없음)): 쪽 상태와
+    따로다. layer·scan은 텍스트 레이어 조각으로 블록을 만든다(scan 쪽 OCR 문단은 ocr로 받는다). ocr 쪽(깨진 글자층 대신
+    OCR로 읽는 unreliable)은 텍스트 레이어 조각을 만들지 않고(장부 in_blocks에 들지 않는다) 받은 OCR 문단·그림만 낸다.
+    전제(파서가 보장한다): ocr 쪽은 tables가 비어 있고 그림에 텍스트 레이어 char_ids가 없다.
+    위 unreliable 쪽 처리(문서 판정에서 빼기·신뢰도 상한)는 layer 모드 unreliable 쪽에만 쓴다."""
     found = list(tables) if tables is not None else [[] for _ in pages]
     read = list(ocr) if ocr is not None else [[] for _ in pages]
     pictures = list(figures) if figures is not None else [[] for _ in pages]
@@ -384,11 +387,17 @@ def build_page_specs(pages: Sequence[PageText], states: Sequence[TextLayerState]
     if len(modes) != len(pages):
         raise ValueError("modes must give one PageMode per page")
     frags: list[list[Fragment]] = []
-    for page, page_tables, page_figures in zip(pages, found, pictures, strict=True):
+    for page, mode, page_tables, page_figures in zip(pages, modes, found, pictures, strict=True):
+        if mode == "ocr":  # 깨진 글자층 대신 OCR로 읽는 쪽: 텍스트 레이어 글자는 블록이 되지 않는다(파서가 replaced로 센다)
+            frags.append([])
+            continue
         taken = {i for t in page_tables for i in t.char_ids} | {i for f in page_figures for i in f.char_ids}
         rest = replace(page, chars=tuple(c for i, c in enumerate(page.chars) if i not in taken)) if taken else page
         frags.append(fragments(rest))
-    rough = {page.page for page, state in zip(pages, states, strict=True) if state == "unreliable"}
+    # 깨진 글자층으로 블록을 만드는 쪽(layer 모드 unreliable): 문서 판정에서 빼고 신뢰도를 누른다(ocr 쪽 블록은 OCR이
+    # 읽은 글자라 누르지 않는다)
+    rough = {page.page for page, state, mode in zip(pages, states, modes, strict=True)
+             if state == "unreliable" and mode == "layer"}
     clean = [[] if page.page in rough else page_frags for page, page_frags in zip(pages, frags, strict=True)]
     body = body_size(clean)
     if body is None:  # digital·scanned 글자가 없다: unreliable 쪽 글자로 줄을 잇는다(바뀔 digital 블록이 없다)

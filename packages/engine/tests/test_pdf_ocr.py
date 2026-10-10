@@ -20,6 +20,8 @@ import hanji_fonts
 from hanji import models
 from hanji.errors import OcrUnavailable
 from hanji.formats.pdf import PdfParser, ocr, scan
+from hanji.formats.pdf import parser as pdf_parser
+from hanji_contracts import TextCoverage
 
 FONT = "HYGothic-Medium"
 pdfmetrics.registerFont(UnicodeCIDFont(FONT))
@@ -392,3 +394,23 @@ def test_parallel_parses_give_the_same_ocr_blocks():
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: PdfParser(layout=False).parse(data, "s.pdf"), range(8)))
     assert all(r == expected for r in results) and len(expected.blocks) == 2
+
+
+def test_unreliable_page_is_read_by_ocr_where_its_broken_text_layer_lies(monkeypatch):
+    """OCR을 쓸 수 있으면 unreliable 쪽은 scanned처럼 쪽을 그려 OCR 문단으로 읽는다. 깨진 글자층(여기서는 쪽 그림 아래
+    깔려 렌더에는 보이지 않는 보통 렌더 모드 글자)이 OCR 줄을 덮어도 줄을 버리지 않고, 글자층 글자는 replaced로 센다."""
+    pytest.importorskip("onnxruntime")
+    require_models(*ocr.MODEL_NAMES)
+
+    def broken(c):
+        for x, top, size, _ in BODY:
+            put(c, x, 400 - top - size, size, "깨진 글자층 깨진 글자층")
+        scanned_page(c, 300, 400, BODY)
+
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    parsed = PdfParser(layout=False).parse(pdf(broken), "u.pdf")
+    assert [(b["kind"], b["text_source"], b["text"]) for b in parsed.blocks] == [
+        ("paragraph", "ocr", "스캔한 쪽의 글자를 읽는다.\n두 줄로 된 문단이다."), ("paragraph", "ocr", "다음 문단은 한 줄이다.")]
+    (page,) = parsed.pages
+    assert page.coverage == TextCoverage(layer_chars=30, in_blocks=0, hidden=0, replaced=30)
+    assert [r.fallback_reason for r in parsed.regions] == ["unreliable_text_layer_ocr"]

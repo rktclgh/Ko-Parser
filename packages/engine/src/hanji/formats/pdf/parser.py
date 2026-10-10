@@ -3,8 +3,10 @@
 (text_source="ocr")으로 더한다. layer 모드의 바로 선 쪽은 선 없는 표(borderless.settle: 글자 정렬, 신뢰도
 group.BORDERLESS_CONFIDENCE, 처리 이력 borderless_table)도 table 블록으로 낸다. 그림은 digital 쪽 이미지 객체(사진)와
 레이아웃 모델(선·도형 그림·스캔 쪽 그림·캡션)로 찾아 figure·caption 블록과 잘라 낸 PNG(ParsedSource.assets)로 낸다.
-unreliable 쪽(글자층이 깨진 쪽)은 digital과 같은 경로로 깨진 글자층에서 블록을 만들고(신뢰도 상한
-group.UNRELIABLE_CONFIDENCE) 처리 이력에 한 줄 남긴다.
+unreliable 쪽(글자층이 깨진 쪽)은 OCR을 쓸 수 있으면 scanned처럼 쪽을 그려 OCR 문단으로 읽고(깨진 글자층 글자는 블록에
+넣지 않고 글자 장부의 replaced로 센다. 표는 만들지 않는다), OCR을 쓸 수 없거나 받아들인 OCR 글자가 없으면(보이는
+글자층이 있을 때) digital과 같은 경로로 깨진 글자층에서 블록을 만든다(신뢰도 상한 group.UNRELIABLE_CONFIDENCE).
+어느 쪽이든 처리 이력에 한 줄 남긴다.
 쪽마다 글자 장부(PageInfo.coverage)를 센다. 장부가 맞지 않으면 그 쪽 coverage는 None이고 처리 이력에 한 줄 남긴다.
 쪽 렌더는 필요한 쪽만 한 번(PDFIUM_LOCK 안), OCR·모델·PNG 인코딩은 잠금 밖에서 한다."""
 
@@ -36,6 +38,9 @@ NO_IMAGE_MODEL = ("layout-model figure image not stored "
 NO_IMAGE_PHOTO = ("image-object figure image not stored "
                   "(empty crop or document figure bytes over MAX_DOCUMENT_ASSET_BYTES)")
 UNRELIABLE_KEPT = "unreliable_text_layer_kept"  # unreliable 쪽을 OCR 없이 깨진 글자층으로 블록을 만들었다
+UNRELIABLE_OCR = "unreliable_text_layer_ocr"  # unreliable 쪽을 깨진 글자층 대신 OCR로 읽었다(글자층 글자는 replaced)
+# OCR로 읽으려던 unreliable 쪽에서 받아들인 OCR 글자가 없어 깨진 글자층으로 돌아왔다(UNRELIABLE_KEPT 기록에 붙인다)
+NO_OCR_TEXT = GateResult(passed=False, checks=(GateCheck(name="ocr_text", passed=False, value=0, threshold=">0"),))
 COVERAGE_MISMATCH = "coverage_mismatch"  # 글자 장부가 맞지 않는다(보이는 글자가 블록에 정확히 한 번씩 들지 않았다: 버그)
 FULL_PAGE = (0.0, 0.0, 1.0, 1.0)  # 쪽 단위 처리 이력의 상자(보이는 쪽 0~1)
 
@@ -77,44 +82,54 @@ class PdfParser:
         pages = extract_pages(data, name)
         stats = [page_stats(page) for page in pages]
         states = [classify(s) for s in stats]
-        use_ocr = "scanned" in states and bool(self.ocr or (self.ocr is None and ocr_runtime.available()))
+        use_ocr = (("scanned" in states or "unreliable" in states)
+                   and bool(self.ocr or (self.ocr is None and ocr_runtime.available())))
         if use_ocr:
             ocr_runtime.get_reader()  # 깨진 설치는 쪽을 그리기 전에 알린다
         use_layout: bool | None = None  # 모델을 돌릴 첫 쪽에서 정한다(그런 쪽이 없으면 설치를 확인하지 않는다)
         budget = figures.AssetBudget()
-        modes = [page_mode(s) for s in states]  # 쪽 상태와 따로: 이 쪽을 어떻게 읽나(블록 명세에도 넘긴다)
+        modes = [page_mode(s, use_ocr) for s in states]  # 쪽 상태와 따로: 이 쪽을 어떻게 읽나(블록 명세에도 넘긴다)
         # unreliable 쪽은 다른 쪽을 다 돈 뒤에 돈다: digital·scanned 쪽 그림이 문서 자산 예산을 지금과 똑같이 먼저 쓰고,
         # unreliable 쪽 그림은 남은 예산만 쓴다(앞 unreliable 쪽 때문에 뒤 digital 쪽 그림 이미지·처리 이력이 바뀌지 않게)
         results: dict[int, _PageResult] = {}
         for index in sorted(range(len(pages)), key=lambda k: states[k] == "unreliable"):
             page, state, mode = pages[index], states[index], modes[index]
-            # 선 있는 표를 처리 모드를 정한 뒤 한 번 찾고, 그 결과로 모델 게이트를 정한다(표 밖 긴 가로선). 지금(TC-A)은
-            # 모든 쪽이 글자층에서 표를 찾고, TC-B에서 OCR로 대신 읽는 쪽이 생기면 그 쪽은 표 찾기를 건너뛴다
-            found = find_tables(page)
+            image, lines, gate = None, None, None
+            if mode == "ocr":  # 깨진 글자층 대신 OCR로 읽을 쪽: 먼저 그려 겹침 거르기 없이 읽는다
+                image = scan.render(data, name, index)
+                lines = scan.page_lines(image, page, layer=False)
+                if stats[index].chars and not any(t.text.strip() for t in lines):
+                    # 받아들인 OCR 글자가 없는데 보이는 글자층이 있으면 TC-A 유지 경로로 돌아간다(원문을 결과물에
+                    # 남긴다). 표·그림·블록 명세·장부가 모두 이 최종 모드를 보고, 그린 그림은 다시 쓴다
+                    mode = modes[index] = "layer"
+                    lines, gate = None, NO_OCR_TEXT
+            # 선 있는 표를 처리 모드를 정한 뒤 한 번 찾고, 그 결과로 모델 게이트를 정한다(표 밖 긴 가로선). OCR로 대신
+            # 읽는 쪽(ocr)은 깨진 글자층으로 표를 만들지 않는다
+            found = find_tables(page) if mode != "ocr" else []
             want = figures.wants_layout(page, mode, found)  # 쪽 루프 안에서: 이미지 객체 상자를 쪽마다 한 번만 구한다
             if want and use_layout is None:
                 use_layout = bool(self.layout or (self.layout is None and layout_runtime.available()))
                 if use_layout:
                     layout_runtime.get_detector()  # 깨진 설치는 쪽을 그리기 전에 알린다(렌더하는 쪽은 모두 want)
-            result = _page(data, name, index, page, mode, found, use_ocr and state == "scanned",
-                           bool(use_layout) and want, budget)
-            # 선 없는 표: 렌더 여부와 상관없이 쪽마다 한 번(그림 정리 뒤 남은 글자로)
+            result = _page(data, name, index, page, mode, found, use_ocr and mode != "layer",
+                           bool(use_layout) and want, budget, image, lines)
+            # 선 없는 표: 렌더 여부와 상관없이 쪽마다 한 번(그림 정리 뒤 남은 글자로. scan·ocr 쪽은 시도하지 않는다)
             result.tables, notes = borderless.settle(page, mode, result.tables, result.layout_tables,
                                                      [f.figure for f in result.figures])
             result.regions += notes
             if state == "unreliable":
                 result.regions.insert(0, _region(page, "unreliable-text-layer", FULL_PAGE, "paragraph",
-                                                 UNRELIABLE_KEPT, False))
+                                                 UNRELIABLE_OCR if mode == "ocr" else UNRELIABLE_KEPT, False, gate))
             results[index] = result
         done = [results[k] for k in range(len(pages))]
         blocks, ledgers = build_page_specs(pages, states, [d.tables for d in done], [d.paras for d in done],
                                            [d.figures for d in done], modes=modes)
         infos = []
-        for page, s, state, result in zip(pages, stats, states, done, strict=True):
-            coverage = _coverage(page, s, ledgers[page.page])
+        for page, s, state, mode, result in zip(pages, stats, states, modes, done, strict=True):
+            coverage = _coverage(page, s, ledgers[page.page], mode)
             if coverage is None:
                 result.regions.append(_region(page, "coverage", FULL_PAGE, "paragraph", COVERAGE_MISMATCH, False,
-                                              _ledger_gate(s, ledgers[page.page])))
+                                              _ledger_gate(s, ledgers[page.page], mode)))
             infos.append(PageInfo(page=page.page, width_pt=page.width_pt, height_pt=page.height_pt,
                                   rotation=page.rotation, render_dpi=RENDER_DPI, text_layer=state, text_stats=s,
                                   coverage=coverage))
@@ -122,31 +137,44 @@ class PdfParser:
                             regions=tuple(r for d in done for r in d.regions))
 
 
-def _coverage(page: PageText, stats: TextLayerStats, ledger: Ledger) -> TextCoverage | None:
-    """쪽 글자 장부. 보이는 공백 아닌 글자(stats.chars)가 블록에 정확히 한 번씩 들었을 때만, 아니면 None(버그 신호:
-    파싱을 실패시키지 않고 처리 이력에 coverage_mismatch를 남긴다). replaced·rescued는 아직 늘 0이다."""
-    if ledger.in_blocks != stats.chars or ledger.doubled:
+def _placed(stats: TextLayerStats, mode: PageMode) -> int:
+    """블록에 들어야 할 글자 수: 보이는 공백 아닌 글자(stats.chars) 모두. ocr 쪽(깨진 글자층 대신 OCR로 읽은 쪽)은 0이다
+    (그 글자는 모두 replaced)."""
+    return 0 if mode == "ocr" else stats.chars
+
+
+def _coverage(page: PageText, stats: TextLayerStats, ledger: Ledger, mode: PageMode) -> TextCoverage | None:
+    """쪽 글자 장부. 블록에 들 글자(_placed)가 블록에 정확히 한 번씩 들었을 때만, 아니면 None(버그 신호: 파싱을
+    실패시키지 않고 처리 이력에 coverage_mismatch를 남긴다). ocr 쪽의 보이는 글자는 replaced다. rescued는 아직 늘 0이다."""
+    placed = _placed(stats, mode)
+    if ledger.in_blocks != placed or ledger.doubled:
         return None
     hidden = hidden_chars(page)
-    return TextCoverage(layer_chars=stats.chars + hidden, in_blocks=ledger.in_blocks, hidden=hidden)
+    return TextCoverage(layer_chars=stats.chars + hidden, in_blocks=ledger.in_blocks, hidden=hidden,
+                        replaced=stats.chars - placed)
 
 
-def _ledger_gate(stats: TextLayerStats, ledger: Ledger) -> GateResult:
-    """coverage_mismatch 처리 이력에 붙일 장부 숫자: in_blocks(기준은 보이는 공백 아닌 글자 수)와 doubled(기준 0)."""
-    checks = (GateCheck(name="in_blocks", passed=ledger.in_blocks == stats.chars, value=ledger.in_blocks,
-                        threshold=f"=={stats.chars}"),
+def _ledger_gate(stats: TextLayerStats, ledger: Ledger, mode: PageMode) -> GateResult:
+    """coverage_mismatch 처리 이력에 붙일 장부 숫자: in_blocks(기준은 블록에 들 글자 수 _placed)와 doubled(기준 0)."""
+    placed = _placed(stats, mode)
+    checks = (GateCheck(name="in_blocks", passed=ledger.in_blocks == placed, value=ledger.in_blocks,
+                        threshold=f"=={placed}"),
               GateCheck(name="doubled", passed=ledger.doubled == 0, value=ledger.doubled, threshold="==0"))
     return GateResult(passed=all(c.passed for c in checks), checks=checks)
 
 
 def _page(data: bytes, name: str, index: int, page: PageText, mode: PageMode, tables: list[TableSpec],
-          ocr_here: bool, layout_here: bool, budget: figures.AssetBudget) -> _PageResult:
+          ocr_here: bool, layout_here: bool, budget: figures.AssetBudget, image: Image.Image | None = None,
+          lines: list[scan.OcrText] | None = None) -> _PageResult:
     """쪽 하나: (필요할 때만) 렌더(잠금 안) → OCR 줄·레이아웃 상자(잠금 밖) → 그림 정리 → PNG → 남은 OCR 줄은 문단.
-    렌더가 필요 없는 쪽(글자만 있는 layer 모드 쪽 등)은 지금과 같은 경로(표만)."""
+    렌더가 필요 없는 쪽(글자만 있는 layer 모드 쪽 등)은 지금과 같은 경로(표만). image·lines는 쪽 루프가 이미 그리고
+    읽은 것(ocr 쪽, 또는 OCR 글자가 없어 유지 경로로 돌아온 쪽의 그림): 다시 그리거나 읽지 않는다."""
     if not (ocr_here or layout_here or (mode == "layer" and figures.photo_boxes(page))):
         return _PageResult(tables=list(tables))
-    image = scan.render(data, name, index)
-    lines = scan.page_lines(image, page) if ocr_here else []
+    if image is None:
+        image = scan.render(data, name, index)
+    if lines is None:
+        lines = scan.page_lines(image, page) if ocr_here else []
     regions = figures.page_regions(layout_runtime.detect(image), image.size, page) if layout_here else []
     plan = figures.arrange(page, mode, regions, tables, lines)
     out = _PageResult(tables=list(plan.tables), layout_tables=plan.layout_tables)
@@ -161,7 +189,7 @@ def _page(data: bytes, name: str, index: int, page: PageText, mode: PageMode, ta
     out.paras = scan.paragraphs(scan.reading_order(rest), page)
     out.regions += [_region(page, f"table-in-figure-{k}", t.bbox, "table", TABLE_IN_FIGURE, layout_here)
                     for k, t in enumerate(plan.dropped, 1)]  # 표를 버리는 것은 모델이 찾은 그림뿐(리뷰 I1)
-    if not borderless.applies(page, mode):  # 선 없는 표를 시도하지 않는 쪽(scan 모드·회전 쪽)의 모델 표 상자만
+    if not borderless.applies(page, mode):  # 선 없는 표를 시도하지 않는 쪽(scan·ocr 모드·회전 쪽)의 모델 표 상자만
         out.regions += [_region(page, f"layout-table-{k}", _unit(r.box, page), "table", LAYOUT_TABLE, True)
                         for k, r in enumerate(plan.layout_tables, 1)]
     return out

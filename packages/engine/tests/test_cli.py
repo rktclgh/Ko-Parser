@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import sqlite3
 import stat
 import sys
@@ -17,7 +18,9 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
 from hanji.formats.base import ParsedSource
+from hanji.formats.pdf import ocr
 from hanji.formats.pdf import parser as pdf_parser
+from hanji.formats.pdf.ocr import OcrLine
 from hanji.store import SqliteStore
 from hanji_contracts import ChangeBatch, DocumentTree, PageInfo, ProcessingHistory, SourceInfo
 
@@ -457,3 +460,31 @@ def test_parse_no_ocr_keeps_an_unreliable_page_with_its_ledger_and_history(capsy
     regions = ProcessingHistory.model_validate_json(out).regions
     assert code == 0 and [(r.region_id, r.fallback_reason) for r in regions] == [
         ("p1-unreliable-text-layer", "unreliable_text_layer_kept")]
+
+
+def test_view_notice_follows_the_unreliable_page_history(capsys, db, tmp_path, monkeypatch):
+    """view는 상태 파일의 처리 이력을 뷰어에 넘긴다: OCR로 다시 읽은 unreliable 쪽은 OCR 안내, --no-ocr로 글자층을 남긴
+    쪽은 믿기 어렵다는 안내(원본이 같으면 저장된 버전을 쓰므로 상태 파일을 따로 둔다). OCR은 모델 없이 바꿔 끼운다."""
+    pdfmetrics.registerFont(UnicodeCIDFont("HYGothic-Medium"))
+    buf = io.BytesIO()
+    c = Canvas(buf, pagesize=(595.0, 842.0), invariant=1, pageCompression=0)
+    c.setFont("HYGothic-Medium", 11)
+    c.drawString(72, 770, "깨진 쪽 글자다.")
+    c.showPage()
+    c.save()
+    path = tmp_path / "깨짐.pdf"
+    path.write_bytes(buf.getvalue())
+    monkeypatch.setattr(pdf_parser, "classify", lambda stats: "unreliable")
+    monkeypatch.setattr(ocr, "available", lambda: True)
+    monkeypatch.setattr(ocr, "get_reader", lambda: None)
+    monkeypatch.setattr(ocr, "read_lines", lambda image: [
+        OcrLine(box=((200, 170), (500, 170), (500, 215), (200, 215)), text="다시 읽은 쪽 글자다.", score=0.9)])
+
+    def notice(state, *argv):
+        html = tmp_path / f"{len(argv)}.view.html"
+        assert run(capsys, "view", path, "--db", state, "--no-layout", "--out", html, *argv)[0] == 0
+        data = re.search(r'id="ko-data">(.*?)</script>', html.read_text(encoding="utf-8"), re.DOTALL).group(1)
+        return json.loads(data)["pages"][0]["notice"]
+
+    assert notice(db) == "글자층이 깨져 OCR로 다시 읽음(검증 전)"
+    assert notice(tmp_path / "off.db", "--no-ocr") == "글자층이 깨져 블록 글자를 믿기 어렵다(신뢰도 0.2 이하)"

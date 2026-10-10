@@ -11,7 +11,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-from hanji_contracts import Block, DocumentTree, LinesLocator, PageLocator
+from hanji_contracts import Block, DocumentTree, LinesLocator, PageLocator, ProcessingHistory
 
 from ..core import diff_trees
 
@@ -48,16 +48,23 @@ def _table(block: Block) -> dict[str, Any] | None:
 
 
 # 쪽 상태별 안내. scanned는 보이는 글자만 블록이 되고(OCR 블록이 있으면 OCR로 읽음), unreliable은 깨진 글자층으로
-# 만든 블록이라 믿기 어렵다(신뢰도 0.2 이하)
+# 만든 블록이라 믿기 어렵다(신뢰도 0.2 이하. 처리 이력이 OCR로 다시 읽었다고 하면 그 안내)
 _NOTICE = {"scanned": "그림 속 글자는 OCR 필요(보이는 글자만 블록)",
            "unreliable": "글자층이 깨져 블록 글자를 믿기 어렵다(신뢰도 0.2 이하)"}
 _NOTICE_OCR = "그림 속 글자는 OCR로 읽음(검증 전)"
+_NOTICE_REREAD = "글자층이 깨져 OCR로 다시 읽음(검증 전)"
+_REREAD = "unreliable_text_layer_ocr"  # unreliable 쪽을 OCR로 다시 읽었다는 처리 이력 사유(PDF 파서)
 LAYOUT_NOTICE = ('선·도형 그림·캡션은 레이아웃 추가 설치가 필요(pip install "hanji[layout]", '
                  "hanji models fetch layout)")
 
 
-def _notice(state: str, page: int, ocr_pages: set[int]) -> str | None:
-    return _NOTICE_OCR if state == "scanned" and page in ocr_pages else _NOTICE.get(state)
+def _notice(state: str, page: int, ocr_pages: set[int], reread: set[int]) -> str | None:
+    """scanned 쪽은 OCR 블록이 있으면 OCR 안내, unreliable 쪽은 처리 이력이 OCR로 다시 읽었다고 하면(reread) 그 안내."""
+    if state == "scanned" and page in ocr_pages:
+        return _NOTICE_OCR
+    if state == "unreliable" and page in reread:
+        return _NOTICE_REREAD
+    return _NOTICE.get(state)
 
 
 def _block(block: Block, change: str | None, figure_of: str | None = None) -> dict[str, Any]:
@@ -78,9 +85,13 @@ def _block(block: Block, change: str | None, figure_of: str | None = None) -> di
 
 
 def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None,
-              previous: DocumentTree | None = None, layout_notice: bool = False) -> dict[str, Any]:
+              previous: DocumentTree | None = None, layout_notice: bool = False,
+              history: ProcessingHistory | None = None) -> dict[str, Any]:
     """뷰어가 쓰는 데이터. previous는 같은 문서의 이전 버전(added·updated 표시, removed 목록). layout_notice가 참이면
-    레이아웃 추가 설치 안내를 문서 머리에 보인다."""
+    레이아웃 추가 설치 안내를 문서 머리에 보인다. history는 같은 버전의 처리 이력: unreliable 쪽 안내를 그 쪽의 실제
+    처리 결과로 정한다(없으면 깨진 글자층 안내)."""
+    reread = {r.locator.page for r in (history.regions if history is not None else ())
+              if r.fallback_reason == _REREAD and isinstance(r.locator, PageLocator)}
     change = diff_trees(previous, tree) if previous is not None else None
     added = set(change.added) if change else set()
     updated = set(change.updated) if change else set()
@@ -97,7 +108,7 @@ def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None
                      "page_states": dict(sorted(states.items())),
                      "layout_notice": LAYOUT_NOTICE if layout_notice else None},
         "pages": [{"page": p.page, "width": p.width_pt, "height": p.height_pt, "state": p.text_layer,
-                   "notice": _notice(p.text_layer, p.page, ocr_pages),
+                   "notice": _notice(p.text_layer, p.page, ocr_pages, reread),
                    "stats": p.text_stats.model_dump() if p.text_stats is not None else None,
                    "image": _image_uri(images[p.page]) if p.page in images else None} for p in tree.pages],
         "blocks": [_block(b, "added" if b.block_id in added else "updated" if b.block_id in updated else None,
@@ -108,10 +119,11 @@ def view_data(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None
 
 
 def render_html(tree: DocumentTree, page_images: Mapping[int, bytes] | None = None,
-                previous: DocumentTree | None = None, layout_notice: bool = False) -> str:
+                previous: DocumentTree | None = None, layout_notice: bool = False,
+                history: ProcessingHistory | None = None) -> str:
     """page_images: 쪽 번호 → JPEG(또는 PNG) 바이트. 쪽이 없는 문서(MD)는 블록 목록만 보인다. layout_notice: 레이아웃
-    추가 설치 안내를 보인다(PDF인데 설치가 없을 때)."""
-    data = json.dumps(view_data(tree, page_images, previous, layout_notice), ensure_ascii=False,
+    추가 설치 안내를 보인다(PDF인데 설치가 없을 때). history: 같은 버전의 처리 이력(unreliable 쪽 안내)."""
+    data = json.dumps(view_data(tree, page_images, previous, layout_notice, history), ensure_ascii=False,
                       separators=(",", ":"), allow_nan=False)
     title = html.escape(f"{tree.source.name} — hanji 뷰어")
     return _BEFORE_TITLE + title + _BEFORE_DATA + data.replace("<", "\\u003c") + _AFTER_DATA

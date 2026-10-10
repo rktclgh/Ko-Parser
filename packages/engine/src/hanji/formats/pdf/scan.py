@@ -123,13 +123,14 @@ def _covered(line: OcrText, page: PageText) -> float:
     return union / (hi - lo)
 
 
-def keep(line: OcrText, page: PageText) -> bool:
-    """점수 거르기(짧은 줄은 더 높게)와 텍스트 레이어 우선(보이는 글자와 OVERLAP 이상 겹친 줄은 버린다)."""
+def keep(line: OcrText, page: PageText, layer: bool = True) -> bool:
+    """점수 거르기(짧은 줄은 더 높게)와 텍스트 레이어 우선(보이는 글자와 OVERLAP 이상 겹친 줄은 버린다). layer가
+    거짓이면(깨진 글자층 대신 OCR로 읽는 쪽) 겹침은 보지 않는다: 깨진 글자가 본문을 덮어 OCR 줄이 모두 버려진다."""
     if line.score < OCR_MIN_SCORE:
         return False
     if len("".join(line.text.split())) <= SHORT_TEXT and line.score < OCR_SHORT_SCORE:
         return False
-    return _covered(line, page) < OVERLAP
+    return not layer or _covered(line, page) < OVERLAP
 
 
 def _split(lines: Sequence[OcrText], vertical: bool, gap: float) -> list[list[OcrText]]:
@@ -213,9 +214,10 @@ def paragraphs(lines: Sequence[OcrText], page: PageText) -> list[OcrParagraph]:
             for g in groups]
 
 
-def page_lines(image: Image.Image, page: PageText) -> list[OcrText]:
-    """쪽 그림 한 장 → 거른 OCR 줄(보이는 쪽 pt, 텍스트 레이어 우선·점수 거르기). 잠금 밖에서 부른다."""
-    return [t for t in to_page(ocr.read_lines(image), image.size, page) if keep(t, page)]
+def page_lines(image: Image.Image, page: PageText, layer: bool = True) -> list[OcrText]:
+    """쪽 그림 한 장 → 거른 OCR 줄(보이는 쪽 pt, 텍스트 레이어 우선·점수 거르기). layer가 거짓이면 텍스트 레이어
+    우선을 쓰지 않는다(keep). 잠금 밖에서 부른다."""
+    return [t for t in to_page(ocr.read_lines(image), image.size, page) if keep(t, page, layer)]
 
 
 def page_paragraphs(data: bytes, name: str, index: int, page: PageText) -> list[OcrParagraph]:

@@ -71,3 +71,10 @@ def test_page_mode_reads_unreliable_pages_from_the_text_layer():
 def test_hidden_chars_count_invisible_non_space_on_any_page():
     chars = [char("가"), char("나", invisible=True), char(" ", invisible=True), char("다", invisible=True)]
     assert hidden_chars(page(chars)) == 2 and hidden_chars(page()) == 0
+
+
+def test_page_mode_reads_unreliable_pages_by_ocr_when_ocr_is_usable():
+    """OCR을 쓸 수 있으면 unreliable 쪽은 ocr(깨진 글자층 대신 쪽 전체를 OCR로 읽는다). digital·scanned는 OCR과 상관없다."""
+    states = ("digital", "scanned", "unreliable")
+    assert [page_mode(s, ocr=True) for s in states] == ["layer", "scan", "ocr"]
+    assert [page_mode(s, ocr=False) for s in states] == [page_mode(s) for s in states] == ["layer", "scan", "layer"]

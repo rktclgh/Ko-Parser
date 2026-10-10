@@ -29,8 +29,9 @@ APP_NAME = "hanji"
 DB_ENV = "HANJI_DB"
 EXIT_OK, EXIT_ERROR, EXIT_USAGE, EXIT_UNSUPPORTED, EXIT_PARSE, EXIT_NOT_FOUND = 0, 1, 2, 3, 4, 5
 MAX_DPI = 600
-OCR_HELP = ("스캔 쪽 OCR을 끈다. 글자층이 깨진(unreliable) 쪽은 OCR과 상관없이 깨진 글자층으로 블록을 만든다(신뢰도 "
-            "0.2 이하) (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)")
+OCR_HELP = ("스캔 쪽과 글자층이 깨진(unreliable) 쪽의 OCR을 끈다. 끄거나 OCR 추가 설치가 없으면 unreliable 쪽은 깨진 "
+            "글자층으로 블록을 만든다(신뢰도 0.2 이하) (기본: OCR 추가 설치가 있으면 켠다. 원본이 같으면 저장된 버전을 "
+            "쓰니 바꾸려면 parse --force)")
 LAYOUT_HELP = ("레이아웃 모델(선·도형 그림·캡션)을 끈다. 사진(이미지 객체)은 그대로 그림 (기본: 레이아웃 추가 설치가 있으면 "
                "켠다. 원본이 같으면 저장된 버전을 쓰니 바꾸려면 parse --force)")
 FETCH_TO_HELP = "받을 폴더 (기본: 사용자 캐시). 폐쇄망은 이 폴더를 옮겨 HANJI_MODEL_DIR로 가리킨다"
@@ -246,7 +247,8 @@ def _view(args: argparse.Namespace, engine: LocalEngine) -> None:
         images = render_page_images(data, tree.source.name, args.dpi)
     out = view_path(args.file, args.out)
     notice = tree.source.mime == PDF_MIME and not args.no_layout and not layout_runtime.available()
-    html = render_html(tree, images, previous, layout_notice=notice)
+    html = render_html(tree, images, previous, layout_notice=notice,
+                       history=engine.history(ref.document_id, ref.version))
     out.parent.mkdir(parents=True, exist_ok=True)
     # 문서 글자에 짝 없는 서로게이트가 있어도 쓴다(인코딩 못 하는 글자는 "?")
     _replace_file(out, html.encode("utf-8", errors="replace"))
